@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_nichrome_ingot": {
+      "conditions": {
+        "items": [
+          {
+            "items": "voltcraft:nichrome_ingot"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "voltcraft:cable_nichrome_heating"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_nichrome_ingot"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "voltcraft:cable_nichrome_heating"
+    ]
+  }
+}

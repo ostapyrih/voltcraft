@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/charge_controller_mppt",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/charge_controller_mppt"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/charge_controller_mppt",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/charge_controller_mppt",
+      "y": 270
+    }
+  }
+}

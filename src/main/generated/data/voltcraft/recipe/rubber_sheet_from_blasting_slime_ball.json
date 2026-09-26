@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:blasting",
+  "category": "misc",
+  "cookingtime": 100,
+  "experience": 0.35,
+  "group": "rubber_sheet",
+  "ingredient": "minecraft:slime_ball",
+  "result": {
+    "id": "voltcraft:rubber_sheet"
+  }
+}

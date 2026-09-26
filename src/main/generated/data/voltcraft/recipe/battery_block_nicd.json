@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "B": "voltcraft:copper_busbar",
+    "D": "voltcraft:battery_cell_nicd",
+    "I": "minecraft:iron_ingot",
+    "L": "voltcraft:lead_ingot",
+    "M": "voltcraft:bms_logic_board",
+    "R": "voltcraft:rubber_sheet"
+  },
+  "pattern": [
+    "IBI",
+    "DMD",
+    "LRL"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:battery_block_nicd"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_silicon_boule": {
+      "conditions": {
+        "items": [
+          {
+            "items": "voltcraft:silicon_boule"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "voltcraft:silicon_wafer"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_silicon_boule"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "voltcraft:silicon_wafer"
+    ]
+  }
+}

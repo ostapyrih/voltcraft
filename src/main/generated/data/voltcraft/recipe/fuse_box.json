@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "F": "voltcraft:fuse_alloy_ingot",
+    "G": "minecraft:glass_pane",
+    "R": "minecraft:redstone",
+    "T": "minecraft:terracotta"
+  },
+  "pattern": [
+    "TGT",
+    "CFC",
+    "TRT"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:fuse_box"
+  }
+}

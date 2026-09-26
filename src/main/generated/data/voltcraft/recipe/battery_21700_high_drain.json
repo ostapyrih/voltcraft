@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "A": "voltcraft:aluminum_ingot",
+    "C": "minecraft:copper_ingot",
+    "I": "minecraft:iron_ingot",
+    "K": "minecraft:coal",
+    "L": "voltcraft:lithium_ingot",
+    "N": "voltcraft:nickel_ingot",
+    "S": "voltcraft:pure_silica_dust"
+  },
+  "pattern": [
+    "NCN",
+    "LSK",
+    "AIA"
+  ],
+  "result": {
+    "count": 2,
+    "id": "voltcraft:battery_21700_high_drain"
+  }
+}

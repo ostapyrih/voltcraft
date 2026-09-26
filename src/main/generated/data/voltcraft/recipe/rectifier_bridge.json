@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "D": "voltcraft:schottky_diode",
+    "E": "voltcraft:filter_capacitor_electrolytic",
+    "R": "voltcraft:rubber_sheet"
+  },
+  "pattern": [
+    "RDR",
+    "DED",
+    "CDC"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:rectifier_bridge"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "G": "minecraft:glass_pane",
+    "I": "minecraft:iron_ingot",
+    "P": "voltcraft:photovoltaic_cell"
+  },
+  "pattern": [
+    "GGG",
+    "PPP",
+    "ICI"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:solar_panel_polycrystalline"
+  }
+}

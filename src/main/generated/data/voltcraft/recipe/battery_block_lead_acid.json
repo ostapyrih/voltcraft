@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "L": "voltcraft:lead_ingot",
+    "T": "minecraft:terracotta",
+    "W": "minecraft:water_bucket"
+  },
+  "pattern": [
+    "LCL",
+    "LWL",
+    "TTT"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:battery_block_lead_acid"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "voltcraft",
+  "version": "${version}",
+  "name": "VoltCraft",
+  "description": "",
+  "authors": [],
+  "contact": {},
+  "license": "MIT",
+  "icon": "assets/voltcraft/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "fabric-datagen": [
+      "com.ostapyrih.voltcraft.client.VoltcraftDataGenerator"
+    ],
+    "client": [
+      "com.ostapyrih.voltcraft.client.VoltcraftClient"
+    ],
+    "main": [
+      "com.ostapyrih.voltcraft.Voltcraft"
+    ]
+  },
+  "mixins": [
+    "voltcraft.mixins.json",
+    {
+      "config": "voltcraft.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}

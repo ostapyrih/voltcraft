@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "I": "minecraft:iron_ingot",
+    "L": "minecraft:lever",
+    "W": "voltcraft:copper_magnet_wire"
+  },
+  "pattern": [
+    " L ",
+    "IWI",
+    "ICI"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:generator_hand_crank"
+  }
+}

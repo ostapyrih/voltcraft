@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "A": "voltcraft:aluminum_ingot",
+    "B": "voltcraft:bms_logic_board",
+    "C": "voltcraft:cable_copper_bare",
+    "D": "voltcraft:schottky_diode",
+    "I": "minecraft:iron_ingot",
+    "M": "voltcraft:mosfet_power_transistor",
+    "W": "voltcraft:copper_magnet_wire"
+  },
+  "pattern": [
+    "AMA",
+    "WBD",
+    "ICI"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:charge_controller_mppt"
+  }
+}

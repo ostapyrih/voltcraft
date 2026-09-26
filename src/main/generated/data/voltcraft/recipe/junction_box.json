@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "I": "minecraft:iron_ingot",
+    "T": "minecraft:terracotta"
+  },
+  "pattern": [
+    "ICI",
+    "CTC",
+    "ICI"
+  ],
+  "result": {
+    "count": 2,
+    "id": "voltcraft:junction_box"
+  }
+}

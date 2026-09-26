@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/rectifier_bridge",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/rectifier_bridge"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/rectifier_bridge",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/rectifier_bridge",
+      "y": 270
+    }
+  }
+}

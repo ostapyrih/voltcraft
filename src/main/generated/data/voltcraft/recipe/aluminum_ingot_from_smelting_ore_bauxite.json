@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:smelting",
+  "category": "misc",
+  "cookingtime": 200,
+  "experience": 0.7,
+  "group": "aluminum_ingot",
+  "ingredient": "voltcraft:ore_bauxite",
+  "result": {
+    "id": "voltcraft:aluminum_ingot"
+  }
+}

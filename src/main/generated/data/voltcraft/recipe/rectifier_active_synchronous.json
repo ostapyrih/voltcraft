@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "A": "voltcraft:aluminum_ingot",
+    "B": "voltcraft:bms_logic_board",
+    "C": "voltcraft:cable_copper_bare",
+    "E": "voltcraft:filter_capacitor_electrolytic",
+    "M": "voltcraft:mosfet_power_transistor"
+  },
+  "pattern": [
+    "AMA",
+    "MBM",
+    "CEC"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:rectifier_active_synchronous"
+  }
+}

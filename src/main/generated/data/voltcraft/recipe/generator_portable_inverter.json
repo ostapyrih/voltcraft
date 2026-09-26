@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_insulated",
+    "F": "minecraft:furnace",
+    "I": "minecraft:iron_ingot",
+    "M": "voltcraft:inverter_pure_sine"
+  },
+  "pattern": [
+    "IFI",
+    "IMI",
+    "ICI"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:generator_portable_inverter"
+  }
+}

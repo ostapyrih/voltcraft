@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "A": "voltcraft:aluminum_ingot",
+    "B": "voltcraft:copper_busbar",
+    "I": "minecraft:iron_ingot",
+    "M": "voltcraft:bms_logic_board",
+    "N": "voltcraft:battery_cell_nimh",
+    "R": "voltcraft:rubber_sheet"
+  },
+  "pattern": [
+    "IBI",
+    "NMN",
+    "ARA"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:battery_block_nimh"
+  }
+}

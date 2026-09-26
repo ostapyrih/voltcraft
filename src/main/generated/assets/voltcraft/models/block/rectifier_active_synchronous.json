@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "down": "voltcraft:block/rectifier_active_synchronous_bottom",
+    "east": "voltcraft:block/rectifier_active_synchronous_side",
+    "north": "voltcraft:block/rectifier_active_synchronous_front",
+    "particle": "voltcraft:block/rectifier_active_synchronous_front",
+    "south": "voltcraft:block/rectifier_active_synchronous_back",
+    "up": "voltcraft:block/rectifier_active_synchronous_top",
+    "west": "voltcraft:block/rectifier_active_synchronous_side"
+  }
+}

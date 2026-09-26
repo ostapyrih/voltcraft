@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "A": "voltcraft:aluminum_ingot",
+    "K": "voltcraft:nickel_ingot",
+    "N": "minecraft:iron_nugget",
+    "S": "voltcraft:pure_silica_dust",
+    "Z": "voltcraft:zinc_ingot"
+  },
+  "pattern": [
+    "NKN",
+    "ASA",
+    "NZN"
+  ],
+  "result": {
+    "count": 2,
+    "id": "voltcraft:battery_cell_nimh"
+  }
+}

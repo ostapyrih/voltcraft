@@ -1,0 +1,23 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "E": "voltcraft:filter_capacitor_electrolytic",
+    "I": "minecraft:iron_ingot",
+    "L": "voltcraft:transformer_core_laminated",
+    "M": "voltcraft:mosfet_power_transistor",
+    "N": "voltcraft:cable_copper_insulated",
+    "R": "minecraft:repeater",
+    "W": "voltcraft:copper_magnet_wire"
+  },
+  "pattern": [
+    "IMI",
+    "LWE",
+    "CRN"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:inverter_square_wave"
+  }
+}

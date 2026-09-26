@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "voltcraft:block/generator_portable_inverter"
+  }
+}

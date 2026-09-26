@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "down": "voltcraft:block/charge_controller_mppt_bottom",
+    "east": "voltcraft:block/charge_controller_mppt_side",
+    "north": "voltcraft:block/charge_controller_mppt_front",
+    "particle": "voltcraft:block/charge_controller_mppt_front",
+    "south": "voltcraft:block/charge_controller_mppt_back",
+    "up": "voltcraft:block/charge_controller_mppt_top",
+    "west": "voltcraft:block/charge_controller_mppt_side"
+  }
+}

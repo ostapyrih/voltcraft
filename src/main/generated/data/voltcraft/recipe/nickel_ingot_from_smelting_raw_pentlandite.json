@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:smelting",
+  "category": "misc",
+  "cookingtime": 200,
+  "experience": 0.7,
+  "group": "nickel_ingot",
+  "ingredient": "voltcraft:raw_pentlandite",
+  "result": {
+    "id": "voltcraft:nickel_ingot"
+  }
+}

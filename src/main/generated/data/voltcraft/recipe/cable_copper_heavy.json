@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_insulated",
+    "I": "minecraft:iron_ingot",
+    "R": "voltcraft:rubber_sheet"
+  },
+  "pattern": [
+    "IRI",
+    "CCC",
+    "IRI"
+  ],
+  "result": {
+    "count": 6,
+    "id": "voltcraft:cable_copper_heavy"
+  }
+}

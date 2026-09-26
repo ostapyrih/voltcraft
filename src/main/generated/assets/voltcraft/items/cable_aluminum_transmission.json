@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "voltcraft:block/cable_aluminum_transmission"
+  }
+}

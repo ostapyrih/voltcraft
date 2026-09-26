@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_mosfet_power_transistor": {
+      "conditions": {
+        "items": [
+          {
+            "items": "voltcraft:mosfet_power_transistor"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "voltcraft:converter_dc_boost"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_mosfet_power_transistor"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "voltcraft:converter_dc_boost"
+    ]
+  }
+}

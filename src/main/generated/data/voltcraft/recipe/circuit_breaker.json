@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "L": "minecraft:lever",
+    "N": "voltcraft:mosfet_power_transistor",
+    "R": "minecraft:redstone",
+    "T": "minecraft:terracotta",
+    "W": "voltcraft:copper_magnet_wire"
+  },
+  "pattern": [
+    "ILI",
+    "WNW",
+    "TRT"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:circuit_breaker"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "R": "voltcraft:rubber_sheet"
+  },
+  "pattern": [
+    "RRR",
+    "CCC",
+    "RRR"
+  ],
+  "result": {
+    "count": 6,
+    "id": "voltcraft:cable_copper_insulated"
+  }
+}

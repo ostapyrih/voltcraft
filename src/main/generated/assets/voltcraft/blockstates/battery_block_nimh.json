@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "voltcraft:block/battery_block_nimh"
+    }
+  }
+}

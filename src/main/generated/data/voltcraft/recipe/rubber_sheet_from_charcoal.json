@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "minecraft:slime_ball",
+    "minecraft:charcoal"
+  ],
+  "result": {
+    "count": 2,
+    "id": "voltcraft:rubber_sheet"
+  }
+}

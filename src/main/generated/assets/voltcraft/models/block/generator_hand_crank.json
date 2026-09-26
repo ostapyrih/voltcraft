@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "down": "voltcraft:block/generator_hand_crank_bottom",
+    "east": "voltcraft:block/generator_hand_crank_side",
+    "north": "voltcraft:block/generator_hand_crank_front",
+    "particle": "voltcraft:block/generator_hand_crank_front",
+    "south": "voltcraft:block/generator_hand_crank_back",
+    "up": "voltcraft:block/generator_hand_crank_top",
+    "west": "voltcraft:block/generator_hand_crank_side"
+  }
+}

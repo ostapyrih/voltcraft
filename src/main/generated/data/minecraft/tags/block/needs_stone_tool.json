@@ -1,0 +1,19 @@
+{
+  "values": [
+    "voltcraft:ore_bauxite",
+    "voltcraft:ore_galena",
+    "voltcraft:ore_sphalerite",
+    "voltcraft:ore_spodumene",
+    "voltcraft:copper_busbar",
+    "voltcraft:junction_box",
+    "voltcraft:knife_switch",
+    "voltcraft:circuit_breaker",
+    "voltcraft:fuse_box",
+    "voltcraft:contactor_relay",
+    "voltcraft:solar_panel_monocrystalline",
+    "voltcraft:solar_panel_polycrystalline",
+    "voltcraft:solar_panel_thin_film",
+    "voltcraft:solar_panel_concentrator",
+    "voltcraft:generator_hand_crank"
+  ]
+}

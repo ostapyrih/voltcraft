@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "voltcraft:silicon_wafer",
+    "minecraft:redstone"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:doped_wafer_p"
+  }
+}

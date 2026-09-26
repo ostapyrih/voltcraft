@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "voltcraft:nickel_ingot",
+    "minecraft:iron_ingot"
+  ],
+  "result": {
+    "count": 2,
+    "id": "voltcraft:nichrome_ingot"
+  }
+}

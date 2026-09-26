@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/regulator_linear_ldo",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/regulator_linear_ldo"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/regulator_linear_ldo",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/regulator_linear_ldo",
+      "y": 270
+    }
+  }
+}

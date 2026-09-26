@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "voltcraft:block/inverter_modified_sine"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_doped_wafer_p": {
+      "conditions": {
+        "items": [
+          {
+            "items": "voltcraft:doped_wafer_p"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "voltcraft:photovoltaic_cell"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_doped_wafer_p"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "voltcraft:photovoltaic_cell"
+    ]
+  }
+}

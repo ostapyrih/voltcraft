@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "A": "voltcraft:aluminum_ingot",
+    "C": "voltcraft:cable_copper_heavy",
+    "G": "minecraft:glowstone_dust",
+    "P": "voltcraft:photovoltaic_cell",
+    "Q": "minecraft:quartz"
+  },
+  "pattern": [
+    "QGQ",
+    "PPP",
+    "ACA"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:solar_panel_concentrator"
+  }
+}

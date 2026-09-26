@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_inverter_pure_sine": {
+      "conditions": {
+        "items": [
+          {
+            "items": "voltcraft:inverter_pure_sine"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "voltcraft:generator_portable_inverter"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_inverter_pure_sine"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "voltcraft:generator_portable_inverter"
+    ]
+  }
+}

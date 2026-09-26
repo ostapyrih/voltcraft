@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/generator_portable_inverter",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/generator_portable_inverter"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/generator_portable_inverter",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/generator_portable_inverter",
+      "y": 270
+    }
+  }
+}

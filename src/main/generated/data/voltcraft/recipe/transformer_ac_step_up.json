@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "I": "minecraft:iron_ingot",
+    "L": "voltcraft:transformer_core_laminated",
+    "T": "minecraft:terracotta",
+    "W": "voltcraft:copper_magnet_wire"
+  },
+  "pattern": [
+    "ILI",
+    "CLW",
+    "TCT"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:transformer_ac_step_up"
+  }
+}

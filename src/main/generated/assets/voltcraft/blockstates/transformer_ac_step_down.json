@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/transformer_ac_step_down",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/transformer_ac_step_down"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/transformer_ac_step_down",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/transformer_ac_step_down",
+      "y": 270
+    }
+  }
+}

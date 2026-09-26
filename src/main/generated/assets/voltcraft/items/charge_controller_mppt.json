@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "voltcraft:block/charge_controller_mppt"
+  }
+}

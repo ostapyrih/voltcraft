@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/converter_eu",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/converter_eu"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/converter_eu",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/converter_eu",
+      "y": 270
+    }
+  }
+}

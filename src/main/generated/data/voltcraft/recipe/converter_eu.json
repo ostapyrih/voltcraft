@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "G": "voltcraft:cable_gold_bus",
+    "I": "minecraft:iron_ingot",
+    "L": "voltcraft:cable_copper_heavy",
+    "M": "voltcraft:mosfet_power_transistor",
+    "R": "minecraft:redstone",
+    "T": "voltcraft:transformer_core_laminated"
+  },
+  "pattern": [
+    "GMG",
+    "TLT",
+    "IRI"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:converter_eu"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "N": "minecraft:iron_nugget",
+    "Z": "voltcraft:zinc_ingot"
+  },
+  "pattern": [
+    "NIN",
+    "IZI",
+    "NIN"
+  ],
+  "result": {
+    "count": 12,
+    "id": "voltcraft:cable_steel_fence"
+  }
+}

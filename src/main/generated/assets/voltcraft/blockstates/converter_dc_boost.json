@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/converter_dc_boost",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/converter_dc_boost"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/converter_dc_boost",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/converter_dc_boost",
+      "y": 270
+    }
+  }
+}

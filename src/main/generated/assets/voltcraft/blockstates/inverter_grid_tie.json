@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/inverter_grid_tie",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/inverter_grid_tie"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/inverter_grid_tie",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/inverter_grid_tie",
+      "y": 270
+    }
+  }
+}

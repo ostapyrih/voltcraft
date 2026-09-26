@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_contactor_relay": {
+      "conditions": {
+        "items": [
+          {
+            "items": "voltcraft:contactor_relay"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "voltcraft:inverter_hybrid_ess"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_contactor_relay"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "voltcraft:inverter_hybrid_ess"
+    ]
+  }
+}

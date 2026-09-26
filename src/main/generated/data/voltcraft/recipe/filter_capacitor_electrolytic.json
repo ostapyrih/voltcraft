@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "A": "voltcraft:aluminum_ingot",
+    "C": "voltcraft:cable_copper_bare",
+    "G": "minecraft:glowstone_dust",
+    "P": "minecraft:paper",
+    "R": "voltcraft:rubber_sheet"
+  },
+  "pattern": [
+    "RAR",
+    "PGP",
+    "CAC"
+  ],
+  "result": {
+    "count": 4,
+    "id": "voltcraft:filter_capacitor_electrolytic"
+  }
+}

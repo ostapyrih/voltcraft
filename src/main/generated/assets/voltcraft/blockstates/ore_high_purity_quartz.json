@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "voltcraft:block/ore_high_purity_quartz"
+    }
+  }
+}

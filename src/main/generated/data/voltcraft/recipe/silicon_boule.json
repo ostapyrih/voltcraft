@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "voltcraft:pure_silica_dust",
+    "voltcraft:pure_silica_dust",
+    "voltcraft:pure_silica_dust",
+    "voltcraft:pure_silica_dust",
+    "minecraft:coal"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:silicon_boule"
+  }
+}

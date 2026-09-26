@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "B": "voltcraft:bms_logic_board",
+    "G": "minecraft:gold_ingot",
+    "H": "voltcraft:cable_copper_heavy",
+    "L": "voltcraft:transformer_core_laminated",
+    "M": "voltcraft:mosfet_power_transistor",
+    "N": "voltcraft:cable_copper_insulated",
+    "R": "voltcraft:contactor_relay"
+  },
+  "pattern": [
+    "GMG",
+    "BRB",
+    "HLN"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:inverter_hybrid_ess"
+  }
+}

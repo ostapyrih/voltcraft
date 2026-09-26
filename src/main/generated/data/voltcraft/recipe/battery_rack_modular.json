@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "B": "voltcraft:copper_busbar",
+    "C": "voltcraft:cable_copper_insulated",
+    "I": "minecraft:iron_ingot",
+    "M": "voltcraft:bms_logic_board",
+    "T": "minecraft:chest"
+  },
+  "pattern": [
+    "IBI",
+    "CTC",
+    "IMI"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:battery_rack_modular"
+  }
+}

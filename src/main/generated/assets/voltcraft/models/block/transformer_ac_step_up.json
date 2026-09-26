@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "down": "voltcraft:block/transformer_ac_step_up_bottom",
+    "east": "voltcraft:block/transformer_ac_step_up_side",
+    "north": "voltcraft:block/transformer_ac_step_up_front",
+    "particle": "voltcraft:block/transformer_ac_step_up_front",
+    "south": "voltcraft:block/transformer_ac_step_up_back",
+    "up": "voltcraft:block/transformer_ac_step_up_top",
+    "west": "voltcraft:block/transformer_ac_step_up_side"
+  }
+}

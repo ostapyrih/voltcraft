@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "bottom": "voltcraft:block/battery_rack_modular_bottom",
+    "side": "voltcraft:block/battery_rack_modular_side",
+    "top": "voltcraft:block/battery_rack_modular_top"
+  }
+}

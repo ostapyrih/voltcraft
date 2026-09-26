@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/cube_bottom_top",
+  "textures": {
+    "bottom": "voltcraft:block/creative_load_bottom",
+    "side": "voltcraft:block/creative_load_side",
+    "top": "voltcraft:block/creative_load_top"
+  }
+}

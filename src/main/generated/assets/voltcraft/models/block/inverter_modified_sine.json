@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "down": "voltcraft:block/inverter_modified_sine_bottom",
+    "east": "voltcraft:block/inverter_modified_sine_side",
+    "north": "voltcraft:block/inverter_modified_sine_front",
+    "particle": "voltcraft:block/inverter_modified_sine_front",
+    "south": "voltcraft:block/inverter_modified_sine_back",
+    "up": "voltcraft:block/inverter_modified_sine_top",
+    "west": "voltcraft:block/inverter_modified_sine_side"
+  }
+}

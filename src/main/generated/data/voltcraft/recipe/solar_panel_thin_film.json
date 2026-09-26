@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "G": "minecraft:glass_pane",
+    "L": "voltcraft:lead_ingot",
+    "R": "voltcraft:rubber_sheet",
+    "S": "voltcraft:pure_silica_dust"
+  },
+  "pattern": [
+    "GGG",
+    "SLS",
+    "RCR"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:solar_panel_thin_film"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "D": "voltcraft:schottky_diode",
+    "G": "voltcraft:cable_gold_bus",
+    "M": "voltcraft:mosfet_power_transistor",
+    "R": "minecraft:repeater",
+    "S": "voltcraft:silver_nugget",
+    "W": "voltcraft:silicon_wafer"
+  },
+  "pattern": [
+    "GMG",
+    "DRS",
+    "CWC"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:bms_logic_board"
+  }
+}

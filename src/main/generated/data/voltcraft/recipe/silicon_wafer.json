@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "voltcraft:silicon_boule",
+    "minecraft:iron_ingot"
+  ],
+  "result": {
+    "count": 8,
+    "id": "voltcraft:silicon_wafer"
+  }
+}

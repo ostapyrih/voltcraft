@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:blasting",
+  "category": "misc",
+  "cookingtime": 100,
+  "experience": 0.7,
+  "group": "pure_silica_dust",
+  "ingredient": "voltcraft:deepslate_ore_quartz",
+  "result": {
+    "id": "voltcraft:pure_silica_dust"
+  }
+}

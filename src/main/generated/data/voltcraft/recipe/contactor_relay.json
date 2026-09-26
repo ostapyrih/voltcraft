@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "I": "minecraft:iron_ingot",
+    "N": "voltcraft:transformer_core_laminated",
+    "R": "minecraft:repeater",
+    "T": "minecraft:terracotta",
+    "W": "voltcraft:copper_magnet_wire"
+  },
+  "pattern": [
+    "ICI",
+    "WNW",
+    "TRT"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:contactor_relay"
+  }
+}

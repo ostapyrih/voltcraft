@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "G": "voltcraft:cable_gold_bus",
+    "I": "minecraft:iron_ingot",
+    "L": "voltcraft:lithium_ingot",
+    "M": "voltcraft:bms_logic_board",
+    "Q": "minecraft:quartz",
+    "S": "voltcraft:pure_silica_dust"
+  },
+  "pattern": [
+    "IGI",
+    "LML",
+    "QSQ"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:battery_block_lto"
+  }
+}

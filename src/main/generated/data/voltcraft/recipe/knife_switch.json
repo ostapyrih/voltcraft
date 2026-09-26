@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "minecraft:copper_ingot",
+    "L": "minecraft:lever",
+    "S": "minecraft:smooth_stone",
+    "T": "minecraft:terracotta"
+  },
+  "pattern": [
+    " CL",
+    "CCS",
+    "TTT"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:knife_switch"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "C": "minecraft:copper_ingot",
+    "S": "minecraft:smooth_stone"
+  },
+  "pattern": [
+    "CCC",
+    "CCC",
+    "SSS"
+  ],
+  "result": {
+    "count": 4,
+    "id": "voltcraft:copper_busbar"
+  }
+}

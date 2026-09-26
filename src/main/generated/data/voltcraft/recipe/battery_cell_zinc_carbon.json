@@ -1,0 +1,20 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "K": "minecraft:charcoal",
+    "P": "minecraft:paper",
+    "U": "minecraft:copper_ingot",
+    "Y": "minecraft:clay_ball",
+    "Z": "voltcraft:zinc_ingot"
+  },
+  "pattern": [
+    "PZP",
+    "KYK",
+    "PUP"
+  ],
+  "result": {
+    "count": 4,
+    "id": "voltcraft:battery_cell_zinc_carbon"
+  }
+}

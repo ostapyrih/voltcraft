@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "voltcraft:block/cable_copper_heavy"
+    }
+  }
+}

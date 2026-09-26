@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "C": "voltcraft:cable_copper_bare",
+    "G": "minecraft:gold_nugget",
+    "N": "voltcraft:doped_wafer_n",
+    "P": "minecraft:glass_pane"
+  },
+  "pattern": [
+    " G ",
+    "CNC",
+    " P "
+  ],
+  "result": {
+    "count": 4,
+    "id": "voltcraft:schottky_diode"
+  }
+}

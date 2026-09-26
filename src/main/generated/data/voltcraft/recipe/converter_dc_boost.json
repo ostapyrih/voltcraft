@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "A": "voltcraft:aluminum_ingot",
+    "C": "voltcraft:cable_copper_bare",
+    "D": "voltcraft:schottky_diode",
+    "E": "voltcraft:filter_capacitor_electrolytic",
+    "I": "minecraft:iron_ingot",
+    "M": "voltcraft:mosfet_power_transistor",
+    "W": "voltcraft:copper_magnet_wire"
+  },
+  "pattern": [
+    "AWA",
+    "MDE",
+    "ICI"
+  ],
+  "result": {
+    "count": 1,
+    "id": "voltcraft:converter_dc_boost"
+  }
+}

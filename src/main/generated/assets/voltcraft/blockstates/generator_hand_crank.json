@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/generator_hand_crank",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/generator_hand_crank"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/generator_hand_crank",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/generator_hand_crank",
+      "y": 270
+    }
+  }
+}

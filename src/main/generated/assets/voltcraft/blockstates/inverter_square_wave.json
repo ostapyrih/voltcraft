@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=east": {
+      "model": "voltcraft:block/inverter_square_wave",
+      "y": 90
+    },
+    "facing=north": {
+      "model": "voltcraft:block/inverter_square_wave"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/inverter_square_wave",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/inverter_square_wave",
+      "y": 270
+    }
+  }
+}

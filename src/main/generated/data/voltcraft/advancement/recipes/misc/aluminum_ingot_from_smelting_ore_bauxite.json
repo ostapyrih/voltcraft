@@ -1,0 +1,32 @@
+{
+  "parent": "minecraft:recipes/root",
+  "criteria": {
+    "has_ore_bauxite": {
+      "conditions": {
+        "items": [
+          {
+            "items": "voltcraft:ore_bauxite"
+          }
+        ]
+      },
+      "trigger": "minecraft:inventory_changed"
+    },
+    "has_the_recipe": {
+      "conditions": {
+        "recipe": "voltcraft:aluminum_ingot_from_smelting_ore_bauxite"
+      },
+      "trigger": "minecraft:recipe_unlocked"
+    }
+  },
+  "requirements": [
+    [
+      "has_the_recipe",
+      "has_ore_bauxite"
+    ]
+  ],
+  "rewards": {
+    "recipes": [
+      "voltcraft:aluminum_ingot_from_smelting_ore_bauxite"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "key": {
+    "P": "minecraft:paper",
+    "R": "voltcraft:rubber_sheet",
+    "S": "voltcraft:silver_ingot"
+  },
+  "pattern": [
+    "SSS",
+    "RPR"
+  ],
+  "result": {
+    "count": 8,
+    "id": "voltcraft:cable_silver_precision"
+  }
+}
