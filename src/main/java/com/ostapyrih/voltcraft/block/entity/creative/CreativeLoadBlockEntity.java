@@ -2,6 +2,7 @@ package com.ostapyrih.voltcraft.block.entity.creative;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.CreativeLoadScreenHandler;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeLoadLogic;
@@ -31,7 +32,7 @@ import java.util.UUID;
  * transformer loading, inverter THD and overcurrent trips.
  * Supports Constant Resistance, Constant Power, and Constant Current modes.
  */
-public class CreativeLoadBlockEntity extends BlockEntity implements IElectricConsumer, ExtendedScreenHandlerFactory<BlockPos> {
+public class CreativeLoadBlockEntity extends BlockEntity implements IElectricConsumer, IGridTopologyListener, ExtendedScreenHandlerFactory<BlockPos> {
 
     private final CreativeLoadLogic logic;
     private UUID lastGridId = null;
@@ -277,6 +278,11 @@ public class CreativeLoadBlockEntity extends BlockEntity implements IElectricCon
     @Override
     public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds) {
         logic.onPowerReceived(terminalVoltage, deliveredCurrent, durationSeconds);
+    }
+
+    @Override
+    public void onGridTopologyChanged() {
+        this.lastGridId = null;
     }
 
     // ==================== Serialization ====================

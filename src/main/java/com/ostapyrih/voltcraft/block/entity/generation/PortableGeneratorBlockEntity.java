@@ -2,6 +2,7 @@ package com.ostapyrih.voltcraft.block.entity.generation;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.generation.PortableGeneratorBlock;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
@@ -22,7 +23,7 @@ import java.util.UUID;
  * BlockEntity for the 1.8-2.2 kW Portable Inverter Generator.
  * Provides 230V 50Hz pure sine AC power with load-dependent eco-throttle fuel consumption.
  */
-public class PortableGeneratorBlockEntity extends BlockEntity implements IElectricSource {
+public class PortableGeneratorBlockEntity extends BlockEntity implements IElectricSource, IGridTopologyListener {
 
     public static final double RATED_POWER_WATTS = 1800.0;
     public static final double SURGE_POWER_WATTS = 2200.0;
@@ -211,6 +212,11 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements IElectr
         this.lastDeliveredCurrentAmps = currentAmps;
         this.lastDeliveredPowerWatts = OUTPUT_VOLTAGE_RMS * currentAmps;
         this.totalEnergyJoules += lastDeliveredPowerWatts * durationSeconds;
+    }
+
+    @Override
+    public void onGridTopologyChanged() {
+        this.lastGridId = null;
     }
 
     // ==================== Serialization ====================

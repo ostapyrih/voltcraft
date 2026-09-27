@@ -5,6 +5,7 @@ import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
 import com.ostapyrih.voltcraft.api.energy.IElectricStorage;
 import com.ostapyrih.voltcraft.api.grid.IElectricalGrid;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.cable.CableBlock;
 import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity;
 import com.ostapyrih.voltcraft.simulation.solver.ModifiedNodalAnalysis;
@@ -168,6 +169,30 @@ public class ElectricalGrid implements IElectricalGrid {
             entry.getValue().remove(item);
             if (entry.getValue().isEmpty()) {
                 it.remove();
+            }
+        }
+    }
+
+    /**
+     * Notifies every source and consumer currently registered on this grid that the topology
+     * has mutated in place. Participants implementing {@link IGridTopologyListener} clear
+     * their cached grid IDs so their next tick re-registers them cleanly.
+     */
+    public void notifyTopologyChanged() {
+        java.util.Set<Object> notified =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (java.util.List<IElectricSource> list : sources.values()) {
+            for (IElectricSource s : list) {
+                if (s instanceof IGridTopologyListener l && notified.add(s)) {
+                    l.onGridTopologyChanged();
+                }
+            }
+        }
+        for (java.util.List<IElectricConsumer> list : consumers.values()) {
+            for (IElectricConsumer c : list) {
+                if (c instanceof IGridTopologyListener l && notified.add(c)) {
+                    l.onGridTopologyChanged();
+                }
             }
         }
     }

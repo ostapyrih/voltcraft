@@ -247,6 +247,7 @@ public class GridManager extends PersistentState {
         List<BlockPos> connectedNeighbors = findThroughConnectableNeighbors(world, pos);
         ElectricalGrid targetGrid = resolveTargetGridForPlacement(pos, connectedNeighbors);
         linkNeighborsWithConductors(targetGrid, pos, connectedNeighbors, type);
+        targetGrid.notifyTopologyChanged();
         markDirty();
     }
 
@@ -352,13 +353,17 @@ public class GridManager extends PersistentState {
         List<ElectricalGrid> resultingGrids = GridTopologyHelper.handleNodeRemoval(grid, pos);
         if (resultingGrids.isEmpty()) {
             unregisterGrid(gridId);
-        } else if (resultingGrids.size() == 1) {
-            markDirty();
-        } else {
+            return;
+        }
+        if (resultingGrids.size() > 1) {
             unregisterGrid(gridId);
             for (ElectricalGrid g : resultingGrids) {
                 registerGrid(g);
             }
         }
+        for (ElectricalGrid g : resultingGrids) {
+            g.notifyTopologyChanged();
+        }
+        markDirty();
     }
 }

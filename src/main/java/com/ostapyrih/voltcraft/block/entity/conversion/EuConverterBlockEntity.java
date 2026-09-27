@@ -2,6 +2,7 @@ package com.ostapyrih.voltcraft.block.entity.conversion;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.conversion.EuConverterBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.EuConverterScreenHandler;
@@ -256,7 +257,7 @@ public class EuConverterBlockEntity extends BlockEntity implements ExtendedScree
 
     // ==================== Sub-component IElectricConsumer ====================\
 
-    public class InputConsumer implements IElectricConsumer {
+    public class InputConsumer implements IElectricConsumer, IGridTopologyListener {
 
         public boolean isRemoved() {
             return EuConverterBlockEntity.this.isRemoved();
@@ -317,6 +318,11 @@ public class EuConverterBlockEntity extends BlockEntity implements ExtendedScree
         private void syncStorage() {
             energyStorage.amount = logic.getStoredEu();
             markDirty();
+        }
+
+        @Override
+        public void onGridTopologyChanged() {
+            EuConverterBlockEntity.this.lastInputGridId = null;
         }
     }
 

@@ -2,6 +2,7 @@ package com.ostapyrih.voltcraft.block.entity.creative;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.CreativeGeneratorScreenHandler;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeGeneratorLogic;
@@ -29,7 +30,7 @@ import java.util.UUID;
  * Creative-only power generator for testing grid networks, converters, cables, and loads.
  * Provides freely configurable voltage, max current, internal resistance, and DC/AC frequency.
  */
-public class CreativeGeneratorBlockEntity extends BlockEntity implements IElectricSource, ExtendedScreenHandlerFactory<BlockPos> {
+public class CreativeGeneratorBlockEntity extends BlockEntity implements IElectricSource, IGridTopologyListener, ExtendedScreenHandlerFactory<BlockPos> {
 
     private final CreativeGeneratorLogic logic;
     private UUID lastGridId = null;
@@ -282,6 +283,11 @@ public class CreativeGeneratorBlockEntity extends BlockEntity implements IElectr
     @Override
     public void onPowerDrawn(double currentAmps, double durationSeconds) {
         logic.onPowerDrawn(currentAmps, durationSeconds);
+    }
+
+    @Override
+    public void onGridTopologyChanged() {
+        this.lastGridId = null;
     }
 
     // ==================== Serialization ====================

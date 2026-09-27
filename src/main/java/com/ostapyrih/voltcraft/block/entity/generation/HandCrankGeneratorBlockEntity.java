@@ -2,6 +2,7 @@ package com.ostapyrih.voltcraft.block.entity.generation;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
@@ -21,7 +22,7 @@ import java.util.UUID;
  * BlockEntity for the 100W Hand-Crank Dynamo.
  * Converts mechanical flywheel inertia into 12V DC power.
  */
-public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElectricSource {
+public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElectricSource, IGridTopologyListener {
 
     private double flywheelSpeed = 0.0; // 0.0 to 1.0 normalized rotational speed
     private double electromotiveForce = 0.0;
@@ -165,6 +166,11 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElect
         // Electromagnetic counter-torque (back-EMF damping slows the flywheel faster under load)
         double backEmfDamping = (powerW / 100.0) * 0.05;
         this.flywheelSpeed = Math.max(0.0, this.flywheelSpeed - backEmfDamping);
+    }
+
+    @Override
+    public void onGridTopologyChanged() {
+        this.lastGridId = null;
     }
 
     // ==================== Serialization ====================

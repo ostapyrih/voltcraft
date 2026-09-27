@@ -3,6 +3,7 @@ package com.ostapyrih.voltcraft.block.entity.storage;
 import com.ostapyrih.voltcraft.api.data.BatteryCellSpec;
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricStorage;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.storage.BatteryBlock;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
@@ -25,7 +26,7 @@ import java.util.UUID;
  * Stationary electrochemical Battery Energy Storage System (BESS) block entity.
  * Directly integrates into the ElectricalGrid as an active IElectricStorage node.
  */
-public class BatteryBlockEntity extends BlockEntity implements IElectricStorage {
+public class BatteryBlockEntity extends BlockEntity implements IElectricStorage, IGridTopologyListener {
 
     private final BatteryChemistry chemistry;
     private final int seriesCount;
@@ -142,6 +143,11 @@ public class BatteryBlockEntity extends BlockEntity implements IElectricStorage 
     @Override
     public BlockPos getPos() {
         return this.pos;
+    }
+
+    @Override
+    public void onGridTopologyChanged() {
+        this.lastGridId = null;
     }
 
     @Override

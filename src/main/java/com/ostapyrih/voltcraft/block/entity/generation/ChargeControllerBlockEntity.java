@@ -127,6 +127,7 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
         super.setTargetOutputVoltage(bank);
         mpptLogic.setBatteryBankVoltage(bank);
         this.tripGraceTicks = TRIP_GRACE_TICKS;
+        invalidateGridCache();
         markDirty();
     }
 

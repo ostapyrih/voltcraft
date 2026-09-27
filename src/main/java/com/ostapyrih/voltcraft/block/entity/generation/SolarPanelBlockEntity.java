@@ -2,6 +2,7 @@ package com.ostapyrih.voltcraft.block.entity.generation;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.generation.SolarPanelBlock;
@@ -24,7 +25,7 @@ import java.util.UUID;
  * BlockEntity for Photovoltaic Solar Panels.
  * Exposes solar-generated DC EMF and dynamic current into the electrical grid.
  */
-public class SolarPanelBlockEntity extends BlockEntity implements IElectricSource {
+public class SolarPanelBlockEntity extends BlockEntity implements IElectricSource, IGridTopologyListener {
 
     private final SolarPanelType panelType;
     private double currentIrradiance = 0.0;
@@ -171,6 +172,11 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
         this.lastDrawnCurrent = currentAmps;
         double powerWatts = electromotiveForce * currentAmps;
         this.totalEnergyGeneratedJoules += powerWatts * durationSeconds;
+    }
+
+    @Override
+    public void onGridTopologyChanged() {
+        this.lastGridId = null;
     }
 
     // ==================== Serialization ====================\

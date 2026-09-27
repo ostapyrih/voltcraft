@@ -4,6 +4,7 @@ import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
 import com.ostapyrih.voltcraft.api.energy.IElectricConverter;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.conversion.AbstractPowerConverterBlock;
 import com.ostapyrih.voltcraft.screen.handler.ConverterScreenHandler;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
@@ -109,6 +110,16 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     private UUID lastInputGridId = null;
     private UUID lastOutputGridId = null;
+
+    /**
+     * Forces the next tick to re-resolve which grids this converter is attached to.
+     * Called when topology changes around this converter (adjacent panel placed/removed,
+     * bank setting changed) so it doesn't keep using a stale grid reference.
+     */
+    public void invalidateGridCache() {
+        this.lastInputGridId = null;
+        this.lastOutputGridId = null;
+    }
 
     protected final PropertyDelegate propertyDelegate = new PropertyDelegate() {
         @Override
@@ -691,7 +702,7 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     // ==================== Sub-component IElectricConsumer ====================
 
-    public class InputConsumer implements IElectricConsumer {
+    public class InputConsumer implements IElectricConsumer, IGridTopologyListener {
 
         public boolean isRemoved() {
             return AbstractPowerConverterBlockEntity.this.isRemoved();
@@ -746,11 +757,16 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
             inputCurrentAmps = deliveredCurrent;
             inputPowerWatts = terminalVoltage * deliveredCurrent;
         }
+
+        @Override
+        public void onGridTopologyChanged() {
+            AbstractPowerConverterBlockEntity.this.lastInputGridId = null;
+        }
     }
 
     // ==================== Sub-component IElectricSource ====================
 
-    public class OutputSource implements IElectricSource {
+    public class OutputSource implements IElectricSource, IGridTopologyListener {
 
         public boolean isRemoved() {
             return AbstractPowerConverterBlockEntity.this.isRemoved();
@@ -802,6 +818,11 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         public void onPowerDrawn(double currentAmps, double durationSeconds) {
             double rated = Math.max(0.0, AbstractPowerConverterBlockEntity.this.getMaxOutputCurrent());
             outputCurrentAmps = Math.clamp(currentAmps, 0.0, rated);
+        }
+
+        @Override
+        public void onGridTopologyChanged() {
+            AbstractPowerConverterBlockEntity.this.lastOutputGridId = null;
         }
     }
 

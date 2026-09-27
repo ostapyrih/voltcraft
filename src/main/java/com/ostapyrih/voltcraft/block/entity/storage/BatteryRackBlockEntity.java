@@ -3,6 +3,7 @@ package com.ostapyrih.voltcraft.block.entity.storage;
 import com.ostapyrih.voltcraft.api.data.BatteryCellSpec;
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricStorage;
+import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.item.battery.BatteryCellItem;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
@@ -30,7 +31,7 @@ import java.util.UUID;
  * to the stationary world ElectricalGrid.
  * Holds 16 cell bays with configurable Series or Parallel busbar wiring.
  */
-public class BatteryRackBlockEntity extends BlockEntity implements IElectricStorage, Inventory {
+public class BatteryRackBlockEntity extends BlockEntity implements IElectricStorage, Inventory, IGridTopologyListener {
 
     public enum RackWiringMode {
         SERIES,
@@ -165,6 +166,11 @@ public class BatteryRackBlockEntity extends BlockEntity implements IElectricStor
     @Override
     public BlockPos getPos() {
         return this.pos;
+    }
+
+    @Override
+    public void onGridTopologyChanged() {
+        this.lastGridId = null;
     }
 
     @Override
