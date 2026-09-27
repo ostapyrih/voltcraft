@@ -121,16 +121,7 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
     @Override
     public void markRemoved() {
         super.markRemoved();
-        if (world instanceof ServerWorld sw) {
-            GridManager gm = GridManager.get(sw);
-            for (ElectricalGrid g : gm.getAllGrids()) {
-                g.unregisterSource(pos, this);
-            }
-            ElectricalGrid grid = gm.getGridAt(pos);
-            if (grid != null) {
-                grid.unregisterSource(pos, this);
-            }
-        }
+        onRemovedFromWorld();
     }
 
     // ==================== IElectricComponent ====================\
@@ -194,5 +185,25 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
     protected void writeData(WriteView view) {
         super.writeData(view);
         view.putDouble("total_energy_generated", this.totalEnergyGeneratedJoules);
+    }
+
+    /**
+     * Deregisters this panel from every grid it might be attached to, and clears local grid
+     * bookkeeping. Called from {@code SolarPanelBlock.onStateReplaced} before the topology
+     * helper splits or empties the grid, so the panel is guaranteed to be gone from the source
+     * map by the time {@code handleNodeRemoval} runs.
+     */
+    public void onRemovedFromWorld() {
+        if (world instanceof ServerWorld sw) {
+            GridManager gm = GridManager.get(sw);
+            for (ElectricalGrid g : gm.getAllGrids()) {
+                g.unregisterSource(pos, this);
+            }
+            ElectricalGrid grid = gm.getGridAt(pos);
+            if (grid != null) {
+                grid.unregisterSource(pos, this);
+            }
+        }
+        this.lastGridId = null;
     }
 }
