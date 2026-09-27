@@ -10,26 +10,60 @@ import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
 import net.minecraft.util.math.BlockPos;
 import org.junit.jupiter.api.Test;
 
+import static com.ostapyrih.voltcraft.simulation.creative.CreativeLoadLogic.LoadMode.CONSTANT_CURRENT;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Validates real-world circuit dynamics:
- * 1. Battery terminal voltage sag under heavy current draw (V = Voc - I * Rint).
- * 2. Instantaneous converter load response (no artificial ramp/slew lag).
- * 3. MPPT charge controller power clamping to available solar generation (prevents voltage collapse).
- * 4. Brownout and foldback behavior replacing 20Hz on/off flicker.
- * 5. Elimination of inverter load number flickering (zero tick-to-tick oscillation).
- * 6. MPPT stability with downstream battery and inverter load.
- * 7. MPPT 0W solar produces zero phantom current and no artificial voltage inflation on inverter/battery bus.
+ * <ol>
+ *   <li>Battery terminal voltage sag under heavy current draw ({@code V = Voc - I * Rint}).</li>
+ *   <li>Instantaneous converter load response (no artificial ramp/slew lag).</li>
+ *   <li>MPPT charge controller power clamping to available solar generation (prevents voltage collapse).</li>
+ *   <li>Brownout and foldback behavior replacing 20Hz on/off flicker.</li>
+ *   <li>Elimination of inverter load number flickering (zero tick-to-tick oscillation).</li>
+ *   <li>MPPT stability with downstream battery and inverter load.</li>
+ *   <li>MPPT 0W solar produces zero phantom current and no artificial voltage inflation on
+ *       inverter/battery bus.</li>
+ * </ol>
  */
 public class CircuitDynamicsRealismTest {
 
+    // =====================================================================
+    // Shared constants
+    // =====================================================================
+
+    /** Tolerance for "must be identical tick-to-tick" assertions (zero flicker). */
+    private static final double ZERO_OSCILLATION_TOL = 1e-6;
+
+    /** Ticks allowed for dynamic loads (constant-current CreativeLoad) to converge from defaults. */
+    private static final int WARMUP_TICKS = 10;
+
+    /** Ticks observed after warm-up to verify steady-state behavior across the array. */
+    private static final int STEADY_STATE_TICKS = 20;
+
+    /** Single-node bus position shared by every grid test in this class. */
+    private static final BlockPos NODE = new BlockPos(0, 64, 0);
+
+    // =====================================================================
+    // Test doubles
+    // =====================================================================
+
+    /**
+     * A Thevenin-equivalent source ({@code V_oc}, {@code R_int}, {@code I_max}) that also
+     * implements {@link IElectricStorage} so it can be used either as a battery pack or as a
+     * current-limited solar string in the tests.
+     *
+     * <p>{@link #receivedCurrent} records the current actually delivered to this storage on the
+     * most recent tick (used by tests that verify a charging source's current is faithfully
+     * reported to the storage).</p>
+     */
     static class SimpleBatterySource implements IElectricStorage {
         private final BlockPos pos;
         private final double emf;
         private final double rInt;
         private final double maxCurrent;
         private double drawnCurrent = 0.0;
+        private double receivedCurrent = 0.0;
 
         SimpleBatterySource(BlockPos pos, double emf, double rInt, double maxCurrent) {
             this.pos = pos;
@@ -44,11 +78,19 @@ public class CircuitDynamicsRealismTest {
         @Override public double getElectromotiveForce() { return emf; }
         @Override public double getInternalResistance() { return rInt; }
         @Override public double getMaxOutputCurrent() { return maxCurrent; }
-        @Override public void onPowerDrawn(double currentAmps, double durationSeconds) { this.drawnCurrent = currentAmps; }
+
+        @Override
+        public void onPowerDrawn(double currentAmps, double durationSeconds) {
+            this.drawnCurrent = currentAmps;
+        }
+
+        /** Current delivered <em>into</em> this storage on the last tick (0 when discharging). */
+        public double getReceivedCurrent() { return receivedCurrent; }
+
         @Override public double getStateOfCharge() { return 1.0; }
         @Override public double getStateOfHealth() { return 100.0; }
-        @Override public double getMaxStorageJoules() { return 10000000.0; }
-        @Override public double getStoredJoules() { return 10000000.0; }
+        @Override public double getMaxStorageJoules() { return 10_000_000.0; }
+        @Override public double getStoredJoules() { return 10_000_000.0; }
         @Override public BatteryCellSpec getChemistrySpec() { return BatteryCellSpec.LI_ION_18650; }
         @Override public void addEnergy(double joules) {}
         @Override public double extractEnergy(double joules) { return joules; }
@@ -56,11 +98,14 @@ public class CircuitDynamicsRealismTest {
         @Override public double getNominalVoltage() { return emf; }
         @Override public double getMinOperatingVoltage() { return 10.0; }
         @Override public double getMaxOperatingVoltage() { return 60.0; }
-        @Override public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds) {
+
+        @Override
+        public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds) {
             this.receivedCurrent = deliveredCurrent;
         }
     }
 
+    /** A generic current-limited Thevenin source (inverter, MPPT charge controller, etc.). */
     static class SimpleConverterSource implements IElectricSource {
         private final BlockPos pos;
         private final double emf;
@@ -84,12 +129,22 @@ public class CircuitDynamicsRealismTest {
         @Override public double getInternalResistance() { return rInt; }
         @Override public double getMaxOutputCurrent() { return maxCurrent; }
         @Override public double getAvailableOutputCurrent() { return availableCurrent; }
-        @Override public void onPowerDrawn(double currentAmps, double durationSeconds) { this.drawnCurrent = currentAmps; }
+
+        @Override
+        public void onPowerDrawn(double currentAmps, double durationSeconds) {
+            this.drawnCurrent = currentAmps;
+        }
     }
 
+    /**
+     * A pure resistive load whose terminal voltage/current are recorded on each tick so tests
+     * can verify what the consumer actually <em>saw</em>, not just what the grid computed.
+     */
     static class ResistiveLoad implements IElectricConsumer {
         private final BlockPos pos;
         private final double resistance;
+        private double receivedVoltage = 0.0;
+        private double receivedCurrent = 0.0;
 
         ResistiveLoad(BlockPos pos, double resistance) {
             this.pos = pos;
@@ -104,117 +159,144 @@ public class CircuitDynamicsRealismTest {
         @Override public double getMinOperatingVoltage() { return 10.0; }
         @Override public double getMaxOperatingVoltage() { return 300.0; }
         @Override public double getEquivalentResistance() { return resistance; }
-        @Override public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds) {
+
+        /** Terminal voltage the load actually saw on the last tick. */
+        public double getReceivedVoltage() { return receivedVoltage; }
+
+        /** Current the load actually drew on the last tick. */
+        public double getReceivedCurrent() { return receivedCurrent; }
+
+        @Override
+        public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds) {
             this.receivedVoltage = terminalVoltage;
             this.receivedCurrent = deliveredCurrent;
         }
     }
 
-    @Test
-    public void testBatteryTerminalVoltageSagUnderHeavyDraw() {
-        BlockPos nodePos = new BlockPos(0, 64, 0);
+    // =====================================================================
+    // Scaffolding
+    // =====================================================================
 
-        // 48V battery pack with 0.15 Ohm internal resistance
-        SimpleBatterySource battery = new SimpleBatterySource(nodePos, 48.0, 0.15, 200.0);
-
-        // Constant current load pulling 40 Amps (e.g. ~1700W draw by inverter)
-        CreativeLoadLogic load = new CreativeLoadLogic(nodePos);
-        load.setMode(CreativeLoadLogic.LoadMode.CONSTANT_CURRENT);
-        load.setTargetValue(40.0);
-
+    /** Creates a fresh grid on {@link #NODE} with the given sources already registered. */
+    private static ElectricalGrid bus(IElectricSource... sources) {
         ElectricalGrid grid = new ElectricalGrid();
-        grid.registerSource(nodePos, battery);
-        grid.registerConsumer(nodePos, load);
+        for (IElectricSource s : sources) {
+            grid.registerSource(NODE, s);
+        }
+        return grid;
+    }
 
-        // Step simulation 10 ticks for dynamic constant-current load to converge from initial 230V default
-        for (int i = 0; i < 10; i++) {
+    /** Runs {@link #WARMUP_TICKS} ticks so dynamic loads can converge from their defaults. */
+    private static void warmUp(ElectricalGrid grid) {
+        for (int i = 0; i < WARMUP_TICKS; i++) {
             grid.tick(null);
         }
+    }
 
-        double nodeVoltage = grid.getNodeVoltage(nodePos);
-        double currentDrawn = battery.drawnCurrent;
+    private static CreativeLoadLogic constantCurrentLoad(double amps) {
+        CreativeLoadLogic load = new CreativeLoadLogic(NODE);
+        load.setMode(CONSTANT_CURRENT);
+        load.setTargetValue(amps);
+        return load;
+    }
 
-        // In real electronics: V = Voc - I * R = 48.0 - (40.0 * 0.15) = 42.0 Volts
-        assertEquals(40.0, currentDrawn, 0.1, "Load must draw exactly 40A");
-        assertEquals(42.0, nodeVoltage, 0.2, "Terminal voltage must sag by 6.0V under 40A draw per Ohm's law");
+    /** Asserts a value is bit-identical to its previous tick (no flicker / no hunting). */
+    private static void assertNoFlicker(double previous, double current, String label) {
+        assertEquals(previous, current, ZERO_OSCILLATION_TOL,
+                label + " must be bit-identical tick-to-tick (no flicker)");
+    }
+
+    // =====================================================================
+    // Tests
+    // =====================================================================
+
+    @Test
+    public void testBatteryTerminalVoltageSagUnderHeavyDraw() {
+        // 48V battery pack with 0.15 Ohm internal resistance.
+        SimpleBatterySource battery = new SimpleBatterySource(NODE, 48.0, 0.15, 200.0);
+
+        // Constant-current load pulling 40A (~1700W draw by an inverter).
+        CreativeLoadLogic load = constantCurrentLoad(40.0);
+
+        ElectricalGrid grid = bus(battery);
+        grid.registerConsumer(NODE, load);
+        warmUp(grid);
+
+        // In real electronics: V = Voc - I * R = 48.0 - (40.0 * 0.15) = 42.0 V
+        assertEquals(40.0, battery.drawnCurrent, 0.1, "Load must draw exactly 40A");
+        assertEquals(42.0, grid.getNodeVoltage(NODE), 0.2,
+                "Terminal voltage must sag by 6.0V under 40A draw per Ohm's law");
     }
 
     @Test
     public void testSolarArrayTerminalVoltageUnderMpptLimiting() {
-        BlockPos nodePos = new BlockPos(0, 64, 0);
+        // Solar Array: Voc = 40V, Rint = 10 Ohm -> matched Pmax = 40W at Vmp = 20V, Imp = 2A.
+        SimpleBatterySource solarArray = new SimpleBatterySource(NODE, 40.0, 10.0, 2.0);
 
-        // Solar Array: Voc = 40V, Rint = 10 Ohm -> matched Pmax = 40W at Vmp = 20V, Imp = 2A
-        SimpleBatterySource solarArray = new SimpleBatterySource(nodePos, 40.0, 10.0, 2.0);
+        // Charge controller input drawing exactly 40W (clamped to available solar capacity).
+        CreativeLoadLogic chargeControllerInput = constantCurrentLoad(2.0); // 2.0A @ 20V = 40W
 
-        // Charge controller input drawing exactly 40W (clamped to available solar capacity)
-        CreativeLoadLogic chargeControllerInput = new CreativeLoadLogic(nodePos);
-        chargeControllerInput.setMode(CreativeLoadLogic.LoadMode.CONSTANT_CURRENT);
-        chargeControllerInput.setTargetValue(2.0); // 2.0A at Vmp = 20V is exactly 40W
+        ElectricalGrid grid = bus(solarArray);
+        grid.registerConsumer(NODE, chargeControllerInput);
+        warmUp(grid);
 
-        ElectricalGrid grid = new ElectricalGrid();
-        grid.registerSource(nodePos, solarArray);
-        grid.registerConsumer(nodePos, chargeControllerInput);
-
-        for (int i = 0; i < 10; i++) {
-            grid.tick(null);
-        }
-
-        double terminalV = grid.getNodeVoltage(nodePos);
         // Voltage holds at Vmp = 20V, strictly prevented from collapsing to 0V!
-        assertEquals(20.0, terminalV, 0.1, "Solar array terminal voltage must hold at 20V without collapse");
-        assertEquals(2.0, solarArray.drawnCurrent, 0.05, "Solar array current must match Imp");
+        assertEquals(20.0, grid.getNodeVoltage(NODE), 0.1,
+                "Solar array terminal voltage must hold at 20V without collapse");
+        assertEquals(2.0, solarArray.drawnCurrent, 0.05,
+                "Solar array current must match Imp");
     }
 
     @Test
     public void testConverterFoldbackBrownoutStabilization() {
-        // Test that brownout foldback limits output voltage rather than shutting down completely
+        // Pure math validation of foldback: Vout = P_avail / I_load.
         double availableWatts = 1500.0;
-        double requestedLoadCurrent = 15.0; // 15A at 230V would be 3450W, exceeding 1500W
+        double requestedLoadCurrent = 15.0; // 15A @ 230V would be 3450W, exceeding 1500W.
 
-        // When load demands more than available, voltage folds back: Vout = P_avail / I_load
         double foldedVoltage = availableWatts / requestedLoadCurrent; // 100V
-        assertTrue(foldedVoltage < 230.0, "Foldback reduces voltage to maintain constant power without trip");
         assertEquals(100.0, foldedVoltage, 1e-4);
 
-        // Power delivered under foldback matches available power (uses what it has)
         double deliveredWatts = foldedVoltage * requestedLoadCurrent;
         assertEquals(availableWatts, deliveredWatts, 1e-4);
     }
 
     @Test
     public void testInverterLoadSteadyUnderOverloadNoFlicker() {
-        BlockPos nodePos = new BlockPos(0, 64, 0);
-
-        // Inverter rated 3000W at 230V -> 13.04A available current ceiling
+        // Inverter rated 3000W at 230V -> 13.04A available current ceiling.
         double ratedCurrent = 3000.0 / 230.0; // 13.0435A
-        SimpleConverterSource inverter = new SimpleConverterSource(nodePos, 230.0, 0.05, ratedCurrent, ratedCurrent);
+        SimpleConverterSource inverter = new SimpleConverterSource(NODE, 230.0, 0.05, ratedCurrent, ratedCurrent);
 
-        // 10 Ohm resistive load: at 230V this would demand 23A (5290W), creating a 76% overload
-        ResistiveLoad overload = new ResistiveLoad(nodePos, 10.0);
+        // 10 Ohm resistive load: at 230V this demands 23A (5290W) -> 76% overload.
+        ResistiveLoad overload = new ResistiveLoad(NODE, 10.0);
 
-        ElectricalGrid grid = new ElectricalGrid();
-        grid.registerSource(nodePos, inverter);
-        grid.registerConsumer(nodePos, overload);
+        ElectricalGrid grid = bus(inverter);
+        grid.registerConsumer(NODE, overload);
 
         double lastVoltage = -1.0;
         double lastCurrent = -1.0;
 
-        // Run across 20 consecutive ticks
-        for (int tick = 0; tick < 20; tick++) {
+        for (int tick = 0; tick < STEADY_STATE_TICKS; tick++) {
             grid.tick(null);
 
-            double v = grid.getNodeVoltage(nodePos);
+            double v = grid.getNodeVoltage(NODE);
             double i = inverter.drawnCurrent;
 
-            // Inverter clamps to available current (13.0435A)
-            assertEquals(ratedCurrent, i, 0.01, "Inverter must clamp output current to rated available limit");
-            // Terminal voltage folds back per Ohm's law: V = I * R = 13.0435 * 10 = 130.435V
-            assertEquals(ratedCurrent * 10.0, v, 0.1, "Voltage must fold back smoothly to 130.4V");
+            // Inverter clamps output current to its rated available limit.
+            assertEquals(ratedCurrent, i, 0.01,
+                    "Inverter must clamp output current to rated available limit");
+            // Terminal voltage folds back per Ohm's law: V = I * R = 13.0435 * 10 = 130.435V.
+            assertEquals(ratedCurrent * 10.0, v, 0.1,
+                    "Voltage must fold back smoothly to 130.4V");
+
+            // The load must have actually *received* the folded-back values.
+            assertEquals(v, overload.getReceivedVoltage(), 1e-6,
+                    "Load's received voltage must match the foldback node voltage");
+            assertEquals(i, overload.getReceivedCurrent(), 1e-6,
+                    "Load's received current must match the clamped inverter current");
 
             if (tick > 0) {
-                // Assert ZERO tick-to-tick oscillation (no flickering number!)
-                assertEquals(lastVoltage, v, 1e-6, "Voltage must be completely identical tick-to-tick (zero flicker)");
-                assertEquals(lastCurrent, i, 1e-6, "Current must be completely identical tick-to-tick (zero flicker)");
+                assertNoFlicker(lastVoltage, v, "Voltage");
+                assertNoFlicker(lastCurrent, i, "Current");
             }
             lastVoltage = v;
             lastCurrent = i;
@@ -223,53 +305,45 @@ public class CircuitDynamicsRealismTest {
 
     @Test
     public void testSolarChargeControllerSuppliesInverterLoadWithoutMpptOscillation() {
-        BlockPos busPos = new BlockPos(0, 64, 0);
+        // 24V battery pack on bus (Voc = 25.6V, Rint = 0.04 Ohm).
+        SimpleBatterySource battery = new SimpleBatterySource(NODE, 25.6, 0.04, 100.0);
 
-        // 24V Battery pack on bus (Voc = 25.6V, Rint = 0.04 Ohm)
-        SimpleBatterySource battery = new SimpleBatterySource(busPos, 25.6, 0.04, 100.0);
-
-        // MPPT Charge Controller pushing 360W solar * 0.98 eta = 352.8W into 24V bus -> 14.7A available
+        // MPPT CC: 360W solar * 0.98 eta = 352.8W into 24V bus -> 14.7A available.
         double ccAmps = 352.8 / 24.0; // 14.7A
-        SimpleConverterSource chargeController = new SimpleConverterSource(busPos, 28.8, 0.05, 60.0, ccAmps);
+        SimpleConverterSource chargeController = new SimpleConverterSource(NODE, 28.8, 0.05, 60.0, ccAmps);
 
-        // Inverter input pulling 30.0A from 24V bus (720W load on inverter)
-        CreativeLoadLogic inverterDraw = new CreativeLoadLogic(busPos);
-        inverterDraw.setMode(CreativeLoadLogic.LoadMode.CONSTANT_CURRENT);
-        inverterDraw.setTargetValue(30.0);
+        // Inverter pulling 30.0A from the 24V bus (720W load on inverter).
+        CreativeLoadLogic inverterDraw = constantCurrentLoad(30.0);
 
-        ElectricalGrid busGrid = new ElectricalGrid();
-        busGrid.registerSource(busPos, battery);
-        busGrid.registerSource(busPos, chargeController);
-        busGrid.registerConsumer(busPos, inverterDraw);
-
-        // Warm up 10 ticks for CreativeLoad to settle
-        for (int i = 0; i < 10; i++) {
-            busGrid.tick(null);
-        }
+        ElectricalGrid busGrid = bus(battery, chargeController);
+        busGrid.registerConsumer(NODE, inverterDraw);
+        warmUp(busGrid);
 
         double lastCcCurrent = -1.0;
         double lastBattCurrent = -1.0;
         double lastBusVoltage = -1.0;
 
-        for (int tick = 0; tick < 20; tick++) {
+        for (int tick = 0; tick < STEADY_STATE_TICKS; tick++) {
             busGrid.tick(null);
 
-            double busV = busGrid.getNodeVoltage(busPos);
+            double busV = busGrid.getNodeVoltage(NODE);
             double ccI = chargeController.drawnCurrent;
             double battI = battery.drawnCurrent;
 
-            // Charge controller must deliver full available solar capacity (14.7A)
-            assertEquals(ccAmps, ccI, 0.05, "Charge controller must deliver full available solar current in Bulk");
-            // Battery supplies the remainder: 30.0A - 14.7A = 15.3A
-            assertEquals(15.3, battI, 0.25, "Battery must supply exactly the load deficit");
-            // Kirchhoff's Current Law: CC + Batt = Inverter load (30A)
-            assertEquals(30.0, ccI + battI, 0.2, "Total source current must match load demand");
+            // Charge controller delivers full available solar capacity (14.7A).
+            assertEquals(ccAmps, ccI, 0.05,
+                    "Charge controller must deliver full available solar current in Bulk");
+            // Battery supplies the remainder: 30.0A - 14.7A = 15.3A.
+            assertEquals(15.3, battI, 0.25,
+                    "Battery must supply exactly the load deficit");
+            // Kirchhoff's Current Law: CC + Batt = Inverter load (30A).
+            assertEquals(30.0, ccI + battI, 0.2,
+                    "Total source current must match load demand");
 
             if (tick > 0) {
-                // Must be bit-steady every tick without hunting or flickering
-                assertEquals(lastBusVoltage, busV, 1e-6, "Bus voltage must not oscillate");
-                assertEquals(lastCcCurrent, ccI, 1e-6, "MPPT output current must not oscillate");
-                assertEquals(lastBattCurrent, battI, 1e-6, "Battery discharge current must not oscillate");
+                assertNoFlicker(lastBusVoltage, busV, "Bus voltage");
+                assertNoFlicker(lastCcCurrent, ccI, "MPPT output current");
+                assertNoFlicker(lastBattCurrent, battI, "Battery discharge current");
             }
             lastCcCurrent = ccI;
             lastBattCurrent = battI;
@@ -279,64 +353,54 @@ public class CircuitDynamicsRealismTest {
 
     @Test
     public void testMpptZeroSolarProducesZeroCurrentAndNoVoltageInflation() {
-        BlockPos busPos = new BlockPos(0, 64, 0);
+        // 24V battery pack on bus (Voc = 24.0V, Rint = 0.04 Ohm).
+        SimpleBatterySource battery = new SimpleBatterySource(NODE, 24.0, 0.04, 100.0);
 
-        // 24V Battery pack on bus (Voc = 24.0V, Rint = 0.04 Ohm)
-        SimpleBatterySource battery = new SimpleBatterySource(busPos, 24.0, 0.04, 100.0);
+        // MPPT CC with 0 available solar power (night, 0 panels): availableCurrent = 0.0A.
+        SimpleConverterSource idleChargeController = new SimpleConverterSource(NODE, 28.8, 0.05, 60.0, 0.0);
 
-        // MPPT Charge Controller with 0 available solar power (e.g. night, 0 panels)
-        // availableCurrent = 0.0A
-        SimpleConverterSource idleChargeController = new SimpleConverterSource(busPos, 28.8, 0.05, 60.0, 0.0);
+        // Inverter drawing 10.0A from the 24V DC bus.
+        CreativeLoadLogic inverterDraw = constantCurrentLoad(10.0);
 
-        // Inverter drawing 10.0A from 24V DC bus
-        CreativeLoadLogic inverterDraw = new CreativeLoadLogic(busPos);
-        inverterDraw.setMode(CreativeLoadLogic.LoadMode.CONSTANT_CURRENT);
-        inverterDraw.setTargetValue(10.0);
+        ElectricalGrid busGrid = bus(battery, idleChargeController);
+        busGrid.registerConsumer(NODE, inverterDraw);
+        warmUp(busGrid);
 
-        ElectricalGrid busGrid = new ElectricalGrid();
-        busGrid.registerSource(busPos, battery);
-        busGrid.registerSource(busPos, idleChargeController);
-        busGrid.registerConsumer(busPos, inverterDraw);
+        // MPPT must NOT generate phantom current or combine voltage when solar is 0.
+        assertEquals(0.0, idleChargeController.drawnCurrent, 1e-6,
+                "MPPT with 0W solar must deliver exactly 0A");
+        // Battery supplies 100% of the inverter load.
+        assertEquals(10.0, battery.drawnCurrent, 0.1,
+                "Battery must supply full inverter load");
+        // Bus voltage purely reflects battery sag: V = 24.0 - (10.0 * 0.04) = 23.6V.
+        assertEquals(23.6, busGrid.getNodeVoltage(NODE), 0.15,
+                "Bus voltage must purely reflect battery Ohm's law sag without MPPT EMF inflation");
 
-        for (int i = 0; i < 10; i++) {
-            busGrid.tick(null);
-        }
-
-        double busV = busGrid.getNodeVoltage(busPos);
-        double ccI = idleChargeController.drawnCurrent;
-        double battI = battery.drawnCurrent;
-
-        // MPPT must NOT generate phantom current or combine voltage when solar is 0
-        assertEquals(0.0, ccI, 1e-6, "MPPT with 0W solar must deliver exactly 0A");
-        // Battery must supply 100% of the inverter load (10.0A)
-        assertEquals(10.0, battI, 0.1, "Battery must supply full inverter load");
-        // Bus voltage must be pure battery voltage sagging under 10A: V = 24.0 - (10.0 * 0.04) = 23.6V
-        assertEquals(23.6, busV, 0.15, "Bus voltage must purely reflect battery Ohm's law sag without MPPT EMF inflation");
+        // Battery is discharging here, so it must not have been credited with any input current.
+        assertEquals(0.0, battery.getReceivedCurrent(), 1e-6,
+                "Battery must not report received current while discharging into the inverter");
     }
 
     @Test
     public void testMpptControlledCurrentInjectionDoesNotDistortBatteryBusVoltage() {
-        BlockPos busPos = new BlockPos(0, 64, 0);
+        // 24V battery pack with Voc = 24.0V, Rint = 0.04 Ohm.
+        SimpleBatterySource battery = new SimpleBatterySource(NODE, 24.0, 0.04, 100.0);
 
-        // 24V Battery pack with Voc = 24.0V, Rint = 0.04 Ohm
-        SimpleBatterySource battery = new SimpleBatterySource(busPos, 24.0, 0.04, 100.0);
+        // MPPT CC delivering 10.0A into the battery bus.
+        SimpleConverterSource chargeController = new SimpleConverterSource(NODE, 28.8, 0.05, 60.0, 10.0);
 
-        // MPPT Charge Controller delivering 10.0A into battery bus
-        SimpleConverterSource chargeController = new SimpleConverterSource(busPos, 28.8, 0.05, 60.0, 10.0);
-
-        ElectricalGrid busGrid = new ElectricalGrid();
-        busGrid.registerSource(busPos, battery);
-        busGrid.registerSource(busPos, chargeController);
-
+        ElectricalGrid busGrid = bus(battery, chargeController);
         busGrid.tick(null);
 
-        double busV = busGrid.getNodeVoltage(busPos);
-        double ccI = chargeController.drawnCurrent;
-
-        // MPPT pushes 10.0A into battery
-        assertEquals(10.0, ccI, 0.01, "MPPT must push full available current into battery");
-        // Battery terminal voltage rises by I * R = 10.0 * 0.04 = 0.4V -> 24.4V
-        // It must NEVER be pulled up to 28.8V or composite average 26.1V!
-        assertEquals(24.4, busV, 0.05, "Battery bus voltage must strictly reflect V_ocv + I * R_int (24.4V)");
+        // MPPT pushes 10.0A into the battery.
+        assertEquals(10.0, chargeController.drawnCurrent, 0.01,
+                "MPPT must push full available current into battery");
+        // The battery must have actually *received* that injected current.
+        assertEquals(10.0, battery.getReceivedCurrent(), 0.01,
+                "Battery must record the MPPT's 10.0A injection via onPowerReceived");
+        // Battery terminal voltage rises by I * R = 10.0 * 0.04 = 0.4V -> 24.4V.
+        // It must NEVER be pulled up to 28.8V or to a composite average of 26.1V.
+        assertEquals(24.4, busGrid.getNodeVoltage(NODE), 0.05,
+                "Battery bus voltage must strictly reflect V_ocv + I * R_int (24.4V)");
     }
 }

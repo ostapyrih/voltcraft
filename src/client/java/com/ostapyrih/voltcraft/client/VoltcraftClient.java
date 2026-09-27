@@ -4,6 +4,7 @@ import com.ostapyrih.voltcraft.client.screen.ConverterScreen;
 import com.ostapyrih.voltcraft.client.screen.CreativeGeneratorScreen;
 import com.ostapyrih.voltcraft.client.screen.CreativeLoadScreen;
 import com.ostapyrih.voltcraft.client.screen.EuConverterScreen;
+import com.ostapyrih.voltcraft.item.battery.BatteryCellItem;
 import com.ostapyrih.voltcraft.screen.VoltcraftScreenHandlers;
 import net.fabricmc.api.ClientModInitializer;
 import net.minecraft.client.gui.screen.ingame.HandledScreens;

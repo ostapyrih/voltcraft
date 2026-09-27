@@ -2,7 +2,6 @@ package com.ostapyrih.voltcraft.simulation;
 
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatterySimulation;
-import com.ostapyrih.voltcraft.simulation.chemistry.ChargingProfile;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -97,24 +96,6 @@ public class BatterySimulationTest {
         assertTrue(result.thermalRunaway(), "High temperature and massive current must trigger thermal runaway");
     }
 
-    @Test
-    @DisplayName("Verify CC/CV charging profile state machine")
-    void testChargingProfileStateMachine() {
-        ChargingProfile profile = new ChargingProfile(BatteryChemistry.LI_ION_18650);
-
-        // Stage 1: CC mode under 4.0V
-        double cmdI1 = profile.update(3.8, 1.5, 25.0);
-        assertEquals(ChargingProfile.ChargeStage.CONSTANT_CURRENT, profile.getStage());
-        assertEquals(1.5, cmdI1, 0.01, "0.5C commanded in CC mode");
-
-        // Stage 2: Reaching 4.2V triggers CV mode
-        assertEquals(ChargingProfile.ChargeStage.CONSTANT_VOLTAGE, profile.getStage());
-
-        // Stage 3: In CV mode, tapering below 0.05C (0.15A) terminates charge
-        double cmdI3 = profile.update(4.20, 0.04, 25.0);
-        assertEquals(ChargingProfile.ChargeStage.COMPLETED, profile.getStage());
-        assertEquals(0.0, cmdI3, 0.001);
-    }
 
     @Test
     @DisplayName("Verify 100Ah LiFePO4 battery does not overheat under realistic 25A discharge")

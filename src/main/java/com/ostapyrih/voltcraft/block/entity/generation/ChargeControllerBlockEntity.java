@@ -277,30 +277,25 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
     @Override
     protected double calculateInputPowerDemand() {
         if (tripped || inputVoltage <= DEAD_RAIL_VOLTAGE) return 0.0;
-        double availSolar = getUpstreamAvailableSolarWatts();
         double eta = Math.max(MIN_EFFICIENCY_FLOOR, getEfficiency());
 
-        // In Bulk or Absorption mode, harvest full available solar power to feed the battery DC bus
-        // and support any downstream loads (such as inverters or DC appliances).
-        if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK || mpptLogic.getStage() == MPPTLogic.ChargeStage.ABSORPTION) {
+        // Bulk is the only stage where the battery is genuinely hungry and will accept
+        // everything the array can deliver. Absorption and Float sit at the target
+        // voltage with tapering acceptance, so their demand is derived from what the
+        // output side is actually taking — never from the panel's peak rating.
+        if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK) {
+            double availSolar = getUpstreamAvailableSolarWatts();
             if (availSolar > 0.0) {
                 return availSolar;
             }
         }
 
-        // Float mode: battery is topped up, throttle intake to ONLY what is consumed by bus + losses
-        // Do NOT draw available solar - that would dissipate excess as heat in the converter.
-        return (outputPowerWatts / eta) + (tripped ? 0.0 : FLOAT_IDLE_DRAW_W);
+        return (outputPowerWatts / eta) + FLOAT_IDLE_DRAW_W;
     }
 
     @Override
     protected double calculateAvailableOutputCurrent() {
         if (tripped || inputVoltage <= DEAD_RAIL_VOLTAGE) return 0.0;
-
-        double availSolar = effectiveAvailableSolarWatts();
-        if (availSolar <= 0.0) {
-            return 0.0;
-        }
 
         if (hasDownstreamStorage() && isBatteryStorageMismatch()) {
             return 0.0;
@@ -308,14 +303,19 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
 
         double railV = getDownstreamRailVoltage();
         double targetV = railV > DEAD_RAIL_VOLTAGE ? railV : Math.max(DEAD_RAIL_VOLTAGE, targetOutputVoltage);
+        double eta = Math.max(MIN_EFFICIENCY_FLOOR, getEfficiency());
 
-        // In Float stage, limit output current to what battery actually accepts
-        // (output power / voltage), not what panels could theoretically provide
         double maxAmps;
-        if (mpptLogic.getStage() == MPPTLogic.ChargeStage.FLOAT) {
-            maxAmps = (outputPowerWatts / Math.max(MIN_EFFICIENCY_FLOOR, getEfficiency())) / targetV;
+        if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK) {
+            // Bulk: the panel is the ceiling; take what it can give.
+            double availSolar = effectiveAvailableSolarWatts();
+            if (availSolar <= 0.0) {
+                return 0.0;
+            }
+            maxAmps = (availSolar * eta) / targetV;
         } else {
-            maxAmps = (availSolar * getEfficiency()) / targetV;
+            // Absorption / Float: the battery's own acceptance is the ceiling.
+            maxAmps = (outputPowerWatts / eta) / targetV;
         }
         return Math.clamp(maxAmps, 0.0, getMaxOutputCurrent());
     }
@@ -323,8 +323,7 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
     @Override
     protected double computeOutputVoltage(double inputVoltage) {
         mpptLogic.setBatteryBankVoltage(targetOutputVoltage);
-        double availSolar = effectiveAvailableSolarWatts();
-        if (tripped || availSolar <= 0.0 || inputVoltage < getMinInputVoltage()) {
+        if (tripped || inputVoltage < getMinInputVoltage()) {
             return 0.0;
         }
 
@@ -337,10 +336,11 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
             double railV = getDownstreamRailVoltage();
             double battV = railV > DEAD_RAIL_VOLTAGE ? railV : targetOutputVoltage;
             boolean settled = MPPTLogic.isRailSettled(inputVoltage, getMinInputVoltage(),
-                mpptLogic.getTargetInputVoltage(), calculateInputPowerDemand(), lastDemandWatts);
+                    mpptLogic.getTargetInputVoltage(), calculateInputPowerDemand(), lastDemandWatts);
             mpptLogic.step(inputVoltage, inputCurrentAmps, battV, settled);
 
-            if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK || mpptLogic.getStage() == MPPTLogic.ChargeStage.ABSORPTION) {
+            if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK
+                    || mpptLogic.getStage() == MPPTLogic.ChargeStage.ABSORPTION) {
                 return mpptLogic.getAbsorptionVoltage();
             } else {
                 return mpptLogic.getFloatVoltage();
