@@ -1,6 +1,5 @@
 package com.ostapyrih.voltcraft.client;
 
-import com.ostapyrih.voltcraft.block.VoltcraftBlocks;
 import com.ostapyrih.voltcraft.item.VoltcraftItems;
 import net.fabricmc.fabric.api.datagen.v1.FabricDataOutput;
 import net.fabricmc.fabric.api.datagen.v1.provider.FabricLanguageProvider;

@@ -14,7 +14,6 @@ import com.ostapyrih.voltcraft.block.storage.BatteryRackBlock;
 import com.ostapyrih.voltcraft.item.VoltcraftItems;
 import net.fabricmc.fabric.api.client.datagen.v1.provider.FabricModelProvider;
 import net.fabricmc.fabric.api.datagen.v1.FabricDataOutput;
-import net.minecraft.block.Block;
 import net.minecraft.client.data.BlockStateModelGenerator;
 import net.minecraft.client.data.BlockStateVariantMap;
 import net.minecraft.client.data.ItemModelGenerator;

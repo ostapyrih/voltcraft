@@ -91,8 +91,6 @@ public class SolarAndGenerationPhysicsTest {
         );
 
         // Monocrystalline PERC temp coefficient is -0.35%/°C -> 30 * (-0.0035) = -10.5% derating
-        double expectedDerating = 1.0 - (0.0035 * 30.0);
-        double expectedPower = 400.0 * (expectedDerating * expectedDerating); // V and I both derate
         assertTrue(hotCell.peakPowerAvailableWatts() < 400.0);
         assertTrue(hotCell.peakPowerAvailableWatts() > 320.0);
     }

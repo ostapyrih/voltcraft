@@ -3,8 +3,6 @@ package com.ostapyrih.voltcraft.component;
 import com.mojang.serialization.Codec;
 import com.ostapyrih.voltcraft.Voltcraft;
 import net.minecraft.component.ComponentType;
-import net.minecraft.network.RegistryByteBuf;
-import net.minecraft.network.codec.PacketCodec;
 import net.minecraft.network.codec.PacketCodecs;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.Registry;

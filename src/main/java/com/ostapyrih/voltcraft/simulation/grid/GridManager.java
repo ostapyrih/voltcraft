@@ -89,63 +89,89 @@ public class GridManager extends PersistentState {
 
     public GridManager() {}
 
+    // ---------------------------------------------------------------------
+    // Persistence
+    // ---------------------------------------------------------------------
+
     public GridManagerSaveData toSaveData() {
         List<GridSaveData> list = new ArrayList<>();
-        for (ElectricalGrid g : grids.values()) {
-            List<ConductorSaveData> conds = new ArrayList<>();
-            for (GridConductor c : g.getConductors()) {
-                ThermalEquilibrium.ThermalSpec ts = c.getThermalSpec();
-                conds.add(new ConductorSaveData(
-                    c.getStartPos(),
-                    c.getEndPos(),
-                    ts.baseResistance(),
-                    ts.tempCoefficient(),
-                    ts.heatCapacity(),
-                    ts.coolingRate(),
-                    ts.maxInsulationTemp(),
-                    ts.meltingTemp(),
-                    c.getMaxAmpacity(),
-                    c.isInsulated()
-                ));
-            }
-            list.add(new GridSaveData(g.getGridId().toString(), new ArrayList<>(g.getNodePositions()), conds));
+        for (ElectricalGrid grid : grids.values()) {
+            list.add(toGridSaveData(grid));
         }
         return new GridManagerSaveData(list);
     }
 
-    public static GridManager fromSaveData(GridManagerSaveData data) {
-        GridManager mgr = new GridManager();
-        if (data != null && data.grids() != null) {
-            for (GridSaveData gd : data.grids()) {
-                UUID gridId;
-                try {
-                    gridId = UUID.fromString(gd.id());
-                } catch (Exception e) {
-                    gridId = UUID.randomUUID();
-                }
-                ElectricalGrid g = new ElectricalGrid(gridId);
-                for (BlockPos p : gd.nodes()) {
-                    g.addNode(p, false);
-                }
-                for (ConductorSaveData cd : gd.conductors()) {
-                    ThermalEquilibrium.ThermalSpec ts = new ThermalEquilibrium.ThermalSpec(
-                        cd.baseResistance(),
-                        cd.tempCoefficient(),
-                        cd.heatCapacity(),
-                        cd.coolingRate(),
-                        cd.maxInsulationTemp(),
-                        cd.meltingTemp()
-                    );
-                    g.addConductor(new GridConductor(cd.start(), cd.end(), ts, cd.maxAmpacity(), cd.insulated()));
-                }
-                mgr.grids.put(g.getGridId(), g);
-                for (BlockPos p : g.getNodePositions()) {
-                    mgr.posToGridMap.put(p, g.getGridId());
-                }
-            }
+    private static GridSaveData toGridSaveData(ElectricalGrid grid) {
+        List<ConductorSaveData> conductors = new ArrayList<>();
+        for (GridConductor c : grid.getConductors()) {
+            conductors.add(toConductorSaveData(c));
         }
-        return mgr;
+        return new GridSaveData(grid.getGridId().toString(), new ArrayList<>(grid.getNodePositions()), conductors);
     }
+
+    private static ConductorSaveData toConductorSaveData(GridConductor c) {
+        ThermalEquilibrium.ThermalSpec ts = c.getThermalSpec();
+        return new ConductorSaveData(
+            c.getStartPos(),
+            c.getEndPos(),
+            ts.baseResistance(),
+            ts.tempCoefficient(),
+            ts.heatCapacity(),
+            ts.coolingRate(),
+            ts.maxInsulationTemp(),
+            ts.meltingTemp(),
+            c.getMaxAmpacity(),
+            c.isInsulated()
+        );
+    }
+
+    public static GridManager fromSaveData(GridManagerSaveData data) {
+        GridManager manager = new GridManager();
+        if (data == null || data.grids() == null) {
+            return manager;
+        }
+        for (GridSaveData gridData : data.grids()) {
+            ElectricalGrid grid = gridFromSaveData(gridData);
+            manager.grids.put(grid.getGridId(), grid);
+            manager.mapNodesToGrid(grid);
+        }
+        return manager;
+    }
+
+    private static ElectricalGrid gridFromSaveData(GridSaveData gridData) {
+        ElectricalGrid grid = new ElectricalGrid(parseGridIdOrRandom(gridData.id()));
+        for (BlockPos p : gridData.nodes()) {
+            grid.addNode(p, false);
+        }
+        for (ConductorSaveData cd : gridData.conductors()) {
+            grid.addConductor(conductorFromSaveData(cd));
+        }
+        return grid;
+    }
+
+    private static GridConductor conductorFromSaveData(ConductorSaveData cd) {
+        ThermalEquilibrium.ThermalSpec spec = new ThermalEquilibrium.ThermalSpec(
+            cd.baseResistance(),
+            cd.tempCoefficient(),
+            cd.heatCapacity(),
+            cd.coolingRate(),
+            cd.maxInsulationTemp(),
+            cd.meltingTemp()
+        );
+        return new GridConductor(cd.start(), cd.end(), spec, cd.maxAmpacity(), cd.insulated());
+    }
+
+    private static UUID parseGridIdOrRandom(String id) {
+        try {
+            return UUID.fromString(id);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return UUID.randomUUID();
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Lifecycle wiring
+    // ---------------------------------------------------------------------
 
     public static GridManager get(ServerWorld world) {
         return world.getPersistentStateManager().getOrCreate(TYPE);
@@ -153,43 +179,36 @@ public class GridManager extends PersistentState {
 
     public static void initialize() {
         // Register server tick event: centralized tick execution (1 aggregated tick per grid)
-        ServerTickEvents.END_WORLD_TICK.register(world -> {
-            GridManager manager = get(world);
-            manager.tick(world);
-        });
+        ServerTickEvents.END_WORLD_TICK.register(world -> get(world).tick(world));
 
         // Track chunk loaded/unloaded boundaries
-        ServerChunkEvents.CHUNK_LOAD.register((world, chunk) -> {
-            GridManager manager = get(world);
-            manager.loadedChunks.add(chunk.getPos());
-        });
-
-        ServerChunkEvents.CHUNK_UNLOAD.register((world, chunk) -> {
-            GridManager manager = get(world);
-            manager.loadedChunks.remove(chunk.getPos());
-        });
+        ServerChunkEvents.CHUNK_LOAD.register((world, chunk) -> get(world).loadedChunks.add(chunk.getPos()));
+        ServerChunkEvents.CHUNK_UNLOAD.register((world, chunk) -> get(world).loadedChunks.remove(chunk.getPos()));
     }
 
     public void tick(ServerWorld world) {
         List<ElectricalGrid> activeGrids = new ArrayList<>(grids.values());
         for (ElectricalGrid grid : activeGrids) {
+            // A grid may have been unregistered by an earlier grid's tick this same pass
+            // (e.g. a merge/split triggered by a block update) — skip it if so.
             if (grids.containsKey(grid.getGridId())) {
                 grid.tick(world);
             }
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Registry
+    // ---------------------------------------------------------------------
+
     public ElectricalGrid getGridAt(BlockPos pos) {
         UUID id = posToGridMap.get(pos);
-        if (id == null) return null;
-        return grids.get(id);
+        return id != null ? grids.get(id) : null;
     }
 
     public void registerGrid(ElectricalGrid grid) {
         grids.put(grid.getGridId(), grid);
-        for (BlockPos pos : grid.getNodePositions()) {
-            posToGridMap.put(pos, grid.getGridId());
-        }
+        mapNodesToGrid(grid);
         markDirty();
     }
 
@@ -203,6 +222,12 @@ public class GridManager extends PersistentState {
         markDirty();
     }
 
+    private void mapNodesToGrid(ElectricalGrid grid) {
+        for (BlockPos pos : grid.getNodePositions()) {
+            posToGridMap.put(pos, grid.getGridId());
+        }
+    }
+
     public Collection<ElectricalGrid> getAllGrids() {
         return Collections.unmodifiableCollection(grids.values());
     }
@@ -211,23 +236,39 @@ public class GridManager extends PersistentState {
         return loadedChunks.contains(new ChunkPos(pos));
     }
 
+    // ---------------------------------------------------------------------
+    // Placement / removal
+    // ---------------------------------------------------------------------
+
     /**
      * Handles conductor or switch placement in the world, linking adjacent nodes and merging grids if necessary.
      */
     public void onConductorPlaced(ServerWorld world, BlockPos pos, ConductorType type) {
-        List<BlockPos> connectedNeighbors = new ArrayList<>();
+        List<BlockPos> connectedNeighbors = findThroughConnectableNeighbors(world, pos);
+        ElectricalGrid targetGrid = resolveTargetGridForPlacement(pos, connectedNeighbors);
+        linkNeighborsWithConductors(targetGrid, pos, connectedNeighbors, type);
+        markDirty();
+    }
+
+    private List<BlockPos> findThroughConnectableNeighbors(ServerWorld world, BlockPos pos) {
+        List<BlockPos> connected = new ArrayList<>();
         for (Direction dir : Direction.values()) {
             BlockPos neighborPos = pos.offset(dir);
             BlockState neighborState = world.getBlockState(neighborPos);
-            if (neighborState.getBlock() instanceof IElectricalConnectable connectable) {
-                if (connectable.canConnect(world, neighborPos, dir.getOpposite(), neighborState)) {
-                    if (connectable.isThroughConductor()) {
-                        connectedNeighbors.add(neighborPos);
-                    }
-                }
+            if (neighborState.getBlock() instanceof IElectricalConnectable connectable
+                && connectable.canConnect(world, neighborPos, dir.getOpposite(), neighborState)
+                && connectable.isThroughConductor()) {
+                connected.add(neighborPos);
             }
         }
+        return connected;
+    }
 
+    /**
+     * Finds or creates the grid the new node at {@code pos} should join. If it touches
+     * multiple existing grids, they are merged into one first.
+     */
+    private ElectricalGrid resolveTargetGridForPlacement(BlockPos pos, List<BlockPos> connectedNeighbors) {
         Set<UUID> touchingGridIds = new HashSet<>();
         for (BlockPos neighbor : connectedNeighbors) {
             UUID gridId = posToGridMap.get(neighbor);
@@ -236,51 +277,63 @@ public class GridManager extends PersistentState {
             }
         }
 
-        ElectricalGrid targetGrid;
         if (touchingGridIds.isEmpty()) {
-            targetGrid = new ElectricalGrid();
-            targetGrid.addNode(pos, false);
-            registerGrid(targetGrid);
-        } else {
-            Iterator<UUID> iter = touchingGridIds.iterator();
-            targetGrid = grids.get(iter.next());
-            while (iter.hasNext()) {
-                ElectricalGrid secondary = grids.get(iter.next());
-                if (secondary != null && secondary != targetGrid) {
-                    GridTopologyHelper.mergeGrids(targetGrid, secondary);
-                    for (BlockPos p : secondary.getNodePositions()) {
-                        posToGridMap.put(p, targetGrid.getGridId());
-                    }
-                    grids.remove(secondary.getGridId());
-                }
-            }
-            targetGrid.addNode(pos, false);
-            posToGridMap.put(pos, targetGrid.getGridId());
+            ElectricalGrid newGrid = new ElectricalGrid();
+            newGrid.addNode(pos, false);
+            registerGrid(newGrid);
+            return newGrid;
         }
 
-        for (BlockPos neighbor : connectedNeighbors) {
-            if (targetGrid.contains(neighbor)) {
-                boolean exists = false;
-                for (GridConductor gc : targetGrid.getConductors()) {
-                    if ((gc.getStartPos().equals(pos) && gc.getEndPos().equals(neighbor)) ||
-                        (gc.getStartPos().equals(neighbor) && gc.getEndPos().equals(pos))) {
-                        exists = true;
-                        break;
-                    }
-                }
-                if (!exists) {
-                    GridConductor branch = new GridConductor(
-                        pos,
-                        neighbor,
-                        type.toThermalSpec(),
-                        type.getMaxAmpacity(),
-                        type.isInsulated()
-                    );
-                    targetGrid.addConductor(branch);
-                }
+        Iterator<UUID> iter = touchingGridIds.iterator();
+        ElectricalGrid targetGrid = grids.get(iter.next());
+        while (iter.hasNext()) {
+            ElectricalGrid secondary = grids.get(iter.next());
+            if (secondary != null && secondary != targetGrid) {
+                mergeIntoTarget(targetGrid, secondary);
             }
         }
-        markDirty();
+
+        targetGrid.addNode(pos, false);
+        posToGridMap.put(pos, targetGrid.getGridId());
+        return targetGrid;
+    }
+
+    private void mergeIntoTarget(ElectricalGrid targetGrid, ElectricalGrid secondary) {
+        GridTopologyHelper.mergeGrids(targetGrid, secondary);
+        for (BlockPos p : secondary.getNodePositions()) {
+            posToGridMap.put(p, targetGrid.getGridId());
+        }
+        grids.remove(secondary.getGridId());
+    }
+
+    private void linkNeighborsWithConductors(
+        ElectricalGrid targetGrid,
+        BlockPos pos,
+        List<BlockPos> connectedNeighbors,
+        ConductorType type
+    ) {
+        for (BlockPos neighbor : connectedNeighbors) {
+            if (targetGrid.contains(neighbor) && !conductorExistsBetween(targetGrid, pos, neighbor)) {
+                targetGrid.addConductor(new GridConductor(
+                    pos,
+                    neighbor,
+                    type.toThermalSpec(),
+                    type.getMaxAmpacity(),
+                    type.isInsulated()
+                ));
+            }
+        }
+    }
+
+    private static boolean conductorExistsBetween(ElectricalGrid grid, BlockPos a, BlockPos b) {
+        for (GridConductor gc : grid.getConductors()) {
+            boolean matches = (gc.getStartPos().equals(a) && gc.getEndPos().equals(b))
+                || (gc.getStartPos().equals(b) && gc.getEndPos().equals(a));
+            if (matches) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -288,9 +341,13 @@ public class GridManager extends PersistentState {
      */
     public void onConductorRemoved(ServerWorld world, BlockPos pos) {
         UUID gridId = posToGridMap.remove(pos);
-        if (gridId == null) return;
+        if (gridId == null) {
+            return;
+        }
         ElectricalGrid grid = grids.get(gridId);
-        if (grid == null) return;
+        if (grid == null) {
+            return;
+        }
 
         List<ElectricalGrid> resultingGrids = GridTopologyHelper.handleNodeRemoval(grid, pos);
         if (resultingGrids.isEmpty()) {

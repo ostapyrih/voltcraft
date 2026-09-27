@@ -67,7 +67,6 @@ public class SolarIrradianceSimulation {
         double tempDerating = 1.0 + (type.getTempCoefficient() * tempDelta);
 
         // Current scales linearly with irradiance
-        double isc = type.getIsc() * gRatio;
         double imp = type.getImp() * gRatio * tempDerating;
 
         // Voltage scales logarithmically with irradiance

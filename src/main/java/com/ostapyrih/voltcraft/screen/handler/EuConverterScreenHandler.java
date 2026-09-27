@@ -1,7 +1,6 @@
 package com.ostapyrih.voltcraft.screen.handler;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.block.entity.conversion.EuConverterBlockEntity;
 import com.ostapyrih.voltcraft.screen.VoltcraftScreenHandlers;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;

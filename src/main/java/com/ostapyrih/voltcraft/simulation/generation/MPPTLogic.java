@@ -12,11 +12,32 @@ public class MPPTLogic {
         FLOAT
     }
 
+    // --- P&O tuning ---
+    private static final double DEFAULT_TARGET_INPUT_VOLTAGE = 36.0;
+    private static final double DEFAULT_STEP_SIZE = 0.2; // V perturbation step
+    private static final double MIN_TARGET_INPUT_VOLTAGE = 10.0;
+    private static final double MAX_TARGET_INPUT_VOLTAGE = 150.0;
+    private static final double POWER_DELTA_DEADBAND_W = 0.05;
+
+    // --- Rail-settled gating (see isRailSettled) ---
+    private static final double RAIL_SETTLE_MIN_VIN_MARGIN = 0.95;
+    private static final double RAIL_SETTLE_SERVO_MARGIN_V = 0.5;
+    private static final double DEMAND_DEADBAND_MIN_W = 2.0;
+    private static final double DEMAND_DEADBAND_RELATIVE = 0.05;
+
+    // --- 3-stage charging ---
+    private static final double ABSORPTION_VOLTAGE_PER_12V = 14.4;
+    private static final double FLOAT_VOLTAGE_PER_12V = 13.6;
+    private static final double BULK_TO_ABSORPTION_MARGIN_V = 0.1;
+    private static final int ABSORPTION_TIMEOUT_TICKS = 1200;
+    private static final double ABSORPTION_EXIT_CURRENT_A = 0.2;
+    private static final double FLOAT_TO_BULK_DROP_V = 1.0;
+
     private ChargeStage stage = ChargeStage.BULK;
-    private double targetInputVoltage = 36.0;
+    private double targetInputVoltage = DEFAULT_TARGET_INPUT_VOLTAGE;
     private double previousPower = 0.0;
-    private double previousVoltage = 36.0;
-    private double stepSize = 0.2; // V perturbation step
+    private double previousVoltage = DEFAULT_TARGET_INPUT_VOLTAGE;
+    private double stepSize = DEFAULT_STEP_SIZE;
     private int absorptionTicks = 0;
     private boolean initialized = false;
 
@@ -31,8 +52,8 @@ public class MPPTLogic {
         setBatteryBankVoltage(batteryBankVoltage);
     }
 
+    /** Snaps any input to the nearest supported nominal bank voltage: 12V, 24V, or 48V. */
     public void setBatteryBankVoltage(double voltage) {
-        this.batteryBankVoltage = voltage;
         if (voltage <= 14.0) {
             this.batteryBankVoltage = 12.0;
         } else if (voltage <= 30.0) {
@@ -66,13 +87,14 @@ public class MPPTLogic {
         double needWatts,
         double lastDemandWatts
     ) {
-        if (inputVoltage < minVin * 0.95 || inputVoltage > servoTarget + 0.5) {
+        if (inputVoltage < minVin * RAIL_SETTLE_MIN_VIN_MARGIN || inputVoltage > servoTarget + RAIL_SETTLE_SERVO_MARGIN_V) {
             return false;
         }
         if (lastDemandWatts < 0.0) {
             return false;
         }
-        return Math.abs(needWatts - lastDemandWatts) <= Math.max(2.0, 0.05 * Math.max(1.0, needWatts));
+        double deadband = Math.max(DEMAND_DEADBAND_MIN_W, DEMAND_DEADBAND_RELATIVE * Math.max(1.0, needWatts));
+        return Math.abs(needWatts - lastDemandWatts) <= deadband;
     }
 
     public ChargeStage getStage() {
@@ -80,11 +102,11 @@ public class MPPTLogic {
     }
 
     public double getAbsorptionVoltage() {
-        return (batteryBankVoltage / 12.0) * 14.4;
+        return (batteryBankVoltage / 12.0) * ABSORPTION_VOLTAGE_PER_12V;
     }
 
     public double getFloatVoltage() {
-        return (batteryBankVoltage / 12.0) * 13.6;
+        return (batteryBankVoltage / 12.0) * FLOAT_VOLTAGE_PER_12V;
     }
 
     /**
@@ -116,65 +138,67 @@ public class MPPTLogic {
         double currentPower = inputVoltage * inputCurrent;
 
         if (!initialized) {
-            this.previousPower = currentPower;
-            this.previousVoltage = inputVoltage;
-            this.initialized = true;
+            initialized = true;
         } else if (adaptTarget) {
-            double deltaP = currentPower - previousPower;
-            double deltaV = inputVoltage - previousVoltage;
+            perturbAndObserve(currentPower, inputVoltage);
+        }
+        // else: rail unsettled — target is frozen; previousPower/previousVoltage still
+        // get refreshed below so re-entry compares against fresh measurements instead
+        // of a stale jump.
 
-            // P&O Algorithm: Perturb PV operating voltage to seek MPP
-            if (Math.abs(deltaP) > 0.05) {
-                if (deltaP > 0.0) {
-                    if (deltaV >= 0.0) {
-                        targetInputVoltage += stepSize;
-                    } else {
-                        targetInputVoltage -= stepSize;
-                    }
-                } else {
-                    if (deltaV >= 0.0) {
-                        targetInputVoltage -= stepSize;
-                    } else {
-                        targetInputVoltage += stepSize;
-                    }
-                }
-            }
+        this.previousPower = currentPower;
+        this.previousVoltage = inputVoltage;
+        this.targetInputVoltage = clamp(targetInputVoltage, MIN_TARGET_INPUT_VOLTAGE, MAX_TARGET_INPUT_VOLTAGE);
 
-            this.previousPower = currentPower;
-            this.previousVoltage = inputVoltage;
-        } else {
-            // Rail unsettled: track the baseline without perturbing, so re-entry
-            // compares against fresh measurements instead of a stale jump.
-            this.previousPower = currentPower;
-            this.previousVoltage = inputVoltage;
+        return runChargeStateMachine(inputCurrent, batteryVoltage);
+    }
+
+    /**
+     * Classic Perturb & Observe: nudge {@link #targetInputVoltage} one step in whichever
+     * direction the last perturbation increased power. Skipped entirely (target frozen)
+     * whenever the power delta is inside the noise deadband.
+     */
+    private void perturbAndObserve(double currentPower, double inputVoltage) {
+        double deltaP = currentPower - previousPower;
+        double deltaV = inputVoltage - previousVoltage;
+
+        if (Math.abs(deltaP) <= POWER_DELTA_DEADBAND_W) {
+            return;
         }
 
-        // Clamp target input voltage to sane limits (10V to 150V)
-        targetInputVoltage = Math.max(10.0, Math.min(150.0, targetInputVoltage));
+        // deltaP and deltaV moving the same way means the last step helped; keep
+        // going that way. Opposite signs mean it hurt; reverse direction.
+        boolean sameSign = (deltaP > 0.0) == (deltaV >= 0.0);
+        targetInputVoltage += sameSign ? stepSize : -stepSize;
+    }
 
-        // 3-Stage Charging State Machine
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    /** Runs the Bulk -> Absorption -> Float charging state machine and returns this tick's target output EMF. */
+    private double runChargeStateMachine(double inputCurrent, double batteryVoltage) {
         double absorptionV = getAbsorptionVoltage();
         double floatV = getFloatVoltage();
 
         switch (stage) {
             case BULK -> {
-                if (batteryVoltage >= absorptionV - 0.1) {
+                if (batteryVoltage >= absorptionV - BULK_TO_ABSORPTION_MARGIN_V) {
                     this.stage = ChargeStage.ABSORPTION;
                     this.absorptionTicks = 0;
-                    return absorptionV;
                 }
                 return absorptionV;
             }
             case ABSORPTION -> {
                 this.absorptionTicks++;
-                if (absorptionTicks > 1200 || inputCurrent < 0.2) {
+                if (absorptionTicks > ABSORPTION_TIMEOUT_TICKS || inputCurrent < ABSORPTION_EXIT_CURRENT_A) {
                     this.stage = ChargeStage.FLOAT;
                     return floatV;
                 }
                 return absorptionV;
             }
             case FLOAT -> {
-                if (batteryVoltage < floatV - 1.0) {
+                if (batteryVoltage < floatV - FLOAT_TO_BULK_DROP_V) {
                     this.stage = ChargeStage.BULK;
                     return absorptionV;
                 }

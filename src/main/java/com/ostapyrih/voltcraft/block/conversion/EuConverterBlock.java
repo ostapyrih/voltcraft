@@ -1,7 +1,6 @@
 package com.ostapyrih.voltcraft.block.conversion;
 
 import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
-import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.entity.conversion.EuConverterBlockEntity;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockEntityProvider;

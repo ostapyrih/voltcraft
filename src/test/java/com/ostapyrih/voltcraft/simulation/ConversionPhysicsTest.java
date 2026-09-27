@@ -1,6 +1,5 @@
 package com.ostapyrih.voltcraft.simulation;
 
-import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.simulation.conversion.ConverterType;

@@ -24,13 +24,12 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 public class CircuitDynamicsRealismTest {
 
-    static class SimpleBatterySource implements IElectricSource, IElectricStorage {
+    static class SimpleBatterySource implements IElectricStorage {
         private final BlockPos pos;
         private final double emf;
         private final double rInt;
         private final double maxCurrent;
         private double drawnCurrent = 0.0;
-        private double receivedCurrent = 0.0;
 
         SimpleBatterySource(BlockPos pos, double emf, double rInt, double maxCurrent) {
             this.pos = pos;
@@ -91,8 +90,6 @@ public class CircuitDynamicsRealismTest {
     static class ResistiveLoad implements IElectricConsumer {
         private final BlockPos pos;
         private final double resistance;
-        private double receivedVoltage = 0.0;
-        private double receivedCurrent = 0.0;
 
         ResistiveLoad(BlockPos pos, double resistance) {
             this.pos = pos;

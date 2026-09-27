@@ -21,6 +21,24 @@ package com.ostapyrih.voltcraft.simulation.conversion;
  */
 public final class InputPowerRegulator {
 
+    // --- updateCurrentCap tuning ---
+    private static final double MIN_CEILING_AMPS = 0.05;
+    private static final double DEAD_RAIL_VOLTAGE = 1.0;
+    private static final double COLLAPSE_VIN_MARGIN = 0.95;
+    private static final double COLLAPSE_BACKOFF_FACTOR = 0.85;
+    private static final double SENSE_PROBE_AMPS = 0.15;
+    private static final double PROPORTIONAL_FLOOR = 0.50;
+    private static final double PROPORTIONAL_CEILING = 1.05;
+    private static final double MIN_TARGET_VOLTAGE = 0.1;
+
+    // --- isOutputHungry tuning ---
+    private static final double HUNGRY_MIN_EMF = 0.5;
+    private static final double HUNGRY_SAG_MARGIN = 0.90;
+
+    // --- slewDemandUp tuning ---
+    private static final double SLEW_GROWTH_FACTOR = 1.1;
+    private static final double SLEW_SEED_WATTS = 1.0;
+
     private InputPowerRegulator() {}
 
     /**
@@ -40,32 +58,47 @@ public final class InputPowerRegulator {
         double minVin,
         double targetVoltage
     ) {
-        double ceiling = Math.max(0.05, capMaxAmps);
-        if (inputVoltage <= 1.0) {
+        double ceiling = Math.max(MIN_CEILING_AMPS, capMaxAmps);
+        if (inputVoltage <= DEAD_RAIL_VOLTAGE) {
             return 0.0;
         }
-        double target = Math.max(minVin, targetVoltage);
-        double cap = Math.min(Math.max(0.0, capAmps), ceiling);
-        if (inputVoltage < minVin * 0.95) {
-            // Collapse safety: back off fast but keep a 0.15A sensing probe so
-            // the rail is re-tested every tick and can always recover.
-            return Math.max(0.15, cap * 0.85);
+
+        double cap = clamp(capAmps, 0.0, ceiling);
+
+        if (inputVoltage < minVin * COLLAPSE_VIN_MARGIN) {
+            // Collapse safety: back off fast but keep a sensing probe so the rail
+            // is re-tested every tick and can always recover. Still bounded by the
+            // converter's own ceiling — a weak converter's probe must not exceed
+            // its rated current.
+            double backedOff = Math.max(SENSE_PROBE_AMPS, cap * COLLAPSE_BACKOFF_FACTOR);
+            return Math.min(ceiling, backedOff);
         }
-        // Linear proportional control toward the target: gentle ±5% authority near
-        // the setpoint for precise parking, deepening to -50% far below it so a
-        // collapsing rail sheds load faster than the collapse itself feeds.
-        double f = 1.0 + (inputVoltage - target) / target;
-        if (f < 0.50) {
-            f = 0.50;
-        }
-        if (f > 1.05) {
-            f = 1.05;
-        }
+
+        // Guard against a degenerate zero target (should not happen given the
+        // documented targetVoltage >= minVin contract, but a div-by-zero here
+        // would be an ugly way to find out otherwise).
+        double target = Math.max(MIN_TARGET_VOLTAGE, Math.max(minVin, targetVoltage));
+
+        double f = proportionalFactor(inputVoltage, target);
         double out = cap * f;
-        if (out < 0.15 && inputVoltage > target) {
-            out = 0.15; // re-probe from zero on a live rail (soft-start kick)
+        if (out < SENSE_PROBE_AMPS && inputVoltage > target) {
+            out = SENSE_PROBE_AMPS; // re-probe from zero on a live rail (soft-start kick)
         }
-        return Math.min(ceiling, Math.max(0.0, out));
+        return clamp(out, 0.0, ceiling);
+    }
+
+    /**
+     * Linear proportional control toward the target: gentle ±5% authority near
+     * the setpoint for precise parking, deepening to -50% far below it so a
+     * collapsing rail sheds load faster than the collapse itself feeds.
+     */
+    private static double proportionalFactor(double inputVoltage, double target) {
+        double f = 1.0 + (inputVoltage - target) / target;
+        return clamp(f, PROPORTIONAL_FLOOR, PROPORTIONAL_CEILING);
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     /**
@@ -88,13 +121,13 @@ public final class InputPowerRegulator {
      * @return true when a gridded terminal sags below 90% of EMF
      */
     public static boolean isOutputHungry(double emf, boolean hasGrid, double nodeVoltage) {
-        if (emf <= 0.5 || !hasGrid) {
+        if (emf <= HUNGRY_MIN_EMF || !hasGrid) {
             return false;
         }
         // Wide 10% margin: current-limit forcing sags nodes far deeper than this,
         // while normal ripple stays inside it — a tight margin flaps on the
         // boundary it drives.
-        return nodeVoltage < emf * 0.90;
+        return nodeVoltage < emf * HUNGRY_SAG_MARGIN;
     }
 
     /**
@@ -110,6 +143,7 @@ public final class InputPowerRegulator {
      */
     public static double slewDemandUp(double lastWatts, double servoWatts) {
         double prev = Math.max(0.0, lastWatts);
-        return Math.min(Math.max(0.0, servoWatts), prev * 1.1 + 1.0);
+        double allowedGrowth = prev * SLEW_GROWTH_FACTOR + SLEW_SEED_WATTS;
+        return Math.min(Math.max(0.0, servoWatts), allowedGrowth);
     }
 }

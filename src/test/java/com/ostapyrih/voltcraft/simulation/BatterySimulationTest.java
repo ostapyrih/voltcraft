@@ -41,7 +41,6 @@ public class BatterySimulationTest {
     @DisplayName("Verify temperature and health scaling of internal resistance")
     void testInternalResistanceScaling() {
         BatteryChemistry chem = BatteryChemistry.LI_ION_18650;
-        double baseR = chem.getInternalResistanceOhms();
 
         double rRoom = BatterySimulation.getInternalResistance(chem, 0.8, 25.0, 1.0);
         double rFreezing = BatterySimulation.getInternalResistance(chem, 0.8, -10.0, 1.0);
@@ -109,7 +108,6 @@ public class BatterySimulationTest {
         assertEquals(1.5, cmdI1, 0.01, "0.5C commanded in CC mode");
 
         // Stage 2: Reaching 4.2V triggers CV mode
-        double cmdI2 = profile.update(4.20, 1.5, 25.0);
         assertEquals(ChargingProfile.ChargeStage.CONSTANT_VOLTAGE, profile.getStage());
 
         // Stage 3: In CV mode, tapering below 0.05C (0.15A) terminates charge

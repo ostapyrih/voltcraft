@@ -6,12 +6,10 @@ import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
 import com.ostapyrih.voltcraft.api.energy.IElectricStorage;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
-import com.ostapyrih.voltcraft.item.battery.BatteryCellItem;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatterySimulation;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
 import com.ostapyrih.voltcraft.simulation.grid.GridConductor;
-import net.minecraft.item.ItemStack;
 import net.minecraft.util.math.BlockPos;
 import org.junit.jupiter.api.Test;
 

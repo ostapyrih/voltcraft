@@ -6,7 +6,6 @@ import com.ostapyrih.voltcraft.api.energy.IElectricConverter;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
 import com.ostapyrih.voltcraft.block.conversion.AbstractPowerConverterBlock;
 import com.ostapyrih.voltcraft.screen.handler.ConverterScreenHandler;
-import com.ostapyrih.voltcraft.simulation.conversion.InputPowerRegulator;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
 import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
@@ -26,6 +25,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -34,6 +34,52 @@ import java.util.UUID;
  * without shorting them into a single through-conductor.
  */
 public abstract class AbstractPowerConverterBlockEntity extends BlockEntity implements IElectricConverter, ExtendedScreenHandlerFactory<BlockPos> {
+
+    // --- Simulation timestep / shared thresholds ---
+    private static final double TICK_DELTA_SECONDS = 0.05;
+    private static final double DEAD_RAIL_VOLTAGE = 1.0;
+    private static final double CASCADE_MIN_VOLTAGE = 0.5;
+    private static final double MIN_EFFICIENCY_FLOOR = 0.1;
+    private static final double IDLE_DRAW_WATTS = 2.0;
+    private static final int DEFAULT_TRIP_GRACE_TICKS = 40; // 2-second grace so circuit solves/voltages establish before re-tripping
+
+    // --- Protection trips ---
+    private static final double ANTI_ISLANDING_MIN_GRID_VOLTAGE = 20.0;
+    private static final int ANTI_ISLANDING_TRIP_TICKS = 4; // 200ms sustained unpowered grid
+    private static final double WAVEFORM_CHECK_MIN_VOLTAGE = 2.0;
+    private static final double UVLO_TRIP_MARGIN = 0.9;
+    private static final int UVLO_TRIP_TICKS = 6; // 300ms sustained undervoltage under overload
+    private static final double OVERVOLTAGE_TRIP_MARGIN = 1.3;
+    private static final double THERMAL_TRIP_TEMPERATURE_C = 125.0;
+
+    // --- Output throttling / brownout classification ---
+    private static final double THROTTLE_ONSET_MARGIN = 1.10; // throttle engages below 110% of minVin
+    private static final double MIN_THROTTLE = 0.1;
+    private static final double BROWNOUT_CURRENT_THRESHOLD = 0.1;
+    private static final double BROWNOUT_SAG_MARGIN = 0.90;
+    private static final double BROWNOUT_THROTTLE_THRESHOLD = 0.95;
+
+    // --- Thermal model ---
+    private static final double AMBIENT_TEMPERATURE_C = 20.0;
+    private static final double MIN_RATED_POWER_W = 100.0;
+    private static final double MIN_BASE_COOLING_COEFF = 1.5;
+    private static final double COOLING_COEFF_DIVISOR = 40.0;
+    private static final double FAN_ONSET_TEMPERATURE_C = 45.0;
+    private static final double FAN_MAX_BONUS = 2.5;
+    private static final double FAN_RAMP_RANGE_C = 20.0;
+    private static final double MIN_HEAT_CAPACITY = 120.0;
+    private static final double HEAT_CAPACITY_FACTOR = 0.25;
+
+    // --- Misc defaults ---
+    private static final double DEFAULT_TARGET_OUTPUT_VOLTAGE = 12.0;
+    private static final double DEFAULT_TEMPERATURE_C = 20.0;
+    private static final double UNINITIALIZED_DEMAND_WATTS = -1.0;
+    private static final double NOMINAL_INPUT_VOLTAGE_DEFAULT = 48.0;
+    private static final double SERVO_TARGET_MULTIPLIER = 1.15;
+    private static final double SERVO_TARGET_OFFSET_V = 0.5;
+    private static final double SOURCE_INTERNAL_RESISTANCE_OHM = 0.05; // 50 mOhm source impedance
+    private static final double MIN_VOLTAGE_FOR_RESISTANCE = 1.0;
+    private static final double MIN_RESISTANCE_OHM = 1e-4;
 
     protected final InputConsumer inputConsumer = new InputConsumer();
     protected final OutputSource outputSource = new OutputSource();
@@ -47,8 +93,8 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
     protected double outputCurrentAmps = 0.0;
     protected double outputPowerWatts = 0.0;
 
-    protected double targetOutputVoltage = 12.0;
-    protected double temperatureCelsius = 20.0;
+    protected double targetOutputVoltage = DEFAULT_TARGET_OUTPUT_VOLTAGE;
+    protected double temperatureCelsius = DEFAULT_TEMPERATURE_C;
     protected boolean tripped = false;
     protected int antiIslandingTicks = 0;
     protected int underVoltageTicks = 0;
@@ -57,7 +103,7 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     protected double inputCurrentCap = 0.0;
     protected boolean outputHungry = false;
-    protected double lastDemandWatts = -1.0;
+    protected double lastDemandWatts = UNINITIALIZED_DEMAND_WATTS;
 
     protected ElectricalState reportedState = ElectricalState.OFF;
 
@@ -144,15 +190,15 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
     }
 
     public double getNominalInputVoltage() {
-        return 48.0;
+        return NOMINAL_INPUT_VOLTAGE_DEFAULT;
     }
 
     public double getServoTargetVoltage() {
-        return getMinInputVoltage() * 1.15 + 0.5;
+        return getMinInputVoltage() * SERVO_TARGET_MULTIPLIER + SERVO_TARGET_OFFSET_V;
     }
 
     public void setNominalInputVoltage(double voltage) {
-        this.tripGraceTicks = 40;
+        this.tripGraceTicks = DEFAULT_TRIP_GRACE_TICKS;
         this.underVoltageTicks = 0;
     }
 
@@ -272,10 +318,10 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         this.tripCooldownTicks = 0;
         this.underVoltageTicks = 0;
         this.antiIslandingTicks = 0;
-        this.tripGraceTicks = 40; // 2-second grace period (40 ticks) so circuit solves and voltages establish without instant re-tripping
+        this.tripGraceTicks = DEFAULT_TRIP_GRACE_TICKS;
         this.inputCurrentCap = 0.0;
         this.outputHungry = false;
-        this.lastDemandWatts = -1.0;
+        this.lastDemandWatts = UNINITIALIZED_DEMAND_WATTS;
         markDirty();
     }
 
@@ -284,6 +330,10 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         super.markRemoved();
         onRemovedFromWorld();
     }
+
+    // ---------------------------------------------------------------------
+    // Tick pipeline
+    // ---------------------------------------------------------------------
 
     /**
      * Executes once per tick from server block entity ticker.
@@ -298,193 +348,196 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         ElectricalGrid inGrid = gridManager.getGridAt(inPos);
         ElectricalGrid outGrid = gridManager.getGridAt(outPos);
 
-        // Synchronize input grid attachment
-        UUID inGridId = inGrid != null ? inGrid.getGridId() : null;
-        if (!java.util.Objects.equals(inGridId, lastInputGridId)) {
-            if (lastInputGridId != null) {
-                for (ElectricalGrid g : gridManager.getAllGrids()) {
-                    if (g.getGridId().equals(lastInputGridId)) {
-                        g.unregisterConsumer(inPos, inputConsumer);
-                        break;
-                    }
-                }
-            }
-            if (inGrid != null) {
-                inGrid.registerConsumer(inPos, inputConsumer);
-            }
-            lastInputGridId = inGridId;
-        } else if (inGrid != null) {
-            List<IElectricConsumer> list = inGrid.getConsumers().get(inPos);
-            if (list == null || !list.contains(inputConsumer)) {
-                inGrid.registerConsumer(inPos, inputConsumer);
-            }
-        }
+        lastInputGridId = syncGridAttachment(gridManager, inGrid, lastInputGridId, inPos, inputConsumer, CONSUMER_OPS);
+        lastOutputGridId = syncGridAttachment(gridManager, outGrid, lastOutputGridId, outPos, outputSource, SOURCE_OPS);
 
-        // Synchronize output grid attachment
-        UUID outGridId = outGrid != null ? outGrid.getGridId() : null;
-        if (!java.util.Objects.equals(outGridId, lastOutputGridId)) {
-            if (lastOutputGridId != null) {
-                for (ElectricalGrid g : gridManager.getAllGrids()) {
-                    if (g.getGridId().equals(lastOutputGridId)) {
-                        g.unregisterSource(outPos, outputSource);
-                        break;
-                    }
-                }
-            }
-            if (outGrid != null) {
-                outGrid.registerSource(outPos, outputSource);
-            }
-            lastOutputGridId = outGridId;
-        } else if (outGrid != null) {
-            List<IElectricSource> list = outGrid.getSources().get(outPos);
-            if (list == null || !list.contains(outputSource)) {
-                outGrid.registerSource(outPos, outputSource);
-            }
-        }
-
-        // Measure input node voltage and frequency from grid, or direct block-to-block cascade
-        double inFreq = 0.0;
-        if (inGrid != null) {
-            this.inputVoltage = inGrid.getNodeVoltage(inPos);
-            inFreq = inGrid.getFrequency();
-        } else {
-            // Direct cascade check: if placed directly against another converter's output port
-            BlockEntity be = world.getBlockEntity(inPos);
-            if (be instanceof AbstractPowerConverterBlockEntity upstreamConverter) {
-                if (upstreamConverter.getOutputPortDirection() == inDir.getOpposite()) {
-                    this.inputVoltage = upstreamConverter.getOutputVoltage();
-                    inFreq = upstreamConverter.getOutputFrequency();
-                    double eta = Math.max(0.1, getEfficiency());
-                    double powerNeeded = (outputPowerWatts / eta) + (tripped ? 0.0 : 2.0);
-                    double currentDrawn = this.inputVoltage > 0.5 ? Math.min(upstreamConverter.getMaxOutputCurrent(), powerNeeded / this.inputVoltage) : 0.0;
-                    this.inputCurrentAmps = currentDrawn;
-                    this.inputPowerWatts = this.inputVoltage * currentDrawn;
-                    upstreamConverter.outputSource.onPowerDrawn(currentDrawn, 0.05);
-                } else {
-                    this.inputVoltage = 0.0;
-                    this.inputCurrentAmps = 0.0;
-                    this.inputPowerWatts = 0.0;
-                }
-            } else {
-                this.inputVoltage = 0.0;
-                this.inputCurrentAmps = 0.0;
-                this.inputPowerWatts = 0.0;
-            }
-        }
-
-        // Disconnection safety: immediately reset output metrics if output port is disconnected
-        if (outGrid == null) {
-            BlockEntity downBe = world.getBlockEntity(outPos);
-            if (!(downBe instanceof AbstractPowerConverterBlockEntity downConv && downConv.getInputPortDirection() == outDir.getOpposite())) {
-                this.outputCurrentAmps = 0.0;
-                this.outputPowerWatts = 0.0;
-                this.actualOutputVoltage = 0.0;
-            }
-        }
+        double inFreq = updateInputMeasurement(world, inGrid, inPos, inDir);
+        handleOutputDisconnectionSafety(world, outGrid, outPos, outDir);
 
         if (tripGraceTicks > 0) {
             tripGraceTicks--;
         }
 
-        // Anti-Islanding Protection check for Grid-Tie Inverters
-        if (isGridTie() && tripGraceTicks == 0) {
-            double outGridV = outGrid != null ? outGrid.getNodeVoltage(outPos) : 0.0;
-            if (outGridV < 20.0) {
-                antiIslandingTicks++;
-                if (antiIslandingTicks >= 4) { // 200ms sustained unpowered grid
-                    this.tripped = true; // Trip offline within 4 ticks
-                }
-            } else {
-                antiIslandingTicks = 0;
-            }
+        checkAntiIslanding(outGrid, outPos);
+        checkWaveformCompatibility(inFreq);
+        checkUndervoltageLockout();
+
+        updateOutputVoltageAndState(outGrid, outPos);
+        updateThermalModel();
+        bookkeepOutputPower(outGrid, outPos);
+    }
+
+    /**
+     * Measures input rail voltage/frequency from the attached grid, or from a directly-cascaded
+     * upstream converter placed block-to-block with no wire between them. Returns the input frequency.
+     */
+    private double updateInputMeasurement(ServerWorld world, ElectricalGrid inGrid, BlockPos inPos, Direction inDir) {
+        if (inGrid != null) {
+            this.inputVoltage = inGrid.getNodeVoltage(inPos);
+            return inGrid.getFrequency();
         }
 
-        // Waveform/frequency incompatibility check
-        if (tripGraceTicks == 0 && !acceptsInputFrequency(inFreq) && this.inputVoltage > 2.0) {
+        // Direct cascade check: if placed directly against another converter's output port
+        BlockEntity be = world.getBlockEntity(inPos);
+        if (be instanceof AbstractPowerConverterBlockEntity upstreamConverter
+            && upstreamConverter.getOutputPortDirection() == inDir.getOpposite()) {
+            return measureFromCascadedUpstream(upstreamConverter);
+        }
+
+        this.inputVoltage = 0.0;
+        this.inputCurrentAmps = 0.0;
+        this.inputPowerWatts = 0.0;
+        return 0.0;
+    }
+
+    private double measureFromCascadedUpstream(AbstractPowerConverterBlockEntity upstreamConverter) {
+        this.inputVoltage = upstreamConverter.getOutputVoltage();
+        // Uses this converter's own (possibly overridden) demand calculation, so a subclass with
+        // custom demand logic (e.g. solar-availability-driven) behaves the same whether it is fed
+        // through a grid or wired block-to-block against another converter.
+        double powerNeeded = calculateInputPowerDemand();
+        double currentDrawn = this.inputVoltage > CASCADE_MIN_VOLTAGE
+            ? Math.min(upstreamConverter.getMaxOutputCurrent(), powerNeeded / this.inputVoltage)
+            : 0.0;
+        this.inputCurrentAmps = currentDrawn;
+        this.inputPowerWatts = this.inputVoltage * currentDrawn;
+        upstreamConverter.outputSource.onPowerDrawn(currentDrawn, TICK_DELTA_SECONDS);
+        return upstreamConverter.getOutputFrequency();
+    }
+
+    /** Immediately zeroes output metrics if the output port has no grid and no cascaded downstream converter. */
+    private void handleOutputDisconnectionSafety(ServerWorld world, ElectricalGrid outGrid, BlockPos outPos, Direction outDir) {
+        if (outGrid != null) {
+            return;
+        }
+        BlockEntity downBe = world.getBlockEntity(outPos);
+        boolean cascadedToDownstreamConverter = downBe instanceof AbstractPowerConverterBlockEntity downConv
+            && downConv.getInputPortDirection() == outDir.getOpposite();
+        if (!cascadedToDownstreamConverter) {
+            this.outputCurrentAmps = 0.0;
+            this.outputPowerWatts = 0.0;
+            this.actualOutputVoltage = 0.0;
+        }
+    }
+
+    /** Anti-Islanding Protection check for Grid-Tie Inverters: trips offline if the output grid goes dead. */
+    private void checkAntiIslanding(ElectricalGrid outGrid, BlockPos outPos) {
+        if (!isGridTie() || tripGraceTicks != 0) {
+            return;
+        }
+        double outGridV = outGrid != null ? outGrid.getNodeVoltage(outPos) : 0.0;
+        if (outGridV < ANTI_ISLANDING_MIN_GRID_VOLTAGE) {
+            antiIslandingTicks++;
+            if (antiIslandingTicks >= ANTI_ISLANDING_TRIP_TICKS) {
+                this.tripped = true;
+            }
+        } else {
+            antiIslandingTicks = 0;
+        }
+    }
+
+    /** Trips if the input rail's frequency doesn't match what this converter accepts. */
+    private void checkWaveformCompatibility(double inFreq) {
+        if (tripGraceTicks == 0 && !acceptsInputFrequency(inFreq) && this.inputVoltage > WAVEFORM_CHECK_MIN_VOLTAGE) {
             this.tripped = true;
         }
+    }
 
+    /**
+     * Undervoltage Lockout (UVLO): latched protection trip upon sustained undervoltage.
+     * Requires manual reset or setting adjustment.
+     */
+    private void checkUndervoltageLockout() {
+        if (tripped) {
+            return;
+        }
+        double minVin = getMinInputVoltage();
+        if (tripGraceTicks == 0 && inputVoltage < minVin * UVLO_TRIP_MARGIN && inputVoltage > DEAD_RAIL_VOLTAGE) {
+            underVoltageTicks++;
+            if (underVoltageTicks >= UVLO_TRIP_TICKS) {
+                this.tripped = true;
+                this.underVoltageTicks = 0;
+            }
+        } else if (inputVoltage >= minVin) {
+            underVoltageTicks = 0;
+        }
+    }
+
+    /** Computes this tick's output EMF and electrical state, or forces a hard shutdown when out of bounds. */
+    private void updateOutputVoltageAndState(ElectricalGrid outGrid, BlockPos outPos) {
         double minVin = getMinInputVoltage();
         double maxVin = getMaxInputVoltage();
+        boolean hardOff = tripped || inputVoltage <= DEAD_RAIL_VOLTAGE || inputVoltage > maxVin * OVERVOLTAGE_TRIP_MARGIN;
 
-        // Undervoltage Lockout (UVLO):
-        // Latched protection trip upon sustained undervoltage. Requires manual reset or setting adjustment.
-        if (!tripped) {
-            if (tripGraceTicks == 0 && inputVoltage < minVin * 0.9 && inputVoltage > 1.0) {
-                underVoltageTicks++;
-                if (underVoltageTicks >= 6) { // 300ms sustained undervoltage under overload
-                    this.tripped = true;
-                    this.underVoltageTicks = 0;
-                }
-            } else if (inputVoltage >= minVin) {
-                underVoltageTicks = 0;
-            }
-        }
-
-        boolean hardOff = tripped || inputVoltage <= 1.0 || inputVoltage > maxVin * 1.3;
         if (hardOff) {
             this.outputVoltageEmf = 0.0;
             this.actualOutputVoltage = 0.0;
             this.outputCurrentAmps = 0.0;
             this.outputPowerWatts = 0.0;
-            if (tripped || inputVoltage <= 1.0) {
-                reportedState = ElectricalState.OFF;
-            } else {
-                reportedState = ElectricalState.SURGE;
-            }
-        } else {
-            double rawTarget = computeOutputVoltage(inputVoltage);
-            this.outputVoltageEmf = rawTarget;
-
-            // Throttle engages only near battery cutoff (below 110% of minVin), NOT during normal discharge
-            double throttleVin = minVin * 1.10;
-            double throttle = 1.0;
-            if (inputVoltage < throttleVin) {
-                throttle = Math.clamp((inputVoltage - minVin) / Math.max(0.1, throttleVin - minVin), 0.1, 1.0);
-            }
-
-            // Real physical circuit response: terminal voltage sags per Ohm's law and solver clamping.
-            // Check terminal voltage under load for brownout classification without mutating EMF.
-            double actualOutV = outGrid != null ? outGrid.getNodeVoltage(outPos) : outputVoltageEmf;
-            this.actualOutputVoltage = actualOutV;
-
-            if (outputCurrentAmps > 0.1 && actualOutV < rawTarget * 0.90) {
-                reportedState = ElectricalState.BROWNOUT;
-            } else if (inputVoltage < minVin || throttle < 0.95) {
-                reportedState = ElectricalState.BROWNOUT;
-            } else {
-                reportedState = ElectricalState.NOMINAL;
-            }
+            this.reportedState = (tripped || inputVoltage <= DEAD_RAIL_VOLTAGE) ? ElectricalState.OFF : ElectricalState.SURGE;
+            return;
         }
 
-        // Thermal accumulation and convective/fan cooling
-        double dt = 0.05;
+        double rawTarget = computeOutputVoltage(inputVoltage);
+        this.outputVoltageEmf = rawTarget;
+
+        // Throttle engages only near battery cutoff, NOT during normal discharge.
+        double throttle = computeThrottleFactor(minVin);
+
+        // Real physical circuit response: terminal voltage sags per Ohm's law and solver clamping.
+        // Check terminal voltage under load for brownout classification without mutating EMF.
+        double actualOutV = outGrid != null ? outGrid.getNodeVoltage(outPos) : outputVoltageEmf;
+        this.actualOutputVoltage = actualOutV;
+
+        if (outputCurrentAmps > BROWNOUT_CURRENT_THRESHOLD && actualOutV < rawTarget * BROWNOUT_SAG_MARGIN) {
+            reportedState = ElectricalState.BROWNOUT;
+        } else if (inputVoltage < minVin || throttle < BROWNOUT_THROTTLE_THRESHOLD) {
+            reportedState = ElectricalState.BROWNOUT;
+        } else {
+            reportedState = ElectricalState.NOMINAL;
+        }
+    }
+
+    /**
+     * Shared by {@link #updateOutputVoltageAndState} and {@link #calculateAvailableOutputCurrent}:
+     * full authority (1.0) above 110% of minVin, linearly ramping down to {@link #MIN_THROTTLE} as
+     * the input rail approaches its cutoff.
+     */
+    private double computeThrottleFactor(double minVin) {
+        double throttleVin = minVin * THROTTLE_ONSET_MARGIN;
+        if (inputVoltage >= throttleVin) {
+            return 1.0;
+        }
+        return Math.clamp((inputVoltage - minVin) / Math.max(0.1, throttleVin - minVin), MIN_THROTTLE, 1.0);
+    }
+
+    /** Thermal accumulation and convective/fan cooling; trips offline at the thermal limit to protect components. */
+    private void updateThermalModel() {
         double lossWatts = Math.max(0.0, inputPowerWatts - outputPowerWatts);
-        double ambient = 20.0;
-        double deltaT = Math.max(0.0, temperatureCelsius - ambient);
+        double deltaAboveAmbient = Math.max(0.0, temperatureCelsius - AMBIENT_TEMPERATURE_C);
 
-        double ratedPower = Math.max(100.0, getMaxOutputCurrent() * getNominalOutputVoltage());
-        double eff = Math.max(0.1, getEfficiency());
+        double ratedPower = Math.max(MIN_RATED_POWER_W, getMaxOutputCurrent() * getNominalOutputVoltage());
+        double eff = Math.max(MIN_EFFICIENCY_FLOOR, getEfficiency());
         double ratedFullLoss = (ratedPower * (1.0 - eff)) / eff;
-
-        double baseCoolingCoeff = Math.max(1.5, ratedFullLoss / 40.0);
+        double baseCoolingCoeff = Math.max(MIN_BASE_COOLING_COEFF, ratedFullLoss / COOLING_COEFF_DIVISOR);
 
         double fanMultiplier = 1.0;
-        if (temperatureCelsius > 45.0) {
-            fanMultiplier = 1.0 + Math.min(2.5, (temperatureCelsius - 45.0) / 20.0);
+        if (temperatureCelsius > FAN_ONSET_TEMPERATURE_C) {
+            fanMultiplier = 1.0 + Math.min(FAN_MAX_BONUS, (temperatureCelsius - FAN_ONSET_TEMPERATURE_C) / FAN_RAMP_RANGE_C);
         }
 
-        double coolingWatts = baseCoolingCoeff * fanMultiplier * deltaT;
-        double heatCapacity = Math.max(120.0, ratedPower * 0.25);
-        double deltaTemp = ((lossWatts - coolingWatts) / heatCapacity) * dt;
-        this.temperatureCelsius = Math.max(ambient, this.temperatureCelsius + deltaTemp);
+        double coolingWatts = baseCoolingCoeff * fanMultiplier * deltaAboveAmbient;
+        double heatCapacity = Math.max(MIN_HEAT_CAPACITY, ratedPower * HEAT_CAPACITY_FACTOR);
+        double deltaTemp = ((lossWatts - coolingWatts) / heatCapacity) * TICK_DELTA_SECONDS;
+        this.temperatureCelsius = Math.max(AMBIENT_TEMPERATURE_C, this.temperatureCelsius + deltaTemp);
 
-        // Thermal hazard check (trips offline at 125°C to protect components)
-        if (this.temperatureCelsius >= 125.0 && !tripped) {
+        if (this.temperatureCelsius >= THERMAL_TRIP_TEMPERATURE_C && !tripped) {
             this.tripped = true;
         }
+    }
 
-        // Output power bookkeeping from measured terminal values
+    /** Output power bookkeeping from measured terminal values, run unconditionally after all physics settles. */
+    private void bookkeepOutputPower(ElectricalGrid outGrid, BlockPos outPos) {
         if (outGrid != null) {
             this.actualOutputVoltage = outGrid.getNodeVoltage(outPos);
             this.outputPowerWatts = Math.max(0.0, actualOutputVoltage * outputCurrentAmps);
@@ -493,6 +546,101 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
             this.outputPowerWatts = outputVoltageEmf * outputCurrentAmps;
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Grid attachment sync (shared between the input-consumer and output-source endpoints)
+    // ---------------------------------------------------------------------
+
+    private interface EndpointOps<T> {
+        void register(ElectricalGrid grid, BlockPos pos, T endpoint);
+        void unregister(ElectricalGrid grid, BlockPos pos, T endpoint);
+        List<T> listAt(ElectricalGrid grid, BlockPos pos);
+    }
+
+    private static final EndpointOps<IElectricConsumer> CONSUMER_OPS = new EndpointOps<>() {
+        @Override
+        public void register(ElectricalGrid grid, BlockPos pos, IElectricConsumer endpoint) {
+            grid.registerConsumer(pos, endpoint);
+        }
+
+        @Override
+        public void unregister(ElectricalGrid grid, BlockPos pos, IElectricConsumer endpoint) {
+            grid.unregisterConsumer(pos, endpoint);
+        }
+
+        @Override
+        public List<IElectricConsumer> listAt(ElectricalGrid grid, BlockPos pos) {
+            return grid.getConsumers().get(pos);
+        }
+    };
+
+    private static final EndpointOps<IElectricSource> SOURCE_OPS = new EndpointOps<>() {
+        @Override
+        public void register(ElectricalGrid grid, BlockPos pos, IElectricSource endpoint) {
+            grid.registerSource(pos, endpoint);
+        }
+
+        @Override
+        public void unregister(ElectricalGrid grid, BlockPos pos, IElectricSource endpoint) {
+            grid.unregisterSource(pos, endpoint);
+        }
+
+        @Override
+        public List<IElectricSource> listAt(ElectricalGrid grid, BlockPos pos) {
+            return grid.getSources().get(pos);
+        }
+    };
+
+    /**
+     * Keeps one endpoint (this converter's input consumer or output source) registered on whichever
+     * grid currently occupies its port position, migrating registration when the grid identity
+     * changes and self-healing if it ever drops out of the current grid's list mid-tick.
+     *
+     * @return the grid id this endpoint is now attached to (or {@code null} if unattached)
+     */
+    private <T> UUID syncGridAttachment(
+        GridManager gridManager,
+        ElectricalGrid grid,
+        UUID lastGridId,
+        BlockPos pos,
+        T endpoint,
+        EndpointOps<T> ops
+    ) {
+        UUID gridId = grid != null ? grid.getGridId() : null;
+        if (!Objects.equals(gridId, lastGridId)) {
+            if (lastGridId != null) {
+                ElectricalGrid oldGrid = findGridById(gridManager, lastGridId);
+                if (oldGrid != null) {
+                    ops.unregister(oldGrid, pos, endpoint);
+                }
+            }
+            if (grid != null) {
+                ops.register(grid, pos, endpoint);
+            }
+            return gridId;
+        }
+
+        if (grid != null) {
+            List<T> list = ops.listAt(grid, pos);
+            if (list == null || !list.contains(endpoint)) {
+                ops.register(grid, pos, endpoint);
+            }
+        }
+        return lastGridId;
+    }
+
+    private static ElectricalGrid findGridById(GridManager gridManager, UUID gridId) {
+        for (ElectricalGrid g : gridManager.getAllGrids()) {
+            if (g.getGridId().equals(gridId)) {
+                return g;
+            }
+        }
+        return null;
+    }
+
+    // ---------------------------------------------------------------------
+    // Subclass hooks
+    // ---------------------------------------------------------------------
 
     /**
      * Subclasses calculate regulated output EMF based on conversion topology.
@@ -503,25 +651,20 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
      * Calculates input power demand in Watts.
      */
     protected double calculateInputPowerDemand() {
-        if (tripped || inputVoltage <= 1.0) {
+        if (tripped || inputVoltage <= DEAD_RAIL_VOLTAGE) {
             return 0.0;
         }
-        double eta = Math.max(0.1, getEfficiency());
-        return (outputPowerWatts / eta) + (tripped ? 0.0 : 2.0);
+        double eta = Math.max(MIN_EFFICIENCY_FLOOR, getEfficiency());
+        return (outputPowerWatts / eta) + IDLE_DRAW_WATTS;
     }
 
     /**
      * Calculates available output current in Amperes.
      */
     protected double calculateAvailableOutputCurrent() {
-        if (tripped || inputVoltage <= 1.0) return 0.0;
+        if (tripped || inputVoltage <= DEAD_RAIL_VOLTAGE) return 0.0;
         double rated = Math.max(0.0, getMaxOutputCurrent());
-        double minVin = getMinInputVoltage();
-        double throttleVin = minVin * 1.10;
-        double throttle = 1.0;
-        if (inputVoltage < throttleVin) {
-            throttle = Math.clamp((inputVoltage - minVin) / Math.max(0.1, throttleVin - minVin), 0.1, 1.0);
-        }
+        double throttle = computeThrottleFactor(getMinInputVoltage());
         return rated * throttle;
     }
 
@@ -593,8 +736,8 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         public double getEquivalentResistance() {
             double p = getNominalPowerDemand();
             if (p <= 0.0) return Double.POSITIVE_INFINITY;
-            double v = Math.max(1.0, inputVoltage);
-            return Math.max(1e-4, (v * v) / p);
+            double v = Math.max(MIN_VOLTAGE_FOR_RESISTANCE, inputVoltage);
+            return Math.max(MIN_RESISTANCE_OHM, (v * v) / p);
         }
 
         @Override
@@ -637,7 +780,7 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
         @Override
         public double getInternalResistance() {
-            return 0.05; // 50 mOhm source impedance
+            return SOURCE_INTERNAL_RESISTANCE_OHM;
         }
 
         @Override
@@ -658,8 +801,7 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         @Override
         public void onPowerDrawn(double currentAmps, double durationSeconds) {
             double rated = Math.max(0.0, AbstractPowerConverterBlockEntity.this.getMaxOutputCurrent());
-            double clamped = Math.min(Math.max(0.0, currentAmps), rated);
-            outputCurrentAmps = Math.max(0.0, clamped);
+            outputCurrentAmps = Math.clamp(currentAmps, 0.0, rated);
         }
     }
 
@@ -668,13 +810,13 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
     @Override
     protected void readData(ReadView view) {
         super.readData(view);
-        this.targetOutputVoltage = view.getDouble("target_voltage", 12.0);
-        this.temperatureCelsius = view.getDouble("temperature", 20.0);
+        this.targetOutputVoltage = view.getDouble("target_voltage", DEFAULT_TARGET_OUTPUT_VOLTAGE);
+        this.temperatureCelsius = view.getDouble("temperature", DEFAULT_TEMPERATURE_C);
         this.tripped = view.getBoolean("tripped", false);
-        this.tripGraceTicks = 40;
+        this.tripGraceTicks = DEFAULT_TRIP_GRACE_TICKS;
         this.inputCurrentCap = 0.0;
         this.outputHungry = false;
-        this.lastDemandWatts = -1.0;
+        this.lastDemandWatts = UNINITIALIZED_DEMAND_WATTS;
         this.reportedState = ElectricalState.OFF;
     }
 

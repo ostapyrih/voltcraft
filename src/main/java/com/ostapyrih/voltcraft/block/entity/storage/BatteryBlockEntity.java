@@ -17,7 +17,6 @@ import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -352,7 +351,6 @@ public class BatteryBlockEntity extends BlockEntity implements IElectricStorage 
             double overvoltage = terminalVoltage - getMaxOperatingVoltage();
             double cellOvervoltage = overvoltage / (double) seriesCount;
             double cellCurrent = deliveredCurrent / (double) parallelCount;
-            double cellR = BatterySimulation.getInternalResistance(chemistry, stateOfCharge, temperatureCelsius, stateOfHealth);
             double heatingWatts = (cellOvervoltage * cellCurrent) * seriesCount * parallelCount;
             double cellThermalMass = chemistry.getCapacityAmpHours() <= 5.0 ? 40.0 : (chemistry.getCapacityAmpHours() * 20.0);
             double totalThermalMass = Math.max(10.0, cellThermalMass * seriesCount * parallelCount);
