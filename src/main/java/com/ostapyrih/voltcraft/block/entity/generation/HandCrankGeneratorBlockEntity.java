@@ -2,11 +2,7 @@ package com.ostapyrih.voltcraft.block.entity.generation;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
-import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
-import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -14,22 +10,16 @@ import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
-
 /**
  * BlockEntity for the 100W Hand-Crank Dynamo.
  * Converts mechanical flywheel inertia into 12V DC power.
  */
-public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElectricSource, IGridTopologyListener {
+public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElectricSource {
 
     private double flywheelSpeed = 0.0; // 0.0 to 1.0 normalized rotational speed
     private double electromotiveForce = 0.0;
     private double lastDrawnCurrent = 0.0;
     private double totalEnergyJoules = 0.0;
-
-    private UUID lastGridId = null;
 
     public HandCrankGeneratorBlockEntity(BlockPos pos, BlockState state) {
         super(VoltcraftBlockEntityTypes.HAND_CRANK_GENERATOR_BLOCK_ENTITY, pos, state);
@@ -55,6 +45,10 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElect
         return totalEnergyJoules;
     }
 
+    /**
+     * Spins the flywheel down and recomputes EMF. Grid participation is handled
+     * centrally by {@code ElectricalGrid.refreshParticipants} — no registration here.
+     */
     public void tick(ServerWorld world) {
         // 1. Mechanical flywheel decay & electrical generation
         if (flywheelSpeed > 0.001) {
@@ -67,56 +61,6 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElect
         } else {
             this.flywheelSpeed = 0.0;
             this.electromotiveForce = 0.0;
-        }
-
-        // 2. Grid network registration
-        GridManager gridManager = GridManager.get(world);
-        ElectricalGrid currentGrid = gridManager.getGridAt(pos);
-
-        if (currentGrid == null) {
-            gridManager.onConductorPlaced(world, pos, ConductorType.INSULATED_COPPER);
-            currentGrid = gridManager.getGridAt(pos);
-        }
-
-        UUID currentGridId = currentGrid != null ? currentGrid.getGridId() : null;
-
-        if (!Objects.equals(currentGridId, lastGridId)) {
-            if (lastGridId != null) {
-                for (ElectricalGrid g : gridManager.getAllGrids()) {
-                    if (g.getGridId().equals(lastGridId)) {
-                        g.unregisterSource(pos, this);
-                        break;
-                    }
-                }
-            }
-            if (currentGrid != null) {
-                currentGrid.registerSource(pos, this);
-            }
-            lastGridId = currentGridId;
-        } else if (currentGrid != null) {
-            List<IElectricSource> registered = currentGrid.getSources().get(pos);
-            if (registered == null || !registered.contains(this)) {
-                currentGrid.registerSource(pos, this);
-            }
-        }
-
-        if (currentGrid == null) {
-            this.lastDrawnCurrent = 0.0;
-        }
-    }
-
-    @Override
-    public void markRemoved() {
-        super.markRemoved();
-        if (world instanceof ServerWorld sw) {
-            GridManager gm = GridManager.get(sw);
-            for (ElectricalGrid g : gm.getAllGrids()) {
-                g.unregisterSource(pos, this);
-            }
-            ElectricalGrid grid = gm.getGridAt(pos);
-            if (grid != null) {
-                grid.unregisterSource(pos, this);
-            }
         }
     }
 
@@ -166,11 +110,6 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElect
         // Electromagnetic counter-torque (back-EMF damping slows the flywheel faster under load)
         double backEmfDamping = (powerW / 100.0) * 0.05;
         this.flywheelSpeed = Math.max(0.0, this.flywheelSpeed - backEmfDamping);
-    }
-
-    @Override
-    public void onGridTopologyChanged() {
-        this.lastGridId = null;
     }
 
     // ==================== Serialization ====================

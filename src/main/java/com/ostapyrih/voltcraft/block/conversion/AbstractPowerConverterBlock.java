@@ -1,6 +1,6 @@
 package com.ostapyrih.voltcraft.block.conversion;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity;
 import net.minecraft.block.*;
 import net.minecraft.block.entity.BlockEntity;
@@ -18,8 +18,6 @@ import net.minecraft.util.Formatting;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
@@ -28,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
  * Base block for all multi-port conversion hardware (DC-DC converters, AC transformers, rectifiers, inverters).
  * Directional: Back face is Electrical Input (Primary), Front face is Electrical Output (Secondary).
  */
-public abstract class AbstractPowerConverterBlock extends Block implements BlockEntityProvider, IElectricalConnectable {
+public abstract class AbstractPowerConverterBlock extends AbstractGridBlock {
 
     public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
 
@@ -60,25 +58,16 @@ public abstract class AbstractPowerConverterBlock extends Block implements Block
         return false; // Multi-port converter isolated boundary: do not conduct through directly
     }
 
+    /**
+     * Converters never hold a grid node of their own: the input and output ports couple
+     * two isolated networks through the endpoints discovered per-tick by
+     * {@code ElectricalGrid.refreshParticipants}. Seeding a node here would link
+     * conductors from the input side to the output side straight through the converter
+     * position and short the isolation the conversion model depends on.
+     */
     @Override
-    public VoxelShape getOutlineShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
-        return VoxelShapes.fullCube();
-    }
-
-    @Override
-    public VoxelShape getCollisionShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
-        return VoxelShapes.fullCube();
-    }
-
-    @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock())) {
-            BlockEntity be = world.getBlockEntity(pos);
-            if (be instanceof AbstractPowerConverterBlockEntity converter) {
-                converter.onRemovedFromWorld();
-            }
-        }
-        super.onStateReplaced(state, world, pos, moved);
+    protected boolean shouldSeedNode(BlockState state) {
+        return false;
     }
 
     @Override

@@ -1,6 +1,6 @@
 package com.ostapyrih.voltcraft.block.generation;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.entity.generation.HandCrankGeneratorBlockEntity;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.block.*;
@@ -28,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
  * 100W Manual Hand-Crank DC Dynamo.
  * Players right-click to spin the internal flywheel, converting player hunger/exhaustion into DC electrical power.
  */
-public class HandCrankGeneratorBlock extends BlockWithEntity implements IElectricalConnectable {
+public class HandCrankGeneratorBlock extends AbstractGridBlock {
 
     public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
     public static final MapCodec<HandCrankGeneratorBlock> CODEC = createCodec(HandCrankGeneratorBlock::new);
@@ -41,7 +41,7 @@ public class HandCrankGeneratorBlock extends BlockWithEntity implements IElectri
     }
 
     @Override
-    protected MapCodec<? extends BlockWithEntity> getCodec() {
+    protected MapCodec<? extends Block> getCodec() {
         return CODEC;
     }
 
@@ -63,16 +63,6 @@ public class HandCrankGeneratorBlock extends BlockWithEntity implements IElectri
     @Override
     public BlockRenderType getRenderType(BlockState state) {
         return BlockRenderType.MODEL;
-    }
-
-    @Override
-    public boolean canConnect(BlockView world, BlockPos pos, Direction side, BlockState state) {
-        return true; // All sides can connect conductors
-    }
-
-    @Override
-    public boolean isThroughConductor() {
-        return false;
     }
 
     @Override

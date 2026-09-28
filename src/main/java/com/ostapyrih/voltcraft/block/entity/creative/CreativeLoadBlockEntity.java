@@ -2,13 +2,10 @@ package com.ostapyrih.voltcraft.block.entity.creative;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
-import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.CreativeLoadScreenHandler;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeLoadLogic;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeLoadLogic.LoadMode;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
@@ -17,25 +14,19 @@ import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.screen.PropertyDelegate;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
-
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
 
 /**
  * Creative-only electrical load block for testing circuit behavior, voltage drops,
  * transformer loading, inverter THD and overcurrent trips.
  * Supports Constant Resistance, Constant Power, and Constant Current modes.
  */
-public class CreativeLoadBlockEntity extends BlockEntity implements IElectricConsumer, IGridTopologyListener, ExtendedScreenHandlerFactory<BlockPos> {
+public class CreativeLoadBlockEntity extends BlockEntity implements IElectricConsumer, ExtendedScreenHandlerFactory<BlockPos> {
 
     private final CreativeLoadLogic logic;
-    private UUID lastGridId = null;
 
     private final PropertyDelegate propertyDelegate = new PropertyDelegate() {
         @Override
@@ -173,63 +164,9 @@ public class CreativeLoadBlockEntity extends BlockEntity implements IElectricCon
         return val;
     }
 
-    @Override
-    public void markRemoved() {
-        super.markRemoved();
-        onRemovedFromWorld();
-    }
-
-    public void tick(ServerWorld world) {
-        GridManager gridManager = GridManager.get(world);
-        ElectricalGrid currentGrid = gridManager.getGridAt(pos);
-
-        // Self-heal / seed grid node if missing on chunk/world load
-        if (currentGrid == null) {
-            gridManager.onConductorPlaced(world, pos, com.ostapyrih.voltcraft.block.cable.ConductorType.HEAVY_COPPER);
-            currentGrid = gridManager.getGridAt(pos);
-        }
-
-        UUID currentGridId = currentGrid != null ? currentGrid.getGridId() : null;
-
-        if (!Objects.equals(currentGridId, lastGridId)) {
-            if (lastGridId != null) {
-                for (ElectricalGrid g : gridManager.getAllGrids()) {
-                    if (g.getGridId().equals(lastGridId)) {
-                        g.unregisterConsumer(pos, this);
-                        break;
-                    }
-                }
-            }
-            if (currentGrid != null) {
-                currentGrid.registerConsumer(pos, this);
-            }
-            lastGridId = currentGridId;
-        } else if (currentGrid != null) {
-            List<IElectricConsumer> registered = currentGrid.getConsumers().get(pos);
-            if (registered == null || !registered.contains(this)) {
-                currentGrid.registerConsumer(pos, this);
-            }
-        }
-
-        // Disconnection safety: if unattached to any grid, immediately zero out measurements
-        if (currentGrid == null) {
-            this.logic.onPowerReceived(0.0, 0.0, 0.05);
-        }
-    }
-
-    public void onRemovedFromWorld() {
-        if (world instanceof ServerWorld sw) {
-            GridManager gm = GridManager.get(sw);
-            for (ElectricalGrid g : gm.getAllGrids()) {
-                g.unregisterConsumer(pos, this);
-            }
-            ElectricalGrid grid = gm.getGridAt(pos);
-            if (grid != null) {
-                grid.unregisterConsumer(pos, this);
-            }
-        }
-        this.logic.onPowerReceived(0.0, 0.0, 0.05);
-    }
+    // Grid participation is handled centrally by ElectricalGrid.refreshParticipants,
+    // which discovers this consumer via world.getBlockEntity(nodePos) every tick.
+    // No per-block tick, registration cache, or removal hook is needed here.
 
     // ==================== IElectricComponent ====================
 
@@ -278,11 +215,6 @@ public class CreativeLoadBlockEntity extends BlockEntity implements IElectricCon
     @Override
     public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds) {
         logic.onPowerReceived(terminalVoltage, deliveredCurrent, durationSeconds);
-    }
-
-    @Override
-    public void onGridTopologyChanged() {
-        this.lastGridId = null;
     }
 
     // ==================== Serialization ====================

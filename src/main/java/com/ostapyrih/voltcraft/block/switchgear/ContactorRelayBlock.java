@@ -1,11 +1,12 @@
 package com.ostapyrih.voltcraft.block.switchgear;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ShapeContext;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
@@ -24,7 +25,7 @@ import net.minecraft.world.block.WireOrientation;
  * 100A redstone-driven electromagnetic power contactor relay.
  * Applying redstone power energizes the coil and closes the contact.
  */
-public class ContactorRelayBlock extends Block implements IElectricalConnectable {
+public class ContactorRelayBlock extends AbstractGridBlock {
 
     public static final BooleanProperty POWERED = Properties.POWERED;
     public static final BooleanProperty CLOSED = BooleanProperty.of("closed");
@@ -58,6 +59,30 @@ public class ContactorRelayBlock extends Block implements IElectricalConnectable
         return state.get(CLOSED);
     }
 
+    /**
+     * Through-conductor when closed ( {@code canConnect} already returns false while
+     * open, so the open state never merges grids).
+     */
+    @Override
+    public boolean isThroughConductor() {
+        return true;
+    }
+
+    @Override
+    protected ConductorType getPlacementConductorType() {
+        return ConductorType.HEAVY_COPPER;
+    }
+
+    @Override
+    protected boolean shouldSeedNode(BlockState state) {
+        return state.get(CLOSED);
+    }
+
+    @Override
+    public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
+        return null; // Passive relay: no block entity.
+    }
+
     @Override
     protected void neighborUpdate(
         BlockState state,
@@ -89,21 +114,5 @@ public class ContactorRelayBlock extends Block implements IElectricalConnectable
                 }
             }
         }
-    }
-
-    @Override
-    protected void onBlockAdded(BlockState state, World world, BlockPos pos, BlockState oldState, boolean notify) {
-        super.onBlockAdded(state, world, pos, oldState, notify);
-        if (!world.isClient() && !state.isOf(oldState.getBlock()) && state.get(CLOSED)) {
-            GridManager.get((ServerWorld) world).onConductorPlaced((ServerWorld) world, pos, ConductorType.HEAVY_COPPER);
-        }
-    }
-
-    @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock()) && state.get(CLOSED)) {
-            GridManager.get(world).onConductorRemoved(world, pos);
-        }
-        super.onStateReplaced(state, world, pos, moved);
     }
 }

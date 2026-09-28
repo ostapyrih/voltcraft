@@ -1,11 +1,12 @@
 package com.ostapyrih.voltcraft.block.switchgear;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ShapeContext;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.server.world.ServerWorld;
@@ -28,7 +29,7 @@ import net.minecraft.world.World;
  * 100A manual disconnect knife switch.
  * Right-click flips the blade, opening or closing the electrical circuit.
  */
-public class KnifeSwitchBlock extends Block implements IElectricalConnectable {
+public class KnifeSwitchBlock extends AbstractGridBlock {
 
     public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
     public static final BooleanProperty OPEN = BooleanProperty.of("open");
@@ -67,6 +68,30 @@ public class KnifeSwitchBlock extends Block implements IElectricalConnectable {
         return !state.get(OPEN);
     }
 
+    /**
+     * Through-conductor when closed ( {@code canConnect} already returns false while
+     * open, so an open blade never merges grids).
+     */
+    @Override
+    public boolean isThroughConductor() {
+        return true;
+    }
+
+    @Override
+    protected ConductorType getPlacementConductorType() {
+        return ConductorType.HEAVY_COPPER;
+    }
+
+    @Override
+    protected boolean shouldSeedNode(BlockState state) {
+        return !state.get(OPEN);
+    }
+
+    @Override
+    public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
+        return null; // Passive switch: no block entity.
+    }
+
     @Override
     protected ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player, BlockHitResult hit) {
         boolean newOpen = !state.get(OPEN);
@@ -85,21 +110,5 @@ public class KnifeSwitchBlock extends Block implements IElectricalConnectable {
         }
 
         return ActionResult.SUCCESS;
-    }
-
-    @Override
-    protected void onBlockAdded(BlockState state, World world, BlockPos pos, BlockState oldState, boolean notify) {
-        super.onBlockAdded(state, world, pos, oldState, notify);
-        if (!world.isClient() && !state.isOf(oldState.getBlock()) && !state.get(OPEN)) {
-            GridManager.get((ServerWorld) world).onConductorPlaced((ServerWorld) world, pos, ConductorType.HEAVY_COPPER);
-        }
-    }
-
-    @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock()) && !state.get(OPEN)) {
-            GridManager.get(world).onConductorRemoved(world, pos);
-        }
-        super.onStateReplaced(state, world, pos, moved);
     }
 }

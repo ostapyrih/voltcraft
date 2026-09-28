@@ -1,10 +1,8 @@
 package com.ostapyrih.voltcraft.block.generation;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
-import com.ostapyrih.voltcraft.block.cable.ConductorType;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.entity.generation.SolarPanelBlockEntity;
 import com.ostapyrih.voltcraft.simulation.generation.SolarPanelType;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.block.*;
@@ -25,12 +23,12 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Photovoltaic solar panel block with slab-style 6-pixel height.
- * Participates in the electrical grid as an endpoint source, exactly like {@code BatteryBlock}:
- * implements {@link IElectricalConnectable} so that a cable placed next to a panel merges the
- * two grids, and drives {@code onConductorPlaced} / {@code onConductorRemoved} on lifecycle
- * events so topology stays consistent through placement, destruction, and chunk reloads.
+ * Participates in the electrical grid as a through-conductor endpoint source: its own node
+ * hosts the Thevenin source (discovered per-tick by {@code ElectricalGrid}), and returning
+ * {@code true} from {@code isThroughConductor} lets a cable placed adjacent to the panel
+ * merge grids in either placement order.
  */
-public class SolarPanelBlock extends BlockWithEntity implements IElectricalConnectable {
+public class SolarPanelBlock extends AbstractGridBlock {
 
     public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
     protected static final VoxelShape SLAB_SHAPE = Block.createCuboidShape(0.0, 0.0, 0.0, 16.0, 6.0, 16.0);
@@ -48,7 +46,7 @@ public class SolarPanelBlock extends BlockWithEntity implements IElectricalConne
     }
 
     @Override
-    protected MapCodec<? extends BlockWithEntity> getCodec() {
+    protected MapCodec<? extends Block> getCodec() {
         return RecordCodecBuilder.mapCodec(instance ->
             instance.group(createSettingsCodec())
                 .apply(instance, s -> new SolarPanelBlock(s, panelType))
@@ -114,25 +112,5 @@ public class SolarPanelBlock extends BlockWithEntity implements IElectricalConne
                 spbe.tick(sw);
             }
         };
-    }
-
-    @Override
-    protected void onBlockAdded(BlockState state, World world, BlockPos pos, BlockState oldState, boolean notify) {
-        super.onBlockAdded(state, world, pos, oldState, notify);
-        if (!world.isClient() && !state.isOf(oldState.getBlock())) {
-            GridManager.get((ServerWorld) world).onConductorPlaced((ServerWorld) world, pos, ConductorType.INSULATED_COPPER);
-        }
-    }
-
-    @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock())) {
-            BlockEntity be = world.getBlockEntity(pos);
-            if (be instanceof SolarPanelBlockEntity spbe) {
-                spbe.onRemovedFromWorld();
-            }
-            GridManager.get(world).onConductorRemoved(world, pos);
-        }
-        super.onStateReplaced(state, world, pos, moved);
     }
 }

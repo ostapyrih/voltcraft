@@ -1,28 +1,18 @@
 package com.ostapyrih.voltcraft.block.storage;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.ShapeContext;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.BlockEntityTicker;
-import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
@@ -31,7 +21,7 @@ import org.jetbrains.annotations.Nullable;
  * Stationary electrochemical battery storage block (BESS).
  * Houses series/parallel chemistry stacks and interfaces directly with the electrical grid.
  */
-public class BatteryBlock extends Block implements BlockEntityProvider, IElectricalConnectable {
+public class BatteryBlock extends AbstractGridBlock {
 
     private final BatteryChemistry chemistry;
     private final int seriesCount;
@@ -61,14 +51,18 @@ public class BatteryBlock extends Block implements BlockEntityProvider, IElectri
         return true;
     }
 
+    /**
+     * Batteries join adjacent cable grids in either placement order, so they stay
+     * through-conductors (as before the consolidation).
+     */
     @Override
-    public VoxelShape getOutlineShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
-        return VoxelShapes.fullCube();
+    public boolean isThroughConductor() {
+        return true;
     }
 
     @Override
-    public VoxelShape getCollisionShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
-        return VoxelShapes.fullCube();
+    protected ConductorType getPlacementConductorType() {
+        return ConductorType.HEAVY_COPPER;
     }
 
     @Nullable
@@ -77,46 +71,8 @@ public class BatteryBlock extends Block implements BlockEntityProvider, IElectri
         return new BatteryBlockEntity(pos, state, chemistry, seriesCount, parallelCount);
     }
 
-    @Nullable
-    @Override
-    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(World world, BlockState state, BlockEntityType<T> type) {
-        return world.isClient() ? null : (w, p, s, be) -> {
-            if (be instanceof BatteryBlockEntity bbe) {
-                bbe.tick((ServerWorld) w);
-            }
-        };
-    }
-
-    @Override
-    protected void onBlockAdded(BlockState state, World world, BlockPos pos, BlockState oldState, boolean notify) {
-        super.onBlockAdded(state, world, pos, oldState, notify);
-        if (!world.isClient() && !state.isOf(oldState.getBlock())) {
-            GridManager.get((ServerWorld) world).onConductorPlaced((ServerWorld) world, pos, ConductorType.HEAVY_COPPER);
-            ElectricalGrid grid = GridManager.get((ServerWorld) world).getGridAt(pos);
-            if (grid != null) {
-                BlockEntity be = world.getBlockEntity(pos);
-                if (be instanceof BatteryBlockEntity bbe) {
-                    grid.registerSource(pos, bbe);
-                }
-            }
-        }
-    }
-
-    @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock())) {
-            BlockEntity be = world.getBlockEntity(pos);
-            if (be instanceof BatteryBlockEntity bbe) {
-                bbe.onRemovedFromWorld();
-            }
-            ElectricalGrid grid = GridManager.get(world).getGridAt(pos);
-            if (grid != null) {
-                grid.unregisterSource(pos);
-            }
-            GridManager.get(world).onConductorRemoved(world, pos);
-        }
-        super.onStateReplaced(state, world, pos, moved);
-    }
+    // No ticker: the storage has no per-block tick work. Grid participation is
+    // discovered centrally by ElectricalGrid.refreshParticipants.
 
     @Override
     protected ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player, BlockHitResult hit) {

@@ -27,4 +27,18 @@ public interface IElectricConverter extends IElectricComponent {
      * @return Target regulated output voltage in Volts.
      */
     double getTargetOutputVoltage();
+
+    /**
+     * @return The source endpoint exposed on the output port, or {@code null} if none.
+     * Used by the grid refresh pass to discover converter outputs without
+     * special-casing concrete classes.
+     */
+    default com.ostapyrih.voltcraft.api.energy.IElectricSource getOutputEndpoint() { return null; }
+
+    /**
+     * @return The consumer endpoint exposed on the input port, or {@code null} if none.
+     * Used by the grid refresh pass to discover converter inputs without
+     * special-casing concrete classes.
+     */
+    default com.ostapyrih.voltcraft.api.energy.IElectricConsumer getInputEndpoint() { return null; }
 }

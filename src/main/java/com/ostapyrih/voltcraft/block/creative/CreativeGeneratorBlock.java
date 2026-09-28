@@ -1,21 +1,13 @@
 package com.ostapyrih.voltcraft.block.creative;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.block.entity.creative.CreativeGeneratorBlockEntity;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
-import net.minecraft.block.Block;
-import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.ShapeContext;
 import net.minecraft.block.entity.BlockEntity;
-import net.minecraft.block.entity.BlockEntityTicker;
-import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
-import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Formatting;
@@ -23,8 +15,6 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
@@ -34,7 +24,7 @@ import org.jetbrains.annotations.Nullable;
  * Connects directly to the electrical grid, supplying an adjustable EMF and current capacity.
  * Right-click opens the interactive telemetry and configuration dashboard.
  */
-public class CreativeGeneratorBlock extends Block implements BlockEntityProvider, IElectricalConnectable {
+public class CreativeGeneratorBlock extends AbstractGridBlock {
 
     public CreativeGeneratorBlock(Settings settings) {
         super(settings);
@@ -45,14 +35,18 @@ public class CreativeGeneratorBlock extends Block implements BlockEntityProvider
         return true;
     }
 
+    /**
+     * Creative test sources join adjacent cable grids in either placement order, so
+     * they stay through-conductors (as before the consolidation).
+     */
     @Override
-    public VoxelShape getOutlineShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
-        return VoxelShapes.fullCube();
+    public boolean isThroughConductor() {
+        return true;
     }
 
     @Override
-    public VoxelShape getCollisionShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
-        return VoxelShapes.fullCube();
+    protected ConductorType getPlacementConductorType() {
+        return ConductorType.HEAVY_COPPER;
     }
 
     @Nullable
@@ -61,30 +55,8 @@ public class CreativeGeneratorBlock extends Block implements BlockEntityProvider
         return new CreativeGeneratorBlockEntity(pos, state);
     }
 
-    @Nullable
-    @Override
-    public <T extends BlockEntity> BlockEntityTicker<T> getTicker(World world, BlockState state, BlockEntityType<T> type) {
-        return world.isClient() ? null : (w, p, s, be) -> {
-            if (be instanceof CreativeGeneratorBlockEntity gen) {
-                gen.tick((ServerWorld) w);
-            }
-        };
-    }
-
-    @Override
-    protected void onBlockAdded(BlockState state, World world, BlockPos pos, BlockState oldState, boolean notify) {
-        super.onBlockAdded(state, world, pos, oldState, notify);
-        if (!world.isClient() && !state.isOf(oldState.getBlock())) {
-            GridManager.get((ServerWorld) world).onConductorPlaced((ServerWorld) world, pos, ConductorType.HEAVY_COPPER);
-            ElectricalGrid grid = GridManager.get((ServerWorld) world).getGridAt(pos);
-            if (grid != null) {
-                BlockEntity be = world.getBlockEntity(pos);
-                if (be instanceof CreativeGeneratorBlockEntity gen) {
-                    grid.registerSource(pos, gen);
-                }
-            }
-        }
-    }
+    // No ticker: no per-block tick work. Grid participation is discovered
+    // centrally by ElectricalGrid.refreshParticipants.
 
     @Override
     protected ActionResult onUseWithItem(ItemStack stack, BlockState state, World world, BlockPos pos, PlayerEntity player, Hand hand, BlockHitResult hit) {
@@ -114,21 +86,5 @@ public class CreativeGeneratorBlock extends Block implements BlockEntityProvider
             }
         }
         return ActionResult.SUCCESS;
-    }
-
-    @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock())) {
-            BlockEntity be = world.getBlockEntity(pos);
-            if (be instanceof CreativeGeneratorBlockEntity gen) {
-                gen.onRemovedFromWorld();
-            }
-            ElectricalGrid grid = GridManager.get(world).getGridAt(pos);
-            if (grid != null) {
-                grid.unregisterSource(pos);
-            }
-            GridManager.get(world).onConductorRemoved(world, pos);
-        }
-        super.onStateReplaced(state, world, pos, moved);
     }
 }

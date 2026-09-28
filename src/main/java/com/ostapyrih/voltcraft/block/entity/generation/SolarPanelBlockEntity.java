@@ -2,14 +2,10 @@ package com.ostapyrih.voltcraft.block.entity.generation;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
-import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
-import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.generation.SolarPanelBlock;
 import com.ostapyrih.voltcraft.simulation.generation.SolarIrradianceSimulation;
 import com.ostapyrih.voltcraft.simulation.generation.SolarPanelType;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -17,15 +13,11 @@ import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
-
 /**
  * BlockEntity for Photovoltaic Solar Panels.
  * Exposes solar-generated DC EMF and dynamic current into the electrical grid.
  */
-public class SolarPanelBlockEntity extends BlockEntity implements IElectricSource, IGridTopologyListener {
+public class SolarPanelBlockEntity extends BlockEntity implements IElectricSource {
 
     private final SolarPanelType panelType;
     private double currentIrradiance = 0.0;
@@ -35,8 +27,6 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
     private double peakPowerAvailable = 0.0;
     private double lastDrawnCurrent = 0.0;
     private double totalEnergyGeneratedJoules = 0.0;
-
-    private UUID lastGridId = null;
 
     public SolarPanelBlockEntity(BlockPos pos, BlockState state, SolarPanelType panelType) {
         super(VoltcraftBlockEntityTypes.SOLAR_PANEL_BLOCK_ENTITY, pos, state);
@@ -71,6 +61,10 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
         return totalEnergyGeneratedJoules;
     }
 
+    /**
+     * Recomputes irradiance and panel characteristics. Grid participation is handled
+     * centrally by {@code ElectricalGrid.refreshParticipants} — no registration here.
+     */
     public void tick(ServerWorld world) {
         // 1. Calculate celestial solar irradiance and electrical characteristics
         this.currentIrradiance = SolarIrradianceSimulation.calculateIrradiance(world, pos, panelType);
@@ -82,47 +76,6 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
         this.internalResistance = output.internalResistanceOhms();
         this.maxOutputCurrent = output.maxCurrentAmps();
         this.peakPowerAvailable = output.peakPowerAvailableWatts();
-
-        // 2. Grid network registration
-        GridManager gridManager = GridManager.get(world);
-        ElectricalGrid currentGrid = gridManager.getGridAt(pos);
-
-        if (currentGrid == null) {
-            gridManager.onConductorPlaced(world, pos, ConductorType.INSULATED_COPPER);
-            currentGrid = gridManager.getGridAt(pos);
-        }
-
-        UUID currentGridId = currentGrid != null ? currentGrid.getGridId() : null;
-
-        if (!Objects.equals(currentGridId, lastGridId)) {
-            if (lastGridId != null) {
-                for (ElectricalGrid g : gridManager.getAllGrids()) {
-                    if (g.getGridId().equals(lastGridId)) {
-                        g.unregisterSource(pos, this);
-                        break;
-                    }
-                }
-            }
-            if (currentGrid != null) {
-                currentGrid.registerSource(pos, this);
-            }
-            lastGridId = currentGridId;
-        } else if (currentGrid != null) {
-            List<IElectricSource> registered = currentGrid.getSources().get(pos);
-            if (registered == null || !registered.contains(this)) {
-                currentGrid.registerSource(pos, this);
-            }
-        }
-
-        if (currentGrid == null) {
-            this.lastDrawnCurrent = 0.0;
-        }
-    }
-
-    @Override
-    public void markRemoved() {
-        super.markRemoved();
-        onRemovedFromWorld();
     }
 
     // ==================== IElectricComponent ====================\
@@ -174,11 +127,6 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
         this.totalEnergyGeneratedJoules += powerWatts * durationSeconds;
     }
 
-    @Override
-    public void onGridTopologyChanged() {
-        this.lastGridId = null;
-    }
-
     // ==================== Serialization ====================\
 
     @Override
@@ -191,25 +139,5 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
     protected void writeData(WriteView view) {
         super.writeData(view);
         view.putDouble("total_energy_generated", this.totalEnergyGeneratedJoules);
-    }
-
-    /**
-     * Deregisters this panel from every grid it might be attached to, and clears local grid
-     * bookkeeping. Called from {@code SolarPanelBlock.onStateReplaced} before the topology
-     * helper splits or empties the grid, so the panel is guaranteed to be gone from the source
-     * map by the time {@code handleNodeRemoval} runs.
-     */
-    public void onRemovedFromWorld() {
-        if (world instanceof ServerWorld sw) {
-            GridManager gm = GridManager.get(sw);
-            for (ElectricalGrid g : gm.getAllGrids()) {
-                g.unregisterSource(pos, this);
-            }
-            ElectricalGrid grid = gm.getGridAt(pos);
-            if (grid != null) {
-                grid.unregisterSource(pos, this);
-            }
-        }
-        this.lastGridId = null;
     }
 }

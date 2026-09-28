@@ -2,10 +2,10 @@ package com.ostapyrih.voltcraft.simulation.grid;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
+import com.ostapyrih.voltcraft.api.energy.IElectricConverter;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
 import com.ostapyrih.voltcraft.api.energy.IElectricStorage;
 import com.ostapyrih.voltcraft.api.grid.IElectricalGrid;
-import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.cable.CableBlock;
 import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity;
 import com.ostapyrih.voltcraft.simulation.solver.ModifiedNodalAnalysis;
@@ -13,6 +13,7 @@ import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 
 import java.util.*;
 
@@ -173,30 +174,6 @@ public class ElectricalGrid implements IElectricalGrid {
         }
     }
 
-    /**
-     * Notifies every source and consumer currently registered on this grid that the topology
-     * has mutated in place. Participants implementing {@link IGridTopologyListener} clear
-     * their cached grid IDs so their next tick re-registers them cleanly.
-     */
-    public void notifyTopologyChanged() {
-        java.util.Set<Object> notified =
-            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
-        for (java.util.List<IElectricSource> list : sources.values()) {
-            for (IElectricSource s : list) {
-                if (s instanceof IGridTopologyListener l && notified.add(s)) {
-                    l.onGridTopologyChanged();
-                }
-            }
-        }
-        for (java.util.List<IElectricConsumer> list : consumers.values()) {
-            for (IElectricConsumer c : list) {
-                if (c instanceof IGridTopologyListener l && notified.add(c)) {
-                    l.onGridTopologyChanged();
-                }
-            }
-        }
-    }
-
     // ---------------------------------------------------------------------
     // Read-only accessors
     // ---------------------------------------------------------------------
@@ -254,7 +231,7 @@ public class ElectricalGrid implements IElectricalGrid {
             return;
         }
 
-        pruneRemovedEntities();
+        refreshParticipants(world);
 
         // Map discrete positions to sequential 1-based integer indices for the MNA matrix.
         // Node 0 is reserved as the common Ground reference (0.0V).
@@ -308,23 +285,60 @@ public class ElectricalGrid implements IElectricalGrid {
         return copy;
     }
 
-    /** Drops consumers/sources whose backing block entity has been removed from the world. */
-    private void pruneRemovedEntities() {
-        consumers.values().forEach(list -> list.removeIf(ElectricalGrid::isConsumerGone));
-        consumers.entrySet().removeIf(entry -> entry.getValue().isEmpty());
+    /**
+     * Discovers every source and consumer that should be registered on this grid by walking
+     * node positions and looking up block entities, plus adjacent converter endpoints whose
+     * ports face a node. Rebuilds the maps from scratch every tick. Any participant that has
+     * disappeared is dropped; any new participant is picked up. No caching, no invalidation.
+     *
+     * <p>Skipped when {@code world == null} (unit tests drive the grid directly with
+     * injected sources and no world to discover from).
+     */
+    private void refreshParticipants(ServerWorld world) {
+        if (world == null) {
+            return;
+        }
+        Map<BlockPos, List<IElectricSource>> newSources = new HashMap<>();
+        Map<BlockPos, List<IElectricConsumer>> newConsumers = new HashMap<>();
 
-        sources.values().forEach(list -> list.removeIf(ElectricalGrid::isSourceGone));
-        sources.entrySet().removeIf(entry -> entry.getValue().isEmpty());
-    }
+        for (BlockPos nodePos : nodes.keySet()) {
+            BlockPos key = nodePos.toImmutable();
 
-    private static boolean isConsumerGone(IElectricConsumer consumer) {
-        if (consumer instanceof BlockEntity be && be.isRemoved()) return true;
-        return consumer instanceof AbstractPowerConverterBlockEntity.InputConsumer ic && ic.isRemoved();
-    }
+            // 1. Block entity at the node position itself
+            BlockEntity beHere = world.getBlockEntity(nodePos);
+            if (beHere instanceof IElectricSource src) {
+                addUnique(newSources.computeIfAbsent(key, p -> new ArrayList<>()), src);
+            }
+            if (beHere instanceof IElectricConsumer cons) {
+                addUnique(newConsumers.computeIfAbsent(key, p -> new ArrayList<>()), cons);
+            }
 
-    private static boolean isSourceGone(IElectricSource source) {
-        if (source instanceof BlockEntity be && be.isRemoved()) return true;
-        return source instanceof AbstractPowerConverterBlockEntity.OutputSource os && os.isRemoved();
+            // 2. Adjacent converter endpoints whose port faces this node
+            for (Direction dir : Direction.values()) {
+                BlockPos adjPos = nodePos.offset(dir);
+                BlockEntity adjBe = world.getBlockEntity(adjPos);
+                if (!(adjBe instanceof IElectricConverter conv)) continue;
+
+                Direction portSide = dir.getOpposite();
+                if (conv.isOutputPort(portSide)) {
+                    IElectricSource os = conv.getOutputEndpoint();
+                    if (os != null) {
+                        addUnique(newSources.computeIfAbsent(key, p -> new ArrayList<>()), os);
+                    }
+                }
+                if (conv.isInputPort(portSide)) {
+                    IElectricConsumer ic = conv.getInputEndpoint();
+                    if (ic != null) {
+                        addUnique(newConsumers.computeIfAbsent(key, p -> new ArrayList<>()), ic);
+                    }
+                }
+            }
+        }
+
+        sources.clear();
+        sources.putAll(newSources);
+        consumers.clear();
+        consumers.putAll(newConsumers);
     }
 
     /** Finds the highest-EMF AC source and returns its frequency, or 0.0 if the grid is unpowered/DC-only. */

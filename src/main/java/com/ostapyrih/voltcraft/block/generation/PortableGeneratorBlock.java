@@ -1,6 +1,6 @@
 package com.ostapyrih.voltcraft.block.generation;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.entity.generation.PortableGeneratorBlockEntity;
 import com.mojang.serialization.MapCodec;
 import net.minecraft.block.*;
@@ -38,7 +38,7 @@ import org.jetbrains.annotations.Nullable;
  * Consumes furnace fuels, runs with an eco-throttle load-adaptive 4-stroke engine model,
  * and supplies 230V 50Hz pure sine wave AC power from its front socket.
  */
-public class PortableGeneratorBlock extends BlockWithEntity implements IElectricalConnectable {
+public class PortableGeneratorBlock extends AbstractGridBlock {
 
     public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
     public static final BooleanProperty RUNNING = BooleanProperty.of("running");
@@ -55,7 +55,7 @@ public class PortableGeneratorBlock extends BlockWithEntity implements IElectric
     }
 
     @Override
-    protected MapCodec<? extends BlockWithEntity> getCodec() {
+    protected MapCodec<? extends Block> getCodec() {
         return CODEC;
     }
 
@@ -86,11 +86,8 @@ public class PortableGeneratorBlock extends BlockWithEntity implements IElectric
         return side == facing;
     }
 
-    @Override
-    public boolean isThroughConductor() {
-        return false;
-    }
-
+    // Connects via front AC output socket. Endpoint (not through): the base default
+    // {@code isThroughConductor() == false} is kept.
     @Override
     protected ActionResult onUseWithItem(ItemStack stack, BlockState state, World world, BlockPos pos, PlayerEntity player, Hand hand, BlockHitResult hit) {
         FuelRegistry fuelRegistry = world.getFuelRegistry();

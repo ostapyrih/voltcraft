@@ -1,11 +1,9 @@
 package com.ostapyrih.voltcraft.block.conversion;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.entity.conversion.EuConverterBlockEntity;
 import net.minecraft.block.Block;
-import net.minecraft.block.BlockEntityProvider;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.ShapeContext;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityTicker;
 import net.minecraft.block.entity.BlockEntityType;
@@ -21,8 +19,6 @@ import net.minecraft.util.Formatting;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
-import net.minecraft.util.shape.VoxelShape;
-import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
@@ -34,7 +30,7 @@ import org.jetbrains.annotations.Nullable;
  * (TeamReborn Energy API, 1 E bridged 1:1 with FE by interop mods) for any energy consumer.
  * Directional: Rear face is 230V AC Input; Front, Top, Bottom, and Sides export E.
  */
-public class EuConverterBlock extends Block implements BlockEntityProvider, IElectricalConnectable {
+public class EuConverterBlock extends AbstractGridBlock {
 
     public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
 
@@ -61,30 +57,17 @@ public class EuConverterBlock extends Block implements BlockEntityProvider, IEle
         return side == facing.getOpposite();
     }
 
+    // Endpoint (not through): the base default isThroughConductor() == false is kept,
+    // so the AC input and the E-export sides never short into one through-conductor.
+
+    /**
+     * Like multi-port converters, the rotary bridge never holds a grid node of its own:
+     * its input endpoint is discovered at the adjacent rear-port node per-tick by
+     * {@code ElectricalGrid.refreshParticipants}.
+     */
     @Override
-    public boolean isThroughConductor() {
+    protected boolean shouldSeedNode(BlockState state) {
         return false;
-    }
-
-    @Override
-    public VoxelShape getOutlineShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
-        return VoxelShapes.fullCube();
-    }
-
-    @Override
-    public VoxelShape getCollisionShape(BlockState state, BlockView world, BlockPos pos, ShapeContext context) {
-        return VoxelShapes.fullCube();
-    }
-
-    @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock())) {
-            BlockEntity be = world.getBlockEntity(pos);
-            if (be instanceof EuConverterBlockEntity converter) {
-                converter.onRemovedFromWorld();
-            }
-        }
-        super.onStateReplaced(state, world, pos, moved);
     }
 
     @Override

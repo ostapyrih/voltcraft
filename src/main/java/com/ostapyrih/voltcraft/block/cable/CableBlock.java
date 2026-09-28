@@ -1,12 +1,14 @@
 package com.ostapyrih.voltcraft.block.cable;
 
 import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
 import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ShapeContext;
 import net.minecraft.block.Waterloggable;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityCollisionHandler;
 import net.minecraft.entity.LivingEntity;
@@ -32,7 +34,7 @@ import net.minecraft.world.tick.ScheduledTickView;
  * Strict No-Wire-Ticking Law: Zero BlockEntity or per-block ticking.
  * Graph operations (admittance, Joule heating, failures) are executed centrally by ElectricalGrid.
  */
-public class CableBlock extends Block implements Waterloggable, IElectricalConnectable {
+public class CableBlock extends AbstractGridBlock implements Waterloggable {
 
     public static final BooleanProperty NORTH = Properties.NORTH;
     public static final BooleanProperty SOUTH = Properties.SOUTH;
@@ -90,8 +92,18 @@ public class CableBlock extends Block implements Waterloggable, IElectricalConne
     }
 
     @Override
-    public boolean canConnect(BlockView world, BlockPos pos, Direction side, BlockState state) {
+    public boolean isThroughConductor() {
         return true;
+    }
+
+    @Override
+    protected ConductorType getPlacementConductorType() {
+        return conductorType;
+    }
+
+    @Override
+    public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
+        return null; // Passive topological cable: no block entity, physics runs in ElectricalGrid.
     }
 
     private boolean connectsTo(BlockView world, BlockPos pos, Direction side) {
@@ -167,22 +179,6 @@ public class CableBlock extends Block implements Waterloggable, IElectricalConne
     @Override
     protected FluidState getFluidState(BlockState state) {
         return state.get(WATERLOGGED) ? Fluids.WATER.getStill(false) : super.getFluidState(state);
-    }
-
-    @Override
-    protected void onBlockAdded(BlockState state, World world, BlockPos pos, BlockState oldState, boolean notify) {
-        super.onBlockAdded(state, world, pos, oldState, notify);
-        if (!world.isClient() && !state.isOf(oldState.getBlock())) {
-            GridManager.get((ServerWorld) world).onConductorPlaced((ServerWorld) world, pos, conductorType);
-        }
-    }
-
-    @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock())) {
-            GridManager.get(world).onConductorRemoved(world, pos);
-        }
-        super.onStateReplaced(state, world, pos, moved);
     }
 
     @Override

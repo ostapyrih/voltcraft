@@ -2,13 +2,11 @@ package com.ostapyrih.voltcraft.block.entity.conversion;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
-import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
+import com.ostapyrih.voltcraft.api.energy.IElectricConverter;
 import com.ostapyrih.voltcraft.block.conversion.EuConverterBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.EuConverterScreenHandler;
 import com.ostapyrih.voltcraft.simulation.conversion.EuConverterLogic;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
@@ -28,9 +26,6 @@ import team.reborn.energy.api.EnergyStorage;
 import team.reborn.energy.api.EnergyStorageUtil;
 import team.reborn.energy.api.base.SimpleEnergyStorage;
 
-import java.util.List;
-import java.util.UUID;
-
 /**
  * Block entity for the 230V AC to E Rotary Energy Bridge.
  * Acts as an IElectricConsumer strictly accepting 230V AC (207V-253V, >=40Hz),
@@ -38,7 +33,7 @@ import java.util.UUID;
  * Exposes a TeamReborn EnergyStorage capability (1 E bridged 1:1 with FE by interop mods)
  * for any energy consumer, and actively pushes E to adjacent energy receivers.
  */
-public class EuConverterBlockEntity extends BlockEntity implements ExtendedScreenHandlerFactory<BlockPos> {
+public class EuConverterBlockEntity extends BlockEntity implements IElectricConverter, ExtendedScreenHandlerFactory<BlockPos> {
 
     public static final double NOMINAL_VOLTAGE = EuConverterLogic.NOMINAL_VOLTAGE;
     public static final double MIN_OPERATING_VOLTAGE = EuConverterLogic.MIN_OPERATING_VOLTAGE;
@@ -49,8 +44,6 @@ public class EuConverterBlockEntity extends BlockEntity implements ExtendedScree
     public final EuConverterLogic logic;
     public final SimpleEnergyStorage energyStorage;
     public final InputConsumer inputConsumer;
-
-    private UUID lastInputGridId = null;
 
     protected final PropertyDelegate propertyDelegate = new PropertyDelegate() {
         @Override
@@ -141,6 +134,50 @@ public class EuConverterBlockEntity extends BlockEntity implements ExtendedScree
         return logic.getElectricalState();
     }
 
+    // ==================== IElectricConverter (grid discovery) ====================
+    // The rotary bridge is a single-port input device on the VoltCraft grid side:
+    // its rear terminal draws 230V AC, and energy leaves via the TeamReborn API.
+
+    @Override
+    public BlockPos getPos() {
+        return this.pos;
+    }
+
+    @Override
+    public void setElectricalState(ElectricalState state) {
+        logic.setElectricalState(state);
+    }
+
+    @Override
+    public boolean isInputPort(Direction side) {
+        return side == getInputPortDirection();
+    }
+
+    @Override
+    public boolean isOutputPort(Direction side) {
+        return false;
+    }
+
+    @Override
+    public double getEfficiency() {
+        return 0.95;
+    }
+
+    @Override
+    public double getTargetOutputVoltage() {
+        return NOMINAL_VOLTAGE;
+    }
+
+    @Override
+    public com.ostapyrih.voltcraft.api.energy.IElectricSource getOutputEndpoint() {
+        return null;
+    }
+
+    @Override
+    public IElectricConsumer getInputEndpoint() {
+        return inputConsumer;
+    }
+
     public double getInputVoltage() {
         return logic.getInputVoltage();
     }
@@ -184,54 +221,13 @@ public class EuConverterBlockEntity extends BlockEntity implements ExtendedScree
         return this.pos;
     }
 
-    @Override
-    public void markRemoved() {
-        super.markRemoved();
-        onRemovedFromWorld();
-    }
-
-    public void onRemovedFromWorld() {
-        if (world instanceof ServerWorld sw) {
-            GridManager gm = GridManager.get(sw);
-            BlockPos inPos = pos.offset(getInputPortDirection());
-            for (ElectricalGrid g : gm.getAllGrids()) {
-                g.unregisterConsumer(pos, inputConsumer);
-                g.unregisterConsumer(inPos, inputConsumer);
-            }
-        }
-    }
-
     /**
-     * Executes once per tick from server block entity ticker.
+     * Executes once per tick from server block entity ticker. Grid attachment is handled
+     * centrally by {@code ElectricalGrid.refreshParticipants} via the input endpoint —
+     * this tick only moves stored E out and advances the conversion logic.
      */
     public void tick(ServerWorld world) {
         Direction inDir = getInputPortDirection();
-        BlockPos inPos = pos.offset(inDir);
-
-        GridManager gridManager = GridManager.get(world);
-        ElectricalGrid inGrid = gridManager.getGridAt(inPos);
-
-        // Synchronize input grid attachment
-        UUID inGridId = inGrid != null ? inGrid.getGridId() : null;
-        if (!java.util.Objects.equals(inGridId, lastInputGridId)) {
-            if (lastInputGridId != null) {
-                for (ElectricalGrid g : gridManager.getAllGrids()) {
-                    if (g.getGridId().equals(lastInputGridId)) {
-                        g.unregisterConsumer(inPos, inputConsumer);
-                        break;
-                    }
-                }
-            }
-            if (inGrid != null) {
-                inGrid.registerConsumer(inPos, inputConsumer);
-            }
-            lastInputGridId = inGridId;
-        } else if (inGrid != null) {
-            List<IElectricConsumer> list = inGrid.getConsumers().get(inPos);
-            if (list == null || !list.contains(inputConsumer)) {
-                inGrid.registerConsumer(inPos, inputConsumer);
-            }
-        }
 
         // Push available E to neighboring energy blocks / cables (except input side)
         long movedThisTick = 0;
@@ -257,7 +253,7 @@ public class EuConverterBlockEntity extends BlockEntity implements ExtendedScree
 
     // ==================== Sub-component IElectricConsumer ====================\
 
-    public class InputConsumer implements IElectricConsumer, IGridTopologyListener {
+    public class InputConsumer implements IElectricConsumer {
 
         public boolean isRemoved() {
             return EuConverterBlockEntity.this.isRemoved();
@@ -318,11 +314,6 @@ public class EuConverterBlockEntity extends BlockEntity implements ExtendedScree
         private void syncStorage() {
             energyStorage.amount = logic.getStoredEu();
             markDirty();
-        }
-
-        @Override
-        public void onGridTopologyChanged() {
-            EuConverterBlockEntity.this.lastInputGridId = null;
         }
     }
 

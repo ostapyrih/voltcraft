@@ -2,11 +2,8 @@ package com.ostapyrih.voltcraft.block.entity.generation;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
-import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.generation.PortableGeneratorBlock;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.BlockState;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
@@ -15,15 +12,11 @@ import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
-
 /**
  * BlockEntity for the 1.8-2.2 kW Portable Inverter Generator.
  * Provides 230V 50Hz pure sine AC power with load-dependent eco-throttle fuel consumption.
  */
-public class PortableGeneratorBlockEntity extends BlockEntity implements IElectricSource, IGridTopologyListener {
+public class PortableGeneratorBlockEntity extends BlockEntity implements IElectricSource {
 
     public static final double RATED_POWER_WATTS = 1800.0;
     public static final double SURGE_POWER_WATTS = 2200.0;
@@ -42,8 +35,6 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements IElectr
     private double lastDeliveredCurrentAmps = 0.0;
     private double lastDeliveredPowerWatts = 0.0;
     private double totalEnergyJoules = 0.0;
-
-    private UUID lastGridId = null;
 
     public PortableGeneratorBlockEntity(BlockPos pos, BlockState state) {
         super(VoltcraftBlockEntityTypes.PORTABLE_GENERATOR_BLOCK_ENTITY, pos, state);
@@ -86,6 +77,11 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements IElectr
         return pos.offset(getOutputFacing());
     }
 
+    /**
+     * Burns fuel with eco-throttle and syncs the RUNNING blockstate. Grid participation
+     * is handled centrally by {@code ElectricalGrid.refreshParticipants} — the source
+     * is discovered at this block's own grid node, no registration here.
+     */
     public void tick(ServerWorld world) {
         boolean wasRunning = getCachedState().get(PortableGeneratorBlock.RUNNING);
         boolean running = isRunning();
@@ -106,67 +102,6 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements IElectr
         // Sync blockstate RUNNING property
         if (wasRunning != running) {
             world.setBlockState(pos, getCachedState().with(PortableGeneratorBlock.RUNNING, running), BLOCKSTATE_UPDATE_FLAGS);
-        }
-
-        // 2. Grid attachment synchronization at the front output socket
-        BlockPos outPos = getOutputPos();
-        GridManager gridManager = GridManager.get(world);
-        ElectricalGrid currentGrid = gridManager.getGridAt(outPos);
-        syncGridAttachment(gridManager, currentGrid, outPos, running);
-    }
-
-    /**
-     * Keeps this generator registered as a source on whichever grid currently occupies its output
-     * socket, migrating registration when the grid identity changes and self-healing if it ever
-     * drops out of (or should drop out of, once out of fuel) the current grid's list mid-tick.
-     */
-    private void syncGridAttachment(GridManager gridManager, ElectricalGrid grid, BlockPos outPos, boolean shouldBeRegistered) {
-        UUID gridId = grid != null ? grid.getGridId() : null;
-
-        if (!Objects.equals(gridId, lastGridId)) {
-            if (lastGridId != null) {
-                ElectricalGrid oldGrid = findGridById(gridManager, lastGridId);
-                if (oldGrid != null) {
-                    oldGrid.unregisterSource(outPos, this);
-                }
-            }
-            if (grid != null && shouldBeRegistered) {
-                grid.registerSource(outPos, this);
-            }
-            lastGridId = gridId;
-            return;
-        }
-
-        if (grid == null) {
-            return;
-        }
-        List<IElectricSource> registered = grid.getSources().get(outPos);
-        boolean isRegistered = registered != null && registered.contains(this);
-        if (shouldBeRegistered && !isRegistered) {
-            grid.registerSource(outPos, this);
-        } else if (!shouldBeRegistered && isRegistered) {
-            grid.unregisterSource(outPos, this);
-        }
-    }
-
-    private static ElectricalGrid findGridById(GridManager gridManager, UUID gridId) {
-        for (ElectricalGrid g : gridManager.getAllGrids()) {
-            if (g.getGridId().equals(gridId)) {
-                return g;
-            }
-        }
-        return null;
-    }
-
-    @Override
-    public void markRemoved() {
-        super.markRemoved();
-        if (world instanceof ServerWorld sw) {
-            GridManager gm = GridManager.get(sw);
-            BlockPos outPos = getOutputPos();
-            for (ElectricalGrid g : gm.getAllGrids()) {
-                g.unregisterSource(outPos, this);
-            }
         }
     }
 
@@ -212,11 +147,6 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements IElectr
         this.lastDeliveredCurrentAmps = currentAmps;
         this.lastDeliveredPowerWatts = OUTPUT_VOLTAGE_RMS * currentAmps;
         this.totalEnergyJoules += lastDeliveredPowerWatts * durationSeconds;
-    }
-
-    @Override
-    public void onGridTopologyChanged() {
-        this.lastGridId = null;
     }
 
     // ==================== Serialization ====================

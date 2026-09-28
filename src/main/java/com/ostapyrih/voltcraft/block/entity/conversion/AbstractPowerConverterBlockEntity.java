@@ -4,7 +4,6 @@ import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
 import com.ostapyrih.voltcraft.api.energy.IElectricConverter;
 import com.ostapyrih.voltcraft.api.energy.IElectricSource;
-import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.conversion.AbstractPowerConverterBlock;
 import com.ostapyrih.voltcraft.screen.handler.ConverterScreenHandler;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
@@ -24,10 +23,6 @@ import net.minecraft.storage.WriteView;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
-
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
 
 /**
  * Base block entity for all multi-port conversion hardware (DC-DC converters, AC transformers, rectifiers, inverters).
@@ -108,18 +103,11 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     protected ElectricalState reportedState = ElectricalState.OFF;
 
-    private UUID lastInputGridId = null;
-    private UUID lastOutputGridId = null;
+    @Override
+    public IElectricSource getOutputEndpoint() { return outputSource; }
 
-    /**
-     * Forces the next tick to re-resolve which grids this converter is attached to.
-     * Called when topology changes around this converter (adjacent panel placed/removed,
-     * bank setting changed) so it doesn't keep using a stale grid reference.
-     */
-    public void invalidateGridCache() {
-        this.lastInputGridId = null;
-        this.lastOutputGridId = null;
-    }
+    @Override
+    public IElectricConsumer getInputEndpoint() { return inputConsumer; }
 
     protected final PropertyDelegate propertyDelegate = new PropertyDelegate() {
         @Override
@@ -336,12 +324,6 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         markDirty();
     }
 
-    @Override
-    public void markRemoved() {
-        super.markRemoved();
-        onRemovedFromWorld();
-    }
-
     // ---------------------------------------------------------------------
     // Tick pipeline
     // ---------------------------------------------------------------------
@@ -358,9 +340,6 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         GridManager gridManager = GridManager.get(world);
         ElectricalGrid inGrid = gridManager.getGridAt(inPos);
         ElectricalGrid outGrid = gridManager.getGridAt(outPos);
-
-        lastInputGridId = syncGridAttachment(gridManager, inGrid, lastInputGridId, inPos, inputConsumer, CONSUMER_OPS);
-        lastOutputGridId = syncGridAttachment(gridManager, outGrid, lastOutputGridId, outPos, outputSource, SOURCE_OPS);
 
         double inFreq = updateInputMeasurement(world, inGrid, inPos, inDir);
         handleOutputDisconnectionSafety(world, outGrid, outPos, outDir);
@@ -559,97 +538,6 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
     }
 
     // ---------------------------------------------------------------------
-    // Grid attachment sync (shared between the input-consumer and output-source endpoints)
-    // ---------------------------------------------------------------------
-
-    private interface EndpointOps<T> {
-        void register(ElectricalGrid grid, BlockPos pos, T endpoint);
-        void unregister(ElectricalGrid grid, BlockPos pos, T endpoint);
-        List<T> listAt(ElectricalGrid grid, BlockPos pos);
-    }
-
-    private static final EndpointOps<IElectricConsumer> CONSUMER_OPS = new EndpointOps<>() {
-        @Override
-        public void register(ElectricalGrid grid, BlockPos pos, IElectricConsumer endpoint) {
-            grid.registerConsumer(pos, endpoint);
-        }
-
-        @Override
-        public void unregister(ElectricalGrid grid, BlockPos pos, IElectricConsumer endpoint) {
-            grid.unregisterConsumer(pos, endpoint);
-        }
-
-        @Override
-        public List<IElectricConsumer> listAt(ElectricalGrid grid, BlockPos pos) {
-            return grid.getConsumers().get(pos);
-        }
-    };
-
-    private static final EndpointOps<IElectricSource> SOURCE_OPS = new EndpointOps<>() {
-        @Override
-        public void register(ElectricalGrid grid, BlockPos pos, IElectricSource endpoint) {
-            grid.registerSource(pos, endpoint);
-        }
-
-        @Override
-        public void unregister(ElectricalGrid grid, BlockPos pos, IElectricSource endpoint) {
-            grid.unregisterSource(pos, endpoint);
-        }
-
-        @Override
-        public List<IElectricSource> listAt(ElectricalGrid grid, BlockPos pos) {
-            return grid.getSources().get(pos);
-        }
-    };
-
-    /**
-     * Keeps one endpoint (this converter's input consumer or output source) registered on whichever
-     * grid currently occupies its port position, migrating registration when the grid identity
-     * changes and self-healing if it ever drops out of the current grid's list mid-tick.
-     *
-     * @return the grid id this endpoint is now attached to (or {@code null} if unattached)
-     */
-    private <T> UUID syncGridAttachment(
-        GridManager gridManager,
-        ElectricalGrid grid,
-        UUID lastGridId,
-        BlockPos pos,
-        T endpoint,
-        EndpointOps<T> ops
-    ) {
-        UUID gridId = grid != null ? grid.getGridId() : null;
-        if (!Objects.equals(gridId, lastGridId)) {
-            if (lastGridId != null) {
-                ElectricalGrid oldGrid = findGridById(gridManager, lastGridId);
-                if (oldGrid != null) {
-                    ops.unregister(oldGrid, pos, endpoint);
-                }
-            }
-            if (grid != null) {
-                ops.register(grid, pos, endpoint);
-            }
-            return gridId;
-        }
-
-        if (grid != null) {
-            List<T> list = ops.listAt(grid, pos);
-            if (list == null || !list.contains(endpoint)) {
-                ops.register(grid, pos, endpoint);
-            }
-        }
-        return lastGridId;
-    }
-
-    private static ElectricalGrid findGridById(GridManager gridManager, UUID gridId) {
-        for (ElectricalGrid g : gridManager.getAllGrids()) {
-            if (g.getGridId().equals(gridId)) {
-                return g;
-            }
-        }
-        return null;
-    }
-
-    // ---------------------------------------------------------------------
     // Subclass hooks
     // ---------------------------------------------------------------------
 
@@ -679,30 +567,9 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         return rated * throttle;
     }
 
-    public void onRemovedFromWorld() {
-        if (world instanceof ServerWorld sw) {
-            GridManager gm = GridManager.get(sw);
-            BlockPos inPos = pos.offset(getInputPortDirection());
-            BlockPos outPos = pos.offset(getOutputPortDirection());
-
-            for (ElectricalGrid g : gm.getAllGrids()) {
-                g.unregisterConsumer(pos, inputConsumer);
-                g.unregisterConsumer(inPos, inputConsumer);
-                g.unregisterSource(pos, outputSource);
-                g.unregisterSource(outPos, outputSource);
-            }
-        }
-        this.outputCurrentAmps = 0.0;
-        this.outputPowerWatts = 0.0;
-        this.actualOutputVoltage = 0.0;
-        this.inputCurrentAmps = 0.0;
-        this.inputPowerWatts = 0.0;
-        this.outputVoltageEmf = 0.0;
-    }
-
     // ==================== Sub-component IElectricConsumer ====================
 
-    public class InputConsumer implements IElectricConsumer, IGridTopologyListener {
+    public class InputConsumer implements IElectricConsumer {
 
         public boolean isRemoved() {
             return AbstractPowerConverterBlockEntity.this.isRemoved();
@@ -757,16 +624,11 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
             inputCurrentAmps = deliveredCurrent;
             inputPowerWatts = terminalVoltage * deliveredCurrent;
         }
-
-        @Override
-        public void onGridTopologyChanged() {
-            AbstractPowerConverterBlockEntity.this.lastInputGridId = null;
-        }
     }
 
     // ==================== Sub-component IElectricSource ====================
 
-    public class OutputSource implements IElectricSource, IGridTopologyListener {
+    public class OutputSource implements IElectricSource {
 
         public boolean isRemoved() {
             return AbstractPowerConverterBlockEntity.this.isRemoved();
@@ -818,11 +680,6 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         public void onPowerDrawn(double currentAmps, double durationSeconds) {
             double rated = Math.max(0.0, AbstractPowerConverterBlockEntity.this.getMaxOutputCurrent());
             outputCurrentAmps = Math.clamp(currentAmps, 0.0, rated);
-        }
-
-        @Override
-        public void onGridTopologyChanged() {
-            AbstractPowerConverterBlockEntity.this.lastOutputGridId = null;
         }
     }
 

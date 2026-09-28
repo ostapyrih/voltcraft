@@ -3,13 +3,10 @@ package com.ostapyrih.voltcraft.block.entity.storage;
 import com.ostapyrih.voltcraft.api.data.BatteryCellSpec;
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricStorage;
-import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.storage.BatteryBlock;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatterySimulation;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityType;
@@ -18,15 +15,11 @@ import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
-
 /**
  * Stationary electrochemical Battery Energy Storage System (BESS) block entity.
  * Directly integrates into the ElectricalGrid as an active IElectricStorage node.
  */
-public class BatteryBlockEntity extends BlockEntity implements IElectricStorage, IGridTopologyListener {
+public class BatteryBlockEntity extends BlockEntity implements IElectricStorage {
 
     private final BatteryChemistry chemistry;
     private final int seriesCount;
@@ -36,7 +29,6 @@ public class BatteryBlockEntity extends BlockEntity implements IElectricStorage,
     private double stateOfHealth = 1.0;
     private double temperatureCelsius = 20.0;
     private ElectricalState electricalState = ElectricalState.NOMINAL;
-    private UUID lastGridId = null;
 
     public BatteryBlockEntity(
         BlockEntityType<?> type,
@@ -83,71 +75,15 @@ public class BatteryBlockEntity extends BlockEntity implements IElectricStorage,
         return temperatureCelsius;
     }
 
-    @Override
-    public void markRemoved() {
-        super.markRemoved();
-        onRemovedFromWorld();
-    }
-
-    public void tick(ServerWorld world) {
-        GridManager gridManager = GridManager.get(world);
-        ElectricalGrid currentGrid = gridManager.getGridAt(pos);
-
-        // Self-heal / seed grid if missing on chunk/world load
-        if (currentGrid == null) {
-            gridManager.onConductorPlaced(world, pos, com.ostapyrih.voltcraft.block.cable.ConductorType.HEAVY_COPPER);
-            currentGrid = gridManager.getGridAt(pos);
-        }
-
-        UUID currentGridId = currentGrid != null ? currentGrid.getGridId() : null;
-
-        if (!Objects.equals(currentGridId, lastGridId)) {
-            if (lastGridId != null) {
-                for (ElectricalGrid g : gridManager.getAllGrids()) {
-                    if (g.getGridId().equals(lastGridId)) {
-                        g.unregisterSource(pos, this);
-                        g.unregisterConsumer(pos, this);
-                        break;
-                    }
-                }
-            }
-            if (currentGrid != null) {
-                currentGrid.registerSource(pos, this);
-            }
-            lastGridId = currentGridId;
-        } else if (currentGrid != null) {
-            List<com.ostapyrih.voltcraft.api.energy.IElectricSource> registered = currentGrid.getSources().get(pos);
-            if (registered == null || !registered.contains(this)) {
-                currentGrid.registerSource(pos, this);
-            }
-        }
-    }
-
-    public void onRemovedFromWorld() {
-        if (world instanceof ServerWorld sw) {
-            GridManager gm = GridManager.get(sw);
-            for (ElectricalGrid g : gm.getAllGrids()) {
-                g.unregisterSource(pos, this);
-                g.unregisterConsumer(pos, this);
-            }
-            ElectricalGrid grid = gm.getGridAt(pos);
-            if (grid != null) {
-                grid.unregisterSource(pos, this);
-                grid.unregisterConsumer(pos, this);
-            }
-        }
-    }
+    // Grid participation is handled centrally by ElectricalGrid.refreshParticipants,
+    // which discovers this storage via world.getBlockEntity(nodePos) every tick.
+    // No per-block tick, registration cache, or removal hook is needed here.
 
     // ==================== IElectricComponent ====================
 
     @Override
     public BlockPos getPos() {
         return this.pos;
-    }
-
-    @Override
-    public void onGridTopologyChanged() {
-        this.lastGridId = null;
     }
 
     @Override

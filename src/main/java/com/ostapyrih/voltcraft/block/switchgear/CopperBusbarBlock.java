@@ -1,13 +1,12 @@
 package com.ostapyrih.voltcraft.block.switchgear;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ShapeContext;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.item.ItemPlacementContext;
-import net.minecraft.server.world.ServerWorld;
 import net.minecraft.state.StateManager;
 import net.minecraft.state.property.EnumProperty;
 import net.minecraft.state.property.Properties;
@@ -16,12 +15,11 @@ import net.minecraft.util.math.Direction;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
-import net.minecraft.world.World;
 
 /**
  * High-ampacity (500A) low-impedance copper busbar block for distribution panels.
  */
-public class CopperBusbarBlock extends Block implements IElectricalConnectable {
+public class CopperBusbarBlock extends AbstractGridBlock {
 
     public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
     private static final VoxelShape SHAPE_NS = Block.createCuboidShape(6.0, 6.0, 0.0, 10.0, 10.0, 16.0);
@@ -54,23 +52,17 @@ public class CopperBusbarBlock extends Block implements IElectricalConnectable {
     }
 
     @Override
-    public boolean canConnect(BlockView world, BlockPos pos, Direction side, BlockState state) {
+    public boolean isThroughConductor() {
         return true;
     }
 
     @Override
-    protected void onBlockAdded(BlockState state, World world, BlockPos pos, BlockState oldState, boolean notify) {
-        super.onBlockAdded(state, world, pos, oldState, notify);
-        if (!world.isClient() && !state.isOf(oldState.getBlock())) {
-            GridManager.get((ServerWorld) world).onConductorPlaced((ServerWorld) world, pos, ConductorType.HEAVY_COPPER);
-        }
+    protected ConductorType getPlacementConductorType() {
+        return ConductorType.HEAVY_COPPER;
     }
 
     @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock())) {
-            GridManager.get(world).onConductorRemoved(world, pos);
-        }
-        super.onStateReplaced(state, world, pos, moved);
+    public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
+        return null; // Passive busbar: no block entity.
     }
 }

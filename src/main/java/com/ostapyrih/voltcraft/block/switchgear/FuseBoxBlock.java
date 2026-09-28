@@ -1,12 +1,13 @@
 package com.ostapyrih.voltcraft.block.switchgear;
 
-import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.item.VoltcraftItems;
 import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ShapeContext;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.ItemStack;
@@ -33,7 +34,7 @@ import net.minecraft.world.World;
  * Protects circuits by blowing when current exceeds safe rating.
  * Right-clicking with Fuse Alloy Ingot replaces the blown fuse.
  */
-public class FuseBoxBlock extends Block implements IElectricalConnectable {
+public class FuseBoxBlock extends AbstractGridBlock {
 
     public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
     public static final BooleanProperty HAS_FUSE = BooleanProperty.of("has_fuse");
@@ -72,6 +73,25 @@ public class FuseBoxBlock extends Block implements IElectricalConnectable {
     @Override
     public boolean canConnect(BlockView world, BlockPos pos, Direction side, BlockState state) {
         return state.get(HAS_FUSE) && !state.get(BLOWN);
+    }
+
+    /**
+     * Through-conductor while the fuse is intact ( {@code canConnect} already returns
+     * false once blown or missing, so a dead fuse never merges grids).
+     */
+    @Override
+    public boolean isThroughConductor() {
+        return true;
+    }
+
+    @Override
+    protected boolean shouldSeedNode(BlockState state) {
+        return state.get(HAS_FUSE) && !state.get(BLOWN);
+    }
+
+    @Override
+    public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
+        return null; // Passive fuse enclosure: no block entity.
     }
 
     public void blow(World world, BlockPos pos, BlockState state) {
@@ -113,21 +133,5 @@ public class FuseBoxBlock extends Block implements IElectricalConnectable {
             return ActionResult.SUCCESS;
         }
         return ActionResult.PASS_TO_DEFAULT_BLOCK_ACTION;
-    }
-
-    @Override
-    protected void onBlockAdded(BlockState state, World world, BlockPos pos, BlockState oldState, boolean notify) {
-        super.onBlockAdded(state, world, pos, oldState, notify);
-        if (!world.isClient() && !state.isOf(oldState.getBlock())) {
-            GridManager.get((ServerWorld) world).onConductorPlaced((ServerWorld) world, pos, ConductorType.INSULATED_COPPER);
-        }
-    }
-
-    @Override
-    protected void onStateReplaced(BlockState state, ServerWorld world, BlockPos pos, boolean moved) {
-        if (!state.isOf(world.getBlockState(pos).getBlock())) {
-            GridManager.get(world).onConductorRemoved(world, pos);
-        }
-        super.onStateReplaced(state, world, pos, moved);
     }
 }

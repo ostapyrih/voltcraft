@@ -3,13 +3,10 @@ package com.ostapyrih.voltcraft.block.entity.storage;
 import com.ostapyrih.voltcraft.api.data.BatteryCellSpec;
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.energy.IElectricStorage;
-import com.ostapyrih.voltcraft.api.grid.IGridTopologyListener;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.item.battery.BatteryCellItem;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatterySimulation;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -22,16 +19,12 @@ import net.minecraft.storage.WriteView;
 import net.minecraft.util.collection.DefaultedList;
 import net.minecraft.util.math.BlockPos;
 
-import java.util.List;
-import java.util.Objects;
-import java.util.UUID;
-
 /**
  * Modular Battery Rack BlockEntity bridging item-form cells (e.g. 18650 Li-Ion, NiMH, NiCd)
  * to the stationary world ElectricalGrid.
  * Holds 16 cell bays with configurable Series or Parallel busbar wiring.
  */
-public class BatteryRackBlockEntity extends BlockEntity implements IElectricStorage, Inventory, IGridTopologyListener {
+public class BatteryRackBlockEntity extends BlockEntity implements IElectricStorage, Inventory {
 
     public enum RackWiringMode {
         SERIES,
@@ -43,7 +36,6 @@ public class BatteryRackBlockEntity extends BlockEntity implements IElectricStor
 
     private ElectricalState electricalState = ElectricalState.NOMINAL;
     private RackWiringMode wiringMode = RackWiringMode.SERIES;
-    private UUID lastGridId = null;
 
     public BatteryRackBlockEntity(BlockPos pos, BlockState state) {
         super(VoltcraftBlockEntityTypes.BATTERY_RACK_BLOCK_ENTITY, pos, state);
@@ -95,12 +87,10 @@ public class BatteryRackBlockEntity extends BlockEntity implements IElectricStor
         return maxT;
     }
 
-    @Override
-    public void markRemoved() {
-        super.markRemoved();
-        onRemovedFromWorld();
-    }
-
+    /**
+     * Passive cell cooling. Grid participation is handled centrally by
+     * {@code ElectricalGrid.refreshParticipants} — no registration here.
+     */
     public void tick(ServerWorld world) {
         // Passive cooling toward ambient 20°C for all slotted cells
         for (ItemStack stack : inventory) {
@@ -112,53 +102,6 @@ public class BatteryRackBlockEntity extends BlockEntity implements IElectricStor
                 }
             }
         }
-
-        GridManager gridManager = GridManager.get(world);
-        ElectricalGrid currentGrid = gridManager.getGridAt(pos);
-
-        // Self-heal / seed grid node if missing on chunk/world load
-        if (currentGrid == null) {
-            gridManager.onConductorPlaced(world, pos, com.ostapyrih.voltcraft.block.cable.ConductorType.HEAVY_COPPER);
-            currentGrid = gridManager.getGridAt(pos);
-        }
-
-        UUID currentGridId = currentGrid != null ? currentGrid.getGridId() : null;
-
-        if (!Objects.equals(currentGridId, lastGridId)) {
-            if (lastGridId != null) {
-                for (ElectricalGrid g : gridManager.getAllGrids()) {
-                    if (g.getGridId().equals(lastGridId)) {
-                        g.unregisterSource(pos, this);
-                        g.unregisterConsumer(pos, this);
-                        break;
-                    }
-                }
-            }
-            if (currentGrid != null) {
-                currentGrid.registerSource(pos, this);
-            }
-            lastGridId = currentGridId;
-        } else if (currentGrid != null) {
-            List<com.ostapyrih.voltcraft.api.energy.IElectricSource> registered = currentGrid.getSources().get(pos);
-            if (registered == null || !registered.contains(this)) {
-                currentGrid.registerSource(pos, this);
-            }
-        }
-    }
-
-    public void onRemovedFromWorld() {
-        if (world instanceof ServerWorld sw) {
-            GridManager gm = GridManager.get(sw);
-            for (ElectricalGrid g : gm.getAllGrids()) {
-                g.unregisterSource(pos, this);
-                g.unregisterConsumer(pos, this);
-            }
-            ElectricalGrid grid = gm.getGridAt(pos);
-            if (grid != null) {
-                grid.unregisterSource(pos, this);
-                grid.unregisterConsumer(pos, this);
-            }
-        }
     }
 
     // ==================== IElectricComponent ====================
@@ -166,11 +109,6 @@ public class BatteryRackBlockEntity extends BlockEntity implements IElectricStor
     @Override
     public BlockPos getPos() {
         return this.pos;
-    }
-
-    @Override
-    public void onGridTopologyChanged() {
-        this.lastGridId = null;
     }
 
     @Override
