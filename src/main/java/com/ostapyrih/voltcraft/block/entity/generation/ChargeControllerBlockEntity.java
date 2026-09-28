@@ -353,6 +353,14 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
 
     @Override
     public void tick(ServerWorld world) {
+        System.out.println("[CC] pos=" + pos.toShortString()
+        + " inDir=" + getInputPortDirection()
+        + " inPos=" + pos.offset(getInputPortDirection()).toShortString()
+        + " inGrid=" + (GridManager.get(world).getGridAt(pos.offset(getInputPortDirection())) == null
+            ? "null" : "ok")
+        + " inV=" + inputVoltage
+        + " tripped=" + tripped
+        + " stage=" + mpptLogic.getStage());
         if (hasDownstreamStorage() && isBatteryStorageMismatch()) {
             if (tripGraceTicks == 0) {
                 this.tripped = true;

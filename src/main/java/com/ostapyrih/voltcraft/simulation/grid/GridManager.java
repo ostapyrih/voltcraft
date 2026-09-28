@@ -187,6 +187,7 @@ public class GridManager extends PersistentState {
     }
 
     public void tick(ServerWorld world) {
+        pruneStaleNodes();
         List<ElectricalGrid> activeGrids = new ArrayList<>(grids.values());
         for (ElectricalGrid grid : activeGrids) {
             // A grid may have been unregistered by an earlier grid's tick this same pass
@@ -322,6 +323,25 @@ public class GridManager extends PersistentState {
                     type.isInsulated()
                 ));
             }
+        }
+    }
+
+    /**
+     * Drops any node from a grid whose {@code posToGridMap} entry no longer points at
+     * that grid, then removes grids that have become empty. This is the cleanup pass
+     * that keeps merges/splits from leaving duplicate node ownership across grids.
+     */
+    private void pruneStaleNodes() {
+        List<UUID> emptyGrids = new ArrayList<>();
+        for (ElectricalGrid grid : grids.values()) {
+            UUID id = grid.getGridId();
+            grid.retainNodes(pos -> id.equals(posToGridMap.get(pos)));
+            if (grid.isEmpty()) {
+                emptyGrids.add(id);
+            }
+        }
+        for (UUID id : emptyGrids) {
+            grids.remove(id);
         }
     }
 

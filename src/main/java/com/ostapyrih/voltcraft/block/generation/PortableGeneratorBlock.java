@@ -86,8 +86,12 @@ public class PortableGeneratorBlock extends AbstractGridBlock {
         return side == facing;
     }
 
-    // Connects via front AC output socket. Endpoint (not through): the base default
-    // {@code isThroughConductor() == false} is kept.
+    @Override
+    public boolean isThroughConductor() {
+        return true;
+    }
+
+   
     @Override
     protected ActionResult onUseWithItem(ItemStack stack, BlockState state, World world, BlockPos pos, PlayerEntity player, Hand hand, BlockHitResult hit) {
         FuelRegistry fuelRegistry = world.getFuelRegistry();

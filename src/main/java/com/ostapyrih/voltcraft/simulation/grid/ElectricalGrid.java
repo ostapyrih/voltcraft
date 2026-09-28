@@ -309,7 +309,7 @@ public class ElectricalGrid implements IElectricalGrid {
             if (beHere instanceof IElectricSource src) {
                 addUnique(newSources.computeIfAbsent(key, p -> new ArrayList<>()), src);
             }
-            if (beHere instanceof IElectricConsumer cons) {
+            if (beHere instanceof IElectricConsumer cons && !(beHere instanceof IElectricStorage)) {
                 addUnique(newConsumers.computeIfAbsent(key, p -> new ArrayList<>()), cons);
             }
 
@@ -335,6 +335,16 @@ public class ElectricalGrid implements IElectricalGrid {
             }
         }
 
+        System.out.println("[REFRESH] grid=" + gridId
+        + " nodes=" + nodes.keySet().stream().map(BlockPos::toShortString)
+            .collect(java.util.stream.Collectors.joining(","))
+        + " src=" + newSources.entrySet().stream()
+            .map(e -> e.getKey().toShortString() + "×" + e.getValue().size())
+            .collect(java.util.stream.Collectors.joining(","))
+        + " cons=" + newConsumers.entrySet().stream()
+            .map(e -> e.getKey().toShortString() + "×" + e.getValue().size())
+            .collect(java.util.stream.Collectors.joining(",")));
+
         sources.clear();
         sources.putAll(newSources);
         consumers.clear();
@@ -355,6 +365,31 @@ public class ElectricalGrid implements IElectricalGrid {
             }
         }
         return dominantFreq;
+    }
+
+        /**
+     * Removes every node that fails {@code keep}, along with its conductors, sources,
+     * and consumers. Used by {@code GridManager} to prune nodes that have since been
+     * reassigned to a different grid (e.g. after merges/splits). Without this, a grid
+     * can hold stale nodes, and {@link #refreshParticipants} will register the same
+     * block entity into multiple grids' source/consumer maps — every such grid then
+     * calls onPowerReceived, corrupting terminal voltages with 0V from phantom grids
+     * that have no source.
+     */
+    public void retainNodes(java.util.function.Predicate<BlockPos> keep) {
+        java.util.List<BlockPos> toRemove = new java.util.ArrayList<>();
+        for (BlockPos pos : nodes.keySet()) {
+            if (!keep.test(pos)) {
+                toRemove.add(pos);
+            }
+        }
+        for (BlockPos pos : toRemove) {
+            removeNode(pos);
+        }
+    }
+
+    public boolean isEmpty() {
+        return nodes.isEmpty();
     }
 
     /**

@@ -95,4 +95,9 @@ public class HandCrankGeneratorBlock extends AbstractGridBlock {
             }
         };
     }
+
+    @Override
+    public boolean isThroughConductor() {
+        return true;
+    }
 }
