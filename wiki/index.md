@@ -2,6 +2,13 @@
 
 Welcome to the VoltCraft persistent LLM wiki. This catalog indexes all architectural specifications, physical simulation models, electrical component definitions, crafting recipes, and gameplay mechanics across modular category folders.
 
+> **Code audit 2026-09-28 (implemented vs spec):** 56 blocks (`VoltcraftBlocks.ALL_BLOCKS`),
+> 91 items (56 block-items + 35 standalone in `VoltcraftItems`), 13 `BlockEntityType`s,
+> 103 generated recipes (`src/main/generated/data/voltcraft/recipe/*.json`: 57 shaped, 10 shapeless,
+> 18 smelting + 18 blasting), 3 creative tabs, 5 `DataComponentTypes`.
+> All recipes are **generated** by `client/VoltcraftRecipeGenerator.java` — no hand-written JSON.
+> Status tags below: ✅ implemented · ⚠️ partial/stale · ❌ design-only (Phase 7 queued).
+
 ---
 
 ## 🏛️ Core Idea & System Design
@@ -10,39 +17,44 @@ Welcome to the VoltCraft persistent LLM wiki. This catalog indexes all architect
 
 ---
 
-## ⛏️ Materials & Metallurgy (`wiki/materials/`)
-* [[materials/ores|Natural Ores & Raw Metallurgy]] — World generation stratigraphy, Y-levels, vein distributions, biome preferences, smelting outputs, and specialized alloys (Nichrome, Lead-Tin fuse alloy, Vulcanized Rubber).
-* [[materials/electronic-components|Electronic Components & Manufacturing]] — Semiconductor fabrication chain (silicon boules, wafers, doped P/N wafers, PV cells) and discrete electronic parts (Power MOSFETs, Schottky diodes, electrolytic capacitors, magnet wire, transformer cores, BMS PCBs) with recipes.
+## ⛏️ Materials & Metallurgy (`wiki/materials/`) ✅
+* [[materials/ores|Natural Ores & Raw Metallurgy]] ✅ — World generation stratigraphy (exact vein sizes 8/7/6/5/6/6, Y-ranges, veins/chunk, no biome filter), smelting/blasting outputs, and alloys (Nichrome 2x, Fuse Alloy 2x, Rubber variants). ✅ audited against `VoltcraftConfiguredFeatures` / `VoltcraftPlacedFeatures` / loot tables.
+* [[materials/electronic-components|Electronic Components & Manufacturing]] ✅ — Semiconductor fabrication chain (silicon boules, wafers, doped P/N wafers, PV cells) and discrete electronic parts (Power MOSFETs, Schottky diodes, electrolytic capacitors, magnet wire, transformer cores, BMS PCBs) with exact `SGS/NPN/CAC`-style patterns. ✅ audited.
 
 ---
 
-## ⚡ Conductors & Distribution (`wiki/conductors/`)
-* [[conductors/cables|Cables & Conductor Metallurgy]] — Conductor resistivity matrix ($\rho$, $\alpha$, $I_{\text{max}}$), Joule heating, insulation melting, contact shock mechanics, and crafting recipes for all 9 cable types.
-* [[conductors/switchgear|Switchgear & Protection Hardware]] — High-current copper busbars, junction boxes, manual knife switches, cartridge fuse boxes, resettable circuit breakers, and contactor relays with recipes.
+## ⚡ Conductors & Distribution (`wiki/conductors/`) ✅
+* [[conductors/cables|Cables & Conductor Metallurgy]] ✅ — Exact `ConductorType` constants ($R_0$/block, $\alpha$, $I_{\text{max}}$, insulation/melt temps, shock flags, thermal mass/cooling) and generated recipe yields (bare Cu 6x single-row). Superconductor = $100\text{ kA}$ / Nether Star recipe; fuse cartridges & graphite blocks are design-only.
+* [[conductors/switchgear|Switchgear & Protection Hardware]] ✅ — All 6 blocks implemented (no BlockEntity by design); fuse box consumes `fuse_alloy_ingot` (no `fuse_cartridge_*` items exist); amp ratings are spec text.
 
 ---
 
-## 🔋 Energy Storage (`wiki/storage/`)
-* [[storage/electrochemistry|Electrochemistry & Battery Fundamentals]] — Thermodynamic OCV vs SoC curves, C-ratings, primary/secondary cell matrices, CC/CV charging algorithms, BMS balancing, and thermal runaway hazards.
-* [[storage/battery-items|Battery Items: Portable Cells]] — 18650 Li-Ion ($3.7\text{V}$, $3000\text{ mAh}$), 21700 high-drain, AA alkaline, zinc-carbon, CR2032 coin cells, NiCd, NiMH; Minecraft 1.21 `DataComponentTypes` and crafting recipes.
-* [[storage/battery-blocks|Battery Blocks: Stationary BESS]] — $LiFePO_4$ industrial blocks ($48\text{ V} / 100\text{ Ah}$, fire-safe), sealed lead-acid banks, modular 18650 racks, vanadium redox flow battery stacks & tanks, and molten-salt blocks with recipes.
+## 🔋 Energy Storage (`wiki/storage/`) ✅
+* [[storage/electrochemistry|Electrochemistry & Battery Fundamentals]] ✅ — Exact `BatteryChemistry` enum table (nominal/cutoff/full V, mAh, C-rate, $R_{\text{int}}$, runaway $T$, cycles). Na-S / VRFB / Ag₂O / Mercury rows are design-only (no enum entries). Exact `DataComponentTypes` (5, incl. `battery_bay`).
+* [[storage/battery-items|Battery Items: Portable Cells]] ✅ — All 8 implemented cells with exact chemistry stats and `ACA/LSK/AIA`-style recipe patterns; `maxCount = 16`, per-chemistry runaway explosion.
+* [[storage/battery-blocks|Battery Blocks: Stationary BESS]] ✅ — Exact series/parallel configs (LFP 15S1P 48 V/100 Ah, Lead 6S1P 12 V/120 Ah, LTO 10S1P 24 V/60 Ah, NiMH 20S20P 24 V/50 Ah, NiCd 20S25P 24 V/30 Ah), 16-bay rack modes, AC-abuse thresholds marked spec-only. No flow/molten-salt blocks exist.
 
 ---
 
-## 🔁 Power Conversion & Inversion (`wiki/conversion/`)
-* [[conversion/inverters|Inverters & DC-AC Conversion]] — AC phasor modeling, waveform tiers (pure sine SPWM, modified sine, square wave), THD, off-grid vs synchronous grid-tie (anti-islanding), and hybrid ESS multi-mode inverters with recipes.
-* [[conversion/power-converters|Power Converters: DC-DC, Transformers & Rectifiers]] — Buck (step-down), boost (step-up), universal buck-boost/SEPIC, linear LDO regulators, AC step-up/step-down transformers, and bridge/active synchronous rectifiers with recipes.
+## 🔁 Power Conversion & Inversion (`wiki/conversion/`) ✅
+* [[conversion/inverters|Inverters & DC-AC Conversion]] ✅ — Exact `InverterType` table (THD 48/28/2.5/2.0/2.0%, $\eta$ 90/92/96/97/96%, 1500/3000/5000/6000/8000 W @ 230 V), DC input modes 12/24/48 V with UVLO/OVP, exact `IMI/LWE/CRN`-style recipes.
+* [[conversion/power-converters|Power Converters: DC-DC, Transformers, Rectifiers & Energy Bridge]] ✅ — Exact `ConverterType` / `TransformerType` (5000 VA, 96%) / `RectifierType` (bridge 1.4 V/88%/32 A, active 0.05 V/98.5%/64 A) specs; LDO is **shaped** 1x (not shapeless 2x); new §4.3 documents the **Rotary Energy Bridge** `converter_eu` (25 W → 1 E/t, 10 kE buffer, 512 E/t, 207–253 V / ≥40 Hz gate).
 
 ---
 
-## ☀️ Power Generation (`wiki/generation/`)
-* [[generation/solar-panels|Solar Panels & Photovoltaic Generation]] — Shockley diode physics, non-linear I-V/P-V curves, celestial angle calculations, weather/temperature attenuation, MPPT tracking algorithms, string shading bypass diodes, and panel crafting recipes.
-* [[generation/generators|Fuel Generators, Dynamos & Renewables]] — Hand crank dynamos ($100\text{ W}$ DC) and compact portable inverter generators ($1.0\text{--}2.0\text{ kW}$ $230\text{V}$ AC pure sine) with recipes.
+## ☀️ Power Generation (`wiki/generation/`) ✅
+* [[generation/solar-panels|Solar Panels & Photovoltaic Generation]] ✅ — Exact `SolarPanelType` STC values (thin-film corrected to 70 V/3.57 A/88 V/4.0 A, poly $I_{\text{sc}} = 10.1\text{ A}$), exact weather factors (CPV 0 in rain), MPPT P&O + Bulk/Absorption ($14.4\text{ V}$/12 V)/Float ($13.6\text{ V}$/12 V) constants, 60 A / 98% / 15–150 V ratings.
+* [[generation/generators|Fuel Generators, Dynamos & Renewables]] ✅ — Hand crank exact ($+0.35$/crank, $\times 0.97$ decay, EMF $= v \times 13.8\text{ V}$, $0.15\,\Omega$, back-EMF damping, 0.3 exhaustion); portable generator uses generic `FuelRegistry` ticks (not hardcoded), $0.15\,\Omega$, eco-throttle $0.25 + 0.75 \cdot P/1800$.
 
 ---
 
 ## 🛠️ Tools, Bench & Diagnostics (`wiki/tools/`)
-* [[tools/instruments-and-safety|Tools, Diagnostic Instruments & Safety PPE]] — Digital multimeters, clamp meters, oscilloscope tablets, thermal imaging cameras, wire stripper pliers, insulated electrician's gloves ($1000\text{V}$), replacement cartridge fuses, and the stationary **Battery Charger & Diagnostic Bench** with recipes.
+* [[tools/instruments-and-safety|Tools, Diagnostic Instruments & Safety PPE]] ❌ **Design-only — Phase 7 QUEUED, 0 items implemented.** Multimeters, clamp meters, oscilloscope tablets, thermal cameras, strippers, gloves, cartridge fuses, charger bench: spec text with banner.
+* [[tools/creative-testing|Creative Testing Blocks & Grid Diagnostic Tools]] ✅ — Both creative blocks implemented (no recipes); exact voltage/current/$R_{\text{int}}$/frequency preset arrays; `/voltcraft` command syntax corrected to raycast form (no XYZ args, no 400 Hz preset).
+
+> Note: `AGENTS.md` references a `wiki/machinery/` category (furnaces, motors, electrolyzers, pumps,
+> luminaires, chargers) — **no such directory or pages exist**. Likewise there is no
+> `wiki/conversion/energy-bridge.md`; the bridge is documented inside `power-converters.md` §4.3.
 
 ---
 

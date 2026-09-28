@@ -56,3 +56,57 @@
     * `testMpptControlledCurrentInjectionDoesNotDistortBatteryBusVoltage`: verifies MPPT current injection charges battery per $V_{\text{ocv}} + I \cdot R_{\text{int}}$ without jumping to absorption EMF.
   * All 82 test cases pass cleanly (100% green).
 
+## [2026-09-28] audit | Full codebase-vs-wiki reconciliation (56 blocks / 91 items / 103 recipes)
+
+* **Scope:** Exhaustive diff of `src/main/java`, `src/client/java` (datagen), `src/main/generated`
+  (recipes, models, lang, loot) against all 13 wiki content pages. No code changed; wiki only.
+* **Inventory established:** 56 blocks (`VoltcraftBlocks.ALL_BLOCKS`: 12 ores, 9 cables, 6 switchgear,
+  6 BESS, 4 DC-DC, 2 transformers, 2 rectifiers, 5 inverters, 1 energy bridge, 7 generation, 2 creative);
+  91 items (56 block-items + 35 standalone: 5 raw, 8 refined, 3 alloy/polymer, 5 semi, 6 discrete, 8 cells);
+  13 `BlockEntityType`s (cables/switchgear/ores have none by design); 103 generated recipes
+  (57 shaped, 10 shapeless, 18 smelting + 18 blasting); 3 item groups; 5 `DataComponentTypes`.
+* **Fixes applied per page:**
+  * `conductors/cables.md`: replaced $\rho$-matrix with exact `ConductorType` $R_0$/block, $\alpha$,
+    $I_{\max}$, insulation/melt temps, shock/insulated flags + thermal mass/cooling; bare Cu yield
+    12x→**6x** (single-row `CCC`); steel-typo fix; superconductor ∞A/quench→**100 kA** Nether-Star recipe;
+    fuse/graphite/contact-shock marked design-only.
+  * `materials/ores.md`: vein ranges→exact sizes (8/7/6/5/6/6) + veins/chunk; **no biome filter**
+    (`BiomePlacementModifier.of()` all-biomes); removed galena silver-nugget bonus (loot drops raw only);
+    smelting section rewritten (36 furnace/blast JSONs, 0.7 XP, reversible 9x silver, 0.35 XP rubber);
+    nichrome 5x→**2x** (Ni+Fe), fuse alloy 3x→**2x** (Pb+Zn), rubber shapeless coal/charcoal 2x variants.
+  * `materials/electronic-components.md`: boule coal-only (no charcoal/furnace variant); wafer =
+    boule+iron_ingot 8x (no saw/durability); doped wafers shapeless no-nugget (redstone/glowstone);
+    PV/MOSFET/schottky/cap/BMS patterns corrected to exact JSON keys; schottky $0.3\text{V}$→code $0.7\text{V}$/diode.
+  * `generation/solar-panels.md`: thin-film corrected to **70 V/3.57 A/88 V/4.0 A**, poly $I_{sc}$ 10.2→**10.1 A**,
+    CPV $V_{oc}/I_{sc}$→**60 V/15.0 A**; exact weather factors (CPV 0 in rain, thin-film 0.40/0.20);
+    exact temp coefficients; MPPT P&O + absorption 14.4 V/float 13.6 V per 12 V, 1200-tick timeout,
+    0.2 A exit, presets + mismatch bands, 0 A-at-0 W, 2 W housekeeping.
+  * `generation/generators.md`: hand crank decay 0.94→**0.97**, +0.35/crank, EMF $= v \times 13.8\text{ V}$,
+    $R_{int} = 0.15\,\Omega$, exact back-EMF damping, exhaustion confirmed, ratchet sound marked spec-only;
+    portable fuel rewritten as generic `FuelRegistry` ticks (examples, not constants), $R_{int}$/surge/eco-throttle.
+  * `storage/electrochemistry.md`: chemistry tables replaced with exact `BatteryChemistry` values
+    (V windows, mAh, C-rate/max A, $R_{int}$, runaway $T$, cycles); Na-S/VRFB/Ag₂O/Hg marked design-only;
+    `DataComponentTypes` corrected to 5 (incl. `battery_bay`, `battery_cell_chemistry`).
+  * `storage/battery-items.md`: per-cell $R_{int}$/C-rate/cycles/runaway added; all 8 recipes replaced
+    with exact `ACA/LSK/AIA`-style patterns; `maxCount = 16` + runaway explosion noted.
+  * `storage/battery-blocks.md`: exact series/parallel configs + computed V/Ah/kWh/cycles
+    (LFP 15S1P 48 V/100 Ah/4000 cyc; Lead 6S1P 12 V/120 Ah/500; LTO 10S1P 24 V/60 Ah/15000;
+    NiMH 20S20P 50 Ah/800; NiCd 20S25P 30 Ah/1000); rack 16 bays; AC-abuse temps marked spec-only.
+  * `conversion/inverters.md`: new exact `InverterType` table (THD/eff/W) + 12/24/48 V UVLO/OVP modes;
+    all 5 recipes replaced with exact JSON patterns (old transformer-core/comparator/steel text removed).
+  * `conversion/power-converters.md`: new exact `ConverterType`/`TransformerType`/`RectifierType` tables;
+    LDO shapeless-2x→**shaped 1x** (`AAA/RMR/CEC`); all 8 recipes replaced with exact patterns
+    (incl. rectifier_bridge `RDR/DED/CDC` correction); new §4.3 documents `converter_eu` Energy Bridge
+    (25 W→1 E/t, 10 kE, 512 E/t, 207–253 V / ≥40 Hz, trip/thermal latches, `GMG/TLT/IRI` recipe).
+  * `conductors/switchgear.md`: implementation banner (6/6 blocks, no BE, no `fuse_cartridge_*` items,
+    amp ratings spec-only); junction/knife/fuse/breaker/contactor patterns verified (contactor uses
+    laminated core + repeater; fuse box uses `fuse_alloy_ingot`).
+  * `tools/instruments-and-safety.md`: ❌ banner — **0 tool items implemented** (Phase 7 QUEUED); page kept as design spec.
+  * `tools/creative-testing.md`: ✅ banner; generator presets extended (1000/10000 V/A, 6 $R_{int}$ steps,
+    no 400 Hz); load presets replaced with exact 11/10/11 arrays; §4 commands rewritten to actual
+    raycast syntax (`/voltcraft generator <V> [A] [Hz]`, `/voltcraft load resistance|power|current <v>`).
+  * `index.md`: status tags (✅/❌), exact counts, creative-testing entry added, `machinery/` + missing
+    energy-bridge page gap noted.
+* **Verification:** edits are wiki-markdown only; no build run (no code touched). Counts cross-checked via
+  `grep`/`cat` of generated JSONs, enum sources, loot/worldgen providers, and `VoltcraftCreativeCommands`.
+

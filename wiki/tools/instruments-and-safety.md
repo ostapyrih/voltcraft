@@ -1,5 +1,16 @@
 # Tools, Diagnostic Instruments & Safety Equipment
 
+> [!CAUTION]
+> **IMPLEMENTATION STATUS (audited 2026-09-28): NOT IMPLEMENTED — Phase 7 QUEUED.**
+> Zero tool/PPE/bench items exist in code (`VoltcraftItems`: 35 standalone items, none are tools;
+> no `*Tool*`, `*Multimeter*`, `*Oscilloscope*`, `*Glove*`, `*Stripper*`, `*FuseItem*`,
+> `*Charger*` classes; no `fuse_cartridge_*` or `digital_multimeter`/`clamp_meter`/
+> `oscilloscope_tablet`/`thermal_imaging_camera`/`wire_stripper_pliers`/`electrician_gloves`/
+> `battery_charger_station` registry IDs, recipes, lang entries, or models).
+> Everything below is **design spec for Phase 7**, not a description of working blocks.
+> The only implemented battery-bay mechanic is `voltcraft:battery_bay` (`BatteryBayData`) +
+> `BatteryRackBlockEntity` (16 slots) and item-cell `DataComponentTypes`.
+
 Part of the [[../core-idea|VoltCraft Core Idea & Architecture]] specification.
 
 ---

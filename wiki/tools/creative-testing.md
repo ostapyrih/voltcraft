@@ -1,5 +1,10 @@
 # Creative Testing Blocks & Grid Diagnostic Tools
 
+> **Code status (audited 2026-09-28): IMPLEMENTED.**
+> `voltcraft:creative_generator` + `voltcraft:creative_load` (`block/creative/*`,
+> `simulation/creative/*Logic.java`, GUIs + `/voltcraft` commands). No crafting recipes —
+> creative inventory (`VoltCraft: Power & Grid` tab) / `/give` only. Loot tables drop themselves.
+
 Part of the [[../core-idea|VoltCraft Core Idea & Architecture]] specification.
 
 ---
@@ -31,12 +36,16 @@ Right-clicking the block with an empty hand opens an industrial laboratory contr
 * **Precision EMF Controls:**
   * **Direct Entry:** Numerical text input box with `[Set]` button or Enter key.
   * **Fine-Tuning:** `[-10V]`, `[-1V]`, `[+1V]`, `[+10V]` step buttons.
-  * **Quick Voltage Presets:** Dedicated one-click buttons for `[5V]`, `[12V]`, `[24V]`, `[48V]`, `[120V]`, `[230V]`, and `[400V]`.
+  * **Quick Voltage Presets (exact, `CreativeGeneratorLogic.VOLTAGE_PRESETS`):**
+    `[5V]`, `[12V]`, `[24V]`, `[48V]`, `[120V]`, `[230V]`, `[400V]`, `[1000V]`, `[10000V]`.
 * **Hardware State Buttons:**
   * `[POWER: ON / OFF]` toggle switch.
-  * `[Waveform]` cycle selector ($\text{DC} \to 50\,\text{Hz} \to 60\,\text{Hz}$).
-  * `[Current Limit]` cycle button ($1\,\text{A} \dots 10000\,\text{A}$).
-  * `[Internal R]` cycle button ($0.0001\,\Omega \dots 10\,\Omega$).
+  * `[Waveform]` cycle selector ($\text{DC} \to 50\,\text{Hz} \to 60\,\text{Hz}$ — exact
+    `FREQ_PRESETS = {0, 50, 60}`; no 400 Hz preset exists).
+  * `[Current Limit]` cycle button (exact `CURRENT_PRESETS`):
+    $1, 5, 10, 25, 50, 100, 500, 1000, 10000\,\text{A}$.
+  * `[Internal R]` cycle button (exact `R_INT_PRESETS`):
+    $0.0001, 0.001, 0.01, 0.1, 1.0, 10.0\,\Omega$ (default $0.001\,\Omega$).
   * `[Reset]` energy counter button.
 
 ### 2.3 In-World Quick Controls
@@ -70,10 +79,10 @@ Right-clicking the dummy load with an empty hand opens the test bench dashboard 
 * **Precision Setpoint Controls:**
   * **Direct Input Field:** Text box + `[Set]` button or Enter key.
   * **Step Buttons:** `[-10]`, `[-1]`, `[+1]`, `[+10]` (or $\pm 100\text{W}$ / $\pm 10\text{W}$ in power mode).
-  * **Mode-Sensitive Quick Presets:**
-    * **Resistance Mode:** `[1Ω]`, `[5Ω]`, `[10Ω]`, `[50Ω]`, `[100Ω]`.
-    * **Power Mode:** `[100W]`, `[500W]`, `[1kW]`, `[2.5kW]`, `[5kW]`.
-    * **Current Mode:** `[1A]`, `[5A]`, `[10A]`, `[25A]`, `[50A]`.
+  * **Mode-Sensitive Quick Presets (exact code arrays):**
+    * **Resistance Mode** (`RESISTANCE_PRESETS`, 11): `[0.5Ω]`, `[1Ω]`, `[2Ω]`, `[5Ω]`, `[10Ω]`, `[25Ω]`, `[50Ω]`, `[100Ω]`, `[250Ω]`, `[500Ω]`, `[1000Ω]` (default $10\,\Omega$).
+    * **Power Mode** (`POWER_PRESETS`, 10): `[10W]`, `[50W]`, `[100W]`, `[250W]`, `[500W]`, `[1kW]`, `[2.5kW]`, `[5kW]`, `[10kW]`, `[50kW]` (default $1000\text{ W}$ on mode switch).
+    * **Current Mode** (`CURRENT_PRESETS`, 11): `[0.1A]`, `[0.5A]`, `[1A]`, `[2A]`, `[5A]`, `[10A]`, `[16A]`, `[25A]`, `[32A]`, `[50A]`, `[100A]` (default $10\text{ A}$ on mode switch).
 * **State Controls:**
   * `[LOAD: ON / OFF]` toggle switch.
   * `[Reset Energy]` button.
@@ -82,20 +91,17 @@ Right-clicking the dummy load with an empty hand opens the test bench dashboard 
 
 ## 4. Command Line Reference (`/voltcraft`)
 
-Admins and map developers can configure targeting blocks at specific coordinates or target raycast blocks via chat commands:
+> Exact syntax from `command/VoltcraftCreativeCommands.java` — **raycast-targeted** (look at the
+> block within 8 blocks; no XYZ arguments). Previous XYZ/`enabled`/`reset_energy`/`400hz`
+> documentation was wrong and has been replaced.
 
 ```
-# Creative Power Generator Commands
-/voltcraft generator <x> <y> <z> voltage <volts>
-/voltcraft generator <x> <y> <z> current <maxAmps>
-/voltcraft generator <x> <y> <z> frequency <dc|50hz|60hz|400hz>
-/voltcraft generator <x> <y> <z> resistance <ohms>
-/voltcraft generator <x> <y> <z> enabled <true|false>
-/voltcraft generator <x> <y> <z> reset_energy
+# Creative Power Generator (look at the block, then run):
+/voltcraft generator <voltage> [max_current] [frequency]
+# voltage: 0..1000000 V · max_current: 0..1000000 A · frequency: 0..10000 Hz (0 = DC)
 
-# Creative Electrical Load Commands
-/voltcraft load <x> <y> <z> mode <resistance|current|power>
-/voltcraft load <x> <y> <z> value <numericValue>
-/voltcraft load <x> <y> <z> enabled <true|false>
-/voltcraft load <x> <y> <z> reset_energy
+# Creative Electrical Load (look at the block, then run):
+/voltcraft load resistance <ohms>    # 0.0001..10000000 Ω
+/voltcraft load power <watts>        # 0..100000000 W
+/voltcraft load current <amps>       # 0..1000000 A
 ```

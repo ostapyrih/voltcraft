@@ -13,11 +13,15 @@ Dynamos and portable generators convert mechanical rotation into clean electrica
 ## 2. Generator Technology Matrix
 
 ### 2.1 Hand-Crank DC Dynamo (`voltcraft:generator_hand_crank`)
-* **Output Port (Front - Green `[OUT]`):** Delivers $12\text{V}$ DC up to $100\text{ W}$ ($8.33\text{ A}$ max).
-* **Flywheel Kinetic Inertia:** Right-clicking the crank spins the internal flywheel. Speed decays realistically over time ($v_{t+1} = v_t \times 0.94$).
-* **Back-EMF Counter Torque:** Delivering power under heavy electrical load increases mechanical resistance, slowing the flywheel down faster ($v \leftarrow v - \Delta t \cdot (P_{\text{load}} / 250\text{ W})$).
-* **Human Exhaustion:** Cranking applies physical exertion (`player.addExhaustion(0.3F)`), consuming hunger bars realistically.
-* **Audio & Haptics:** Emits mechanical ratchet clicking sounds while spinning.
+* **Output:** $12\text{V}$ DC nominal (up to $13.8\text{ V}$ open-circuit at full flywheel),
+  $100\text{ W}$ max ($8.33\text{ A}$), $R_{\text{int}} = 0.15\,\Omega$, $f = 0\text{ Hz}$.
+* **Flywheel (exact, `HandCrankGeneratorBlockEntity`):** each right-click adds $+0.35$ speed
+  (clamped $[0, 1]$); EMF $= \text{speed} \times 13.8\text{ V}$; decay $\times 0.97$/tick
+  ($\sim 2$ s spindown). State `NOMINAL` only while speed $> 0.05$.
+* **Back-EMF Counter Torque:** $\text{speed} \leftarrow \text{speed} - (P/100) \times 0.05$ on every
+  `onPowerDrawn` — heavy loads stall the wheel faster.
+* **Human Exhaustion:** `player.addExhaustion(0.3F)` per crank (code-confirmed in `HandCrankGeneratorBlock`).
+  No ratchet-click sound exists in code (spec text only).
 * **Crafting Recipe:**
   ```
   [                      ] [ Lever                ] [                      ]
@@ -30,13 +34,13 @@ Dynamos and portable generators convert mechanical rotation into clean electrica
 
 ### 2.2 Portable Inverter Generator (`voltcraft:generator_portable_inverter`)
 * **Continuous Rated Output:** $1800\text{ W}$ ($1.8\text{ kW}$).
-* **Surge / Peak Output:** $2200\text{ W}$ ($2.2\text{ kW}$).
-* **Output Characteristics (Front - Green `[OUT]`):** Single-phase $230\text{V}$ AC at $50\text{Hz}$ pure sine wave ($\text{THD} < 2.5\%$).
-* **Vanilla Furnace Fuel Ingestion:** Right-click with any vanilla furnace fuel to fuel the generator:
-  - Coal / Charcoal (1600 burn ticks / 80 seconds)
-  - Wood logs / Planks / Sticks
-  - Blaze Rods (2400 burn ticks / 120 seconds)
-  - Lava Bucket (20,000 burn ticks / 1000 seconds; returns empty bucket)
+* **Surge / Peak Output:** $2200\text{ W}$ ($2.2\text{ kW}$, $\approx 9.56\text{ A}$ current limit).
+* **Output Characteristics (Front socket only — `canConnect` = facing face):** Single-phase $230\text{V}$ AC at $50\text{Hz}$ pure sine, $R_{\text{int}} = 0.15\,\Omega$.
+* **Fuel Ingestion (exact, `PortableGeneratorBlock`):** accepts **any** `FuelRegistry` fuel
+  (vanilla + modded) at its registry burn ticks (`fuelTicks / 20` = displayed seconds, lava bucket
+  returns its remainder). Examples at vanilla defaults: coal/charcoal $\approx 1600$ ticks ($80$ s),
+  blaze rod $\approx 2400$ ticks, lava bucket $\approx 20000$ ticks — these are registry values, not
+  hardcoded constants.
 * **Smart Eco-Throttle Engine Management:**
   - Burns at only $0.25\times$ idle rate when unloaded ($P_{\text{load}} \approx 0$).
   - Dynamically throttles up linearly: $\text{burnRate} = 0.25 + 0.75 \times (P_{\text{load}} / 1800\text{ W})$.

@@ -44,32 +44,38 @@ If heat accumulation drives internal cell temperature above $T_{\text{runaway}}$
 
 ## 2. Battery Chemistry Matrix
 
+> **Code source:** `simulation/chemistry/BatteryChemistry.java` — exact implemented values.
+> Format: nominal / cutoff–full (V), capacity, max C-rate (max A), $R_{\text{int}}$, rechargeable,
+> runaway $T$, cycle life. Chemistries listed as design-only have **no enum entry**.
+
 ### 2.1 Primary Cells (Non-Rechargeable / Single-Use)
 > [!CAUTION]
 > Attempting to push reverse current into a primary cell forces gas evolution ($H_2 / O_2$) and dendrite formation, triggering casing rupture and corrosive chemical splattering.
 
-| Chemistry | Nominal Cell $V$ | Cutoff $V$ | Energy Density | Self-Discharge | Mechanical Properties & Hazards |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Zinc-Carbon** | $1.5\text{ V}$ | $0.9\text{ V}$ | $60\text{ Wh/kg}$ | High ($15\%/\text{yr}$) | Early-tier primitive cell. Cheap zinc casing acts as anode; punctures and leaks corrosive paste when fully discharged. |
-| **Alkaline ($Zn\text{-}MnO_2$)** | $1.5\text{ V}$ | $0.8\text{ V}$ | $140\text{ Wh/kg}$ | Low ($2\%/\text{yr}$) | Standard single-use cell for portable flashlights, meters, and basic wireless redstone remotes. |
-| **Lithium-Thionyl Chloride ($Li\text{-}SOCl_2$)** | $3.6\text{ V}$ | $3.0\text{ V}$ | $500\text{ Wh/kg}$ | Ultra-Low ($1\%/10\text{ yrs}$) | High-end industrial primary cell. Powers real-time clocks (RTC) and backup RAM for offline computers. Emits lethal toxic $SO_2$ gas if burned. |
-| **Silver-Oxide ($Ag_2O$)** | $1.55\text{ V}$ | $1.2\text{ V}$ | $130\text{ Wh/kg}$ | Low ($5\%/\text{yr}$) | Ultra-flat discharge curve. Ideal for precision scientific instruments and micro-circuit logic gates. |
-| **Mercury Cell** | $1.35\text{ V}$ | $1.0\text{ V}$ | $100\text{ Wh/kg}$ | Low | Historical vintage cell. Inexpensive; leaves lingering poisoned ground puddles if broken. |
+| Chemistry (code) | Nominal / Window (V) | Capacity | Max rate | $R_{\text{int}}$ | Runaway | Cycles | Notes |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Zinc-Carbon** (`ZINC_CARBON`) | $1.5$ / $0.9\text{--}1.55$ | $800\text{ mAh}$ | $0.5C$ ($0.4\text{ A}$) | $0.350\,\Omega$ | $60^\circ\text{C}$ | 1 | Early-tier primitive cell. |
+| **Alkaline ($Zn\text{-}MnO_2$)** (`ALKALINE`) | $1.5$ / $0.8\text{--}1.6$ | $2000\text{ mAh}$ | $1.0C$ ($2.0\text{ A}$) | $0.150\,\Omega$ | $85^\circ\text{C}$ | 1 | Standard single-use cell. |
+| **Lithium-Thionyl Chloride ($Li\text{-}SOCl_2$)** (`LITHIUM_THIONYL`) | $3.6$ / $3.0\text{--}3.7$ | $1500\text{ mAh}$ | $0.5C$ ($0.75\text{ A}$) | $5.0\,\Omega$ | $120^\circ\text{C}$ | 1 | 15+ yr shelf life; toxic $SO_2$ if burned. |
+| **CR2032 ($Li\text{-}MnO_2$)** (`COIN_CR2032`) | $3.0$ / $2.0\text{--}3.3$ | $220\text{ mAh}$ | $0.2C$ ($0.044\text{ A}$) | $10.0\,\Omega$ | $70^\circ\text{C}$ | 1 | Coin cell for RTC/micro-sensors. |
+| Silver-Oxide ($Ag_2O$) | — | — | — | — | — | — | **Design-only, not in code.** |
+| Mercury Cell | — | — | — | — | — | — | **Design-only, not in code.** |
 
 ---
 
 ### 2.2 Secondary Cells (Rechargeable)
 
-| Chemistry | Nominal Cell $V$ | Voltage Window | Round-Trip $\eta$ | Cycle Life | Runaway $T_{\text{crit}}$ | Charging Protocol | In-Game Mechanics & Dynamics |
+| Chemistry (code) | Nominal / Window (V) | Capacity (per cell) | Max rate | $R_{\text{int}}$ | Runaway | Cycles (code) | Notes |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Lead-Acid (SLA / AGM)** | $2.0\text{ V}$ ($12\text{V}$ 6-cell bank) | $1.75\text{--}2.40\text{ V}$ | $\sim 75\%$ | $300\text{--}500$ | Low ($>70^\circ\text{C}$ vents $H_2$) | 3-Stage: CC / CV / Float | Very heavy (slow player movement when carried). Cheap bulk storage. Vents flammable/explosive $H_2$ gas in unventilated rooms. Suffer sulfation if left uncharged. |
-| **Nickel-Cadmium (NiCd)** | $1.2\text{ V}$ | $1.00\text{--}1.45\text{ V}$ | $\sim 70\%$ | $1000+$ | Low | Constant Current (CC) | Resilient to extreme cold (operates down to $-40^\circ\text{C}$). Suffers from severe **Memory Effect** (permanently loses capacity if recharged before complete discharge). |
-| **Nickel-Metal Hydride (NiMH)** | $1.2\text{ V}$ | $1.00\text{--}1.42\text{ V}$ | $\sim 80\%$ | $500\text{--}1000$ | Moderate ($>65^\circ\text{C}$) | CC with $-\Delta V$ cutoff | Successor to NiCd; no memory effect, higher capacity, environmentally safe. Sensitive to overcharging heat. |
-| **Lithium-Ion ($LiCoO_2$)** | $3.7\text{ V}$ | $3.00\text{--}4.20\text{ V}$ | $\sim 95\%$ | $500\text{--}1200$ | **Extreme ($>150^\circ\text{C}$)** | Strict CC/CV | Highest energy density for mobile gear, power tools, electric jetpacks. Violently explodes if overcharged past $4.3\text{ V}$ or mechanically punctured. |
-| **Lithium Iron Phosphate ($LiFePO_4$)**| $3.2\text{ V}$ | $2.50\text{--}3.65\text{ V}$ | $\sim 92\%$ | $3000+$ | Very Low ($>270^\circ\text{C}$) | Strict CC/CV | Industrial stationary storage workhorse. Chemically stable olivine structure: will not catch fire or explode even under heavy abuse or short circuit. |
-| **Lithium-Titanate (LTO)** | $2.4\text{ V}$ | $1.50\text{--}2.80\text{ V}$ | $\sim 90\%$ | $10000+$ | Minimal | High-rate CC ($10C$) | Extreme cycle life and ultra-fast charging (seconds to minutes). Operates down to $-50^\circ\text{C}$. High manufacturing cost. |
-| **Sodium-Sulfur ($Na\text{-}S$) / Molten Salt** | $2.0\text{ V}$ | $1.80\text{--}2.20\text{ V}$ | $\sim 85\%$ | $2500+$ | High (Requires $300^\circ\text{C}$ operating temp) | CC/CV | Grid-scale containerized storage. Has internal auxiliary heater. If grid power is lost and heaters cool, electrolyte solidifies, disabling the battery until reheated. |
-| **Flow Battery (Vanadium Redox)** | $1.26\text{ V}$ per cell | $1.00\text{--}1.60\text{ V}$ | $\sim 75\%$ | $15000+$ | None (Water-based electrolyte) | Continuous electrolyte pumping | Multi-block stationary installation with external liquid chemical tanks. Storage capacity scales purely with tank volume; zero degradation over time. |
+| **Lead-Acid (SLA / AGM)** (`LEAD_ACID`) | $2.0$ / $1.75\text{--}2.40$ | $120{,}000\text{ mAh}$ ($120\text{ Ah}$) | $1.5C$ ($180\text{ A}$) | $0.0015\,\Omega$ | $70^\circ\text{C}$ vents $H_2$ | 500 | 6S = 12 V block. Heavy; sulfation if left flat (spec). |
+| **Nickel-Cadmium (NiCd)** (`NICD`) | $1.2$ / $0.9\text{--}1.45$ | $1200\text{ mAh}$ | $5.0C$ ($6.0\text{ A}$) | $0.020\,\Omega$ | $80^\circ\text{C}$ | 1000 | $-40^\circ\text{C}$ resilient; memory effect (spec). |
+| **Nickel-Metal Hydride (NiMH)** (`NIMH`) | $1.2$ / $1.0\text{--}1.42$ | $2500\text{ mAh}$ | $3.0C$ ($7.5\text{ A}$) | $0.030\,\Omega$ | $65^\circ\text{C}$ | 800 | No memory effect. |
+| **Lithium-Ion 18650** (`LI_ION_18650`) | $3.7$ / $2.8\text{--}4.2$ | $3000\text{ mAh}$ | $5.0C$ ($15\text{ A}$) | $0.025\,\Omega$ | $150^\circ\text{C}$ | 1000 | Violent vent past $4.3\text{ V}$ / puncture (spec). |
+| **Lithium-Ion 21700** (`LI_ION_21700`) | $3.7$ / $2.7\text{--}4.2$ | $5000\text{ mAh}$ | $10.0C$ ($50\text{ A}$) | $0.015\,\Omega$ | $150^\circ\text{C}$ | 1200 | High-drain NMC. |
+| **Lithium Iron Phosphate ($LiFePO_4$)** (`LIFEPO4`) | $3.2$ / $2.50\text{--}3.65$ | $100{,}000\text{ mAh}$ ($100\text{ Ah}$) | $3.0C$ ($300\text{ A}$) | $0.0006\,\Omega$ | $270^\circ\text{C}$ | 4000 | 15S = 48 V block; olivine-stable. |
+| **Lithium-Titanate (LTO)** (`LTO`) | $2.4$ / $1.50\text{--}2.80$ | $60{,}000\text{ mAh}$ ($60\text{ Ah}$) | $10.0C$ ($600\text{ A}$) | $0.0008\,\Omega$ | $200^\circ\text{C}$ | 15000 | 10S = 24 V block; $-50^\circ\text{C}$ capable. |
+| Sodium-Sulfur ($Na\text{-}S$) / Molten Salt | — | — | — | — | — | — | **Design-only, not in code.** |
+| Flow Battery (Vanadium Redox) | — | — | — | — | — | — | **Design-only, not in code.** |
 
 ---
 
@@ -102,12 +108,15 @@ Item batteries are individual chemical cells or compact packs held in player inv
   * **AA / AAA Alkaline Cells:** Disposable single-use cells for early handheld gadgets.
   * **CR2032 Coin Cell:** Button cell for micro-sensors, digital clocks, and computer motherboard RTC backup.
 * **Minecraft 1.21 Technical Implementation:**
-  * Uses modern `DataComponentTypes` (no raw compound NBT):
-    * `voltcraft:battery_charge`: Micro-Coulombs or normalized $[0.0, 1.0]$ SoC.
-    * `voltcraft:battery_health`: State of Health (SOH %) based on cumulative charge cycles.
-    * `voltcraft:battery_chemistry`: Identifier (e.g. `voltcraft:li_ion_18650`).
-    * `voltcraft:battery_temperature`: Dynamically tracks cell temperature. High temperature while held in inventory issues warning sounds; exceeding $150^\circ\text{C}$ ignites the player's inventory!
-  * **Stackability:** Uncharged/unformatted factory-fresh cells stack up to 16. Once initialized with charge or health data, they become unique non-stackable instances.
+  * Uses modern `DataComponentTypes` (`component/VoltcraftDataComponents.java`, no raw NBT):
+    * `voltcraft:battery_charge` (`Double`): normalized SoC $[0.0, 1.0]$.
+    * `voltcraft:battery_health` (`Double`): SOH fraction.
+    * `voltcraft:battery_temperature` (`Double`): live cell $^\circ\text{C}$.
+    * `voltcraft:battery_cell_chemistry` (`String`): chemistry key.
+    * `voltcraft:battery_bay` (`BatteryBayData` codec): tool-bay cell list + rail limits.
+  * **Stackability:** factory-fresh cells `maxCount = 16` (`BatteryCellItem`); once charged/aged they
+    carry components and stop stacking. Overheated cells trigger thermal-runaway explosion
+    (`BatteryCellItem`, per-chemistry $T_{\text{crit}}$ above — e.g. $150^\circ\text{C}$ Li-Ion).
   * Custom dynamic durability bar rendered in GUI representing SoC color gradient (Green $\to$ Yellow $\to$ Red).
 
 ### 3.2 Block-Form Batteries (Stationary Energy Storage Systems - BESS)
@@ -138,7 +147,7 @@ To bridge the item and block domains:
 
 ## 4. Charging Protocols & Regulation
 
-Charging algorithms are executed by [[power-converters|Battery Chargers]]:
+Charging algorithms are executed by [[../conversion/power-converters|Battery Chargers]]:
 
 ### 4.1 Constant Current / Constant Voltage (CC/CV)
 Mandatory for all Lithium-based chemistries (both 18650 items and $LiFePO_4$ blocks):

@@ -37,30 +37,45 @@ Where:
 
 ## 2. Materials & Conductivity Matrix
 
-| Material | Identifier | Resistivity $\rho$ ($\Omega \cdot \text{m}$) | Temp Coeff $\alpha$ ($1/\text{K}$) | Rated Ampacity ($I_{\text{max}}$) | Melting Point | In-Game Mechanics & Environmental Hazards |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Superconductor** | `voltcraft:conduit_superconductor` | $0.0$ | $0.0$ | Unlimited | Breaks if $T > 77\text{ K}$ | Zero Joule loss. Requires continuous cryogenic cooling (liquid nitrogen/helium). Quenches violently if warmed. |
-| **Silver** | `voltcraft:cable_silver_precision` | $1.59 \times 10^{-8}$ | $+0.0038$ | $48\text{ A}$ | $961^\circ\text{C}$ | Lowest resistance; ideal for ultra-precision electronics, computing buses, and high-frequency instrumentation. |
-| **Copper (Bare)** | `voltcraft:cable_copper_bare` | $1.68 \times 10^{-8}$ | $+0.0039$ | $32\text{ A}$ | $1085^\circ\text{C}$ | Baseline general-purpose wire. Shocks mobs and players on contact ($V / 25$ hearts/sec). Arcs to damp blocks. |
-| **Copper (Insulated)**| `voltcraft:cable_copper_insulated` | $1.68 \times 10^{-8}$ | $+0.0039$ | $32\text{ A}$ | $1085^\circ\text{C}$ | Safe to touch. Coated with vulcanized rubber or PVC. Insulation softens and melts at $>120^\circ\text{C}$, releasing toxic smoke and exposing bare copper. |
-| **Copper (Heavy)** | `voltcraft:cable_copper_heavy` | $1.68 \times 10^{-8}$ | $+0.0039$ | $120\text{ A}$ | $1085^\circ\text{C}$ | $16\,\text{mm}^2$ armored plant distribution. Resists blasts and high inrush currents. Thermal limit $250^\circ\text{C}$. |
-| **Gold** | `voltcraft:cable_gold_bus` | $2.44 \times 10^{-8}$ | $+0.0034$ | $40\text{ A}$ | $1064^\circ\text{C}$ | Corrosion-immune. Laid underwater or in acid without oxidation. Ideal for sensor telemetry lines. |
-| **Aluminum** | `voltcraft:cable_aluminum_transmission` | $2.65 \times 10^{-8}$ | $+0.0039$ | $64\text{ A}$ | $660^\circ\text{C}$ | Lightweight high-voltage overhead pylon line. Cheap and high ampacity; brittle against explosions. |
-| **Iron / Steel** | `voltcraft:cable_steel_fence` | $9.71 \times 10^{-8}$ | $+0.0050$ | $16\text{ A}$ | $1538^\circ\text{C}$ | Cheap early-game perimeter fence wire. High resistance; shocks touching mobs with heavy knockback. |
-| **Lead / Tin (Fuse)**| `voltcraft:fuse_cartridge_*` | $2.20 \times 10^{-7}$ | $+0.0042$ | $10\text{--}64\text{ A}$ | $230^\circ\text{C}$ | Sacrificial alloy for fuse cartridges. Melts quickly when $I > I_{\text{rating}}$, intentionally severing circuit. |
-| **Nichrome** | `voltcraft:cable_nichrome_heating` | $1.10 \times 10^{-6}$ | $+0.0004$ | $8\text{ A}$ | $1400^\circ\text{C}$ | High resistivity heating element. Used in electric furnaces, water heaters, and thermal radiators. |
-| **Graphite / Carbon**| Resistor Block | $1.00 \times 10^{-5}$ | $-0.0005$ | $4\text{ A}$ | $3600^\circ\text{C}$ | Negative temp coefficient ($\alpha < 0$). Dummy load resistors, arc electrodes, surge arresters. |
+> **Code source:** `block/cable/ConductorType.java`, `simulation/solver/ThermalEquilibrium.java`.
+> Per-block resistance/thermal values below are the exact enum constants. Grid MNA stamping uses
+> $R(T) = R_0 \cdot [1 + \alpha (T - T_0)]$ with $T_0 = 20^\circ\text{C}$.
+> $R_0$ is the resistance of **one block-length segment** ($\Omega$/block), not $\rho \cdot L/A$.
+
+| Material | Identifier | $R_0$ ($\Omega$/block) | Temp Coeff $\alpha$ ($1/\text{K}$) | Rated $I_{\text{max}}$ | Insulation limit | Metal melt | Insulated | Shock hazard |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Superconductor** | `voltcraft:conduit_superconductor` | $1.0 \times 10^{-7}$ | $0.0$ | $100{,}000\text{ A}$ | $200^\circ\text{C}$ | $1000^\circ\text{C}$ | yes | no |
+| **Silver** | `voltcraft:cable_silver_precision` | $0.0063$ | $+0.00380$ | $48\text{ A}$ | $150^\circ\text{C}$ | $961^\circ\text{C}$ | yes | no |
+| **Copper (Bare)** | `voltcraft:cable_copper_bare` | $0.0068$ | $+0.00393$ | $32\text{ A}$ | $1085^\circ\text{C}$ (no insulation) | $1085^\circ\text{C}$ | no | **yes** |
+| **Copper (Insulated)**| `voltcraft:cable_copper_insulated` | $0.0068$ | $+0.00393$ | $32\text{ A}$ | $120^\circ\text{C}$ | $1085^\circ\text{C}$ | yes | no |
+| **Copper (Heavy)** | `voltcraft:cable_copper_heavy` | $0.0011$ | $+0.00393$ | $120\text{ A}$ | $250^\circ\text{C}$ | $1085^\circ\text{C}$ | yes | no |
+| **Gold** | `voltcraft:cable_gold_bus` | $0.0097$ | $+0.00340$ | $40\text{ A}$ | $180^\circ\text{C}$ | $1064^\circ\text{C}$ | yes | no |
+| **Aluminum** | `voltcraft:cable_aluminum_transmission` | $0.0026$ | $+0.00429$ | $64\text{ A}$ | $660^\circ\text{C}$ (bare) | $660^\circ\text{C}$ | no | **yes** |
+| **Iron / Steel** | `voltcraft:cable_steel_fence` | $0.0388$ | $+0.00500$ | $16\text{ A}$ | $1538^\circ\text{C}$ (bare) | $1538^\circ\text{C}$ | no | **yes** |
+| **Nichrome** | `voltcraft:cable_nichrome_heating` | $0.7333$ | $+0.00040$ | $8\text{ A}$ | $1400^\circ\text{C}$ (bare) | $1400^\circ\text{C}$ | no | **yes** |
+
+Thermal model per type (`heatCapacity`, `coolingRate`): Bare Cu (8.5, 0.18), Insulated Cu (9.5, 0.14),
+Heavy Cu (55.0, 0.55), Aluminum (25.0, 0.35), Silver (7.0, 0.16), Gold (6.0, 0.15),
+Steel (11.0, 0.20), Nichrome (12.0, 0.10), Superconductor (100.0, 1.0).
+
+> **Design-only (not in code):** `voltcraft:fuse_cartridge_*` ($10\text{--}64\text{ A}$) fuse items,
+> graphite/carbon resistor blocks with negative $\alpha$, YBCO/cryogen quench mechanics at $77\text{ K}$,
+> contact-shock damage ($V/25$ hearts) and arc-to-damp-block behavior are **spec text only**.
+> Implemented: insulation/melt thermal trip via `ThermalEquilibrium`; uninsulated types flag
+> `shockHazard = true`. The superconductor in code is a $100\text{ kA}$, $\alpha = 0$ conduit
+> (recipe: Nether Star + Water Bucket), **not** infinite ampacity and **not** quench-gated.
 
 ---
 
 ## 3. Cable Crafting Recipes
 
+> Generated by `client/VoltcraftRecipeGenerator.java` → `src/main/generated/data/voltcraft/recipe/*.json`.
+> Counts below are the exact `result.count` values in code.
+
 ### 3.1 Bare Copper Wire (`voltcraft:cable_copper_bare`)
 ```
-[    None    ] [ Copper Ingot ] [    None    ]
-[ Copper Ingot] [ Copper Ingot ] [ Copper Ingot]
-[    None    ] [ Copper Ingot ] [    None    ]
-==> Yields: 12x Bare Copper Wire
+[ Copper Ingot ] [ Copper Ingot ] [ Copper Ingot ]
+==> Yields: 6x Bare Copper Wire (single-row `CCC`)
 ```
 
 ### 3.2 Insulated Copper Cable (`voltcraft:cable_copper_insulated`)
@@ -104,7 +119,7 @@ Where:
 ### 3.7 Galvanized Steel Security Wire (`voltcraft:cable_steel_fence`)
 ```
 [ Iron Nugget ] [ Iron Ingot  ] [ Iron Nugget ]
-[ Iron Ingot  ] [ Zinc Ingot  ] [ Iron Iron   ]
+[ Iron Ingot  ] [ Zinc Ingot  ] [ Iron Ingot  ]
 [ Iron Nugget ] [ Iron Ingot  ] [ Iron Nugget ]
 ==> Yields: 12x Steel Security Wire
 ```
@@ -120,7 +135,9 @@ Where:
 ### 3.9 Superconductor Cryogenic Conduit (`voltcraft:conduit_superconductor`)
 ```
 [ Aluminum Ingot ] [ Glass Pane      ] [ Aluminum Ingot ]
-[ Copper Wire    ] [ Nether Star / YBCO Powder ] [ Copper Wire ]
-[ Aluminum Ingot ] [ Bucket of Water / Cryogen ] [ Aluminum Ingot ]
+[ Bare Copper Wire ] [ Nether Star   ] [ Bare Copper Wire ]
+[ Aluminum Ingot ] [ Water Bucket    ] [ Aluminum Ingot ]
 ==> Yields: 4x Superconductor Conduit
 ```
+Pattern `AGA/CSC/AWA` (`VoltcraftRecipeGenerator`: Al + glass + bare Cu + Nether Star + Water Bucket).
+No YBCO powder / cryogen-fluid variant exists in code.

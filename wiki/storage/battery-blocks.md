@@ -1,7 +1,7 @@
 # Battery Blocks: Stationary Energy Storage Systems (BESS)
 
 Part of the [[../core-idea|VoltCraft Core Idea & Architecture]] specification.
-See also [[../batteries|Electrochemistry & Battery Fundamentals]].
+See also [[electrochemistry|Electrochemistry & Battery Fundamentals]].
 
 ---
 
@@ -13,10 +13,13 @@ Battery blocks are stationary `BlockEntity` structures placed in the world as di
 
 ## 2. Block Storage Crafting Recipes
 
+> Code: `block/VoltcraftBlocks.java` (series/parallel counts), `simulation/chemistry/BatteryChemistry.java`
+> (cell specs). Pack nominal V = series $\times$ cell nominal; pack Ah = parallel $\times$ cell Ah.
+
 ### 2.1 $LiFePO_4$ Battery Block (`voltcraft:battery_block_lifepo4`)
-* **Chemistry:** Lithium Iron Phosphate ($48\text{ V}$ nominal, $100\text{ Ah} / 4.8\,\text{kWh}$, $3500+$ cycles).
+* **Config:** `LIFEPO4, 15S, 1P` → $15 \times 3.2\text{ V} = 48\text{ V}$ nominal ($37.5\text{--}54.75\text{ V}$ window), $1 \times 100\text{ Ah} = 100\text{ Ah} / 4.8\,\text{kWh}$, $3C$ ($300\text{ A}$), $R_{\text{cell}} = 0.6\text{ m}\Omega$, 4000 cycles, runaway $270^\circ\text{C}$.
 * **Fire-Safe & Chemically Stable:** Olivine structure prevents thermal runaway fire/explosion under damage or short circuits.
-* **Crafting Table:**
+* **Crafting Table (`IBI/LML/SRS`; I = iron ingot, B = copper busbar, L = lithium ingot, M = BMS, S = iron block, R = rubber):**
   ```
   [ Iron Ingot    ] [ Copper Busbar       ] [ Iron Ingot    ]
   [ Lithium Ingot ] [ BMS Logic Board     ] [ Lithium Ingot ]
@@ -25,7 +28,7 @@ Battery blocks are stationary `BlockEntity` structures placed in the world as di
   ```
 
 ### 2.2 Heavy Lead-Acid Battery Bank (`voltcraft:battery_block_lead_acid`)
-* **Chemistry:** Sealed Lead-Acid ($12\text{ V}$, $120\text{ Ah} / 1.44\,\text{kWh}$, $400$ cycles).
+* **Config:** `LEAD_ACID, 6S, 1P` → $6 \times 2.0\text{ V} = 12\text{ V}$ nominal ($10.5\text{--}14.4\text{ V}$), $120\text{ Ah} / 1.44\,\text{kWh}$, $1.5C$ ($180\text{ A}$), $1.5\text{ m}\Omega$/cell, 500 cycles, $70^\circ\text{C}$ $H_2$ vent.
 * Cheap early bulk storage. Heavy mining time. Vents explosive $H_2$ gas if placed in unventilated rooms.
 * **Crafting Table:**
   ```
@@ -36,7 +39,7 @@ Battery blocks are stationary `BlockEntity` structures placed in the world as di
   ```
 
 ### 2.3 Lithium-Titanate (LTO) Block (`voltcraft:battery_block_lto`)
-* **Chemistry:** LTO ($24\text{ V}$, $60\text{ Ah}$, $10C$ ultra-fast 6-minute charge, $15000+$ cycles, $-50^\circ\text{C}$ immune).
+* **Config:** `LTO, 10S, 1P` → $10 \times 2.4\text{ V} = 24\text{ V}$ nominal ($15\text{--}28\text{ V}$), $60\text{ Ah} / 1.44\,\text{kWh}$, $10C$ ($600\text{ A}$, 6-min charge), $0.8\text{ m}\Omega$/cell, 15000 cycles, $200^\circ\text{C}$.
 * **Crafting Table:**
   ```
   [ Iron Ingot    ] [ Gold Bus Cable     ] [ Iron Ingot    ]
@@ -47,8 +50,8 @@ Battery blocks are stationary `BlockEntity` structures placed in the world as di
 
 ### 2.4 Modular 18650 Battery Rack (`voltcraft:battery_rack_modular`)
 * Bridges item-form 18650 / 21700 / small cylindrical cells to the stationary world grid.
-* Contains 16 bays for inserting cylindrical battery cells.
-* **Busbar Wiring Modes:**
+* Contains **16 bays** (`BatteryRackBlockEntity.INVENTORY_SIZE = 16`, any `BatteryCellItem`).
+* **Busbar Wiring Modes (`RackWiringMode`):**
   * **SERIES (Default):** Pack EMF equals the exact sum of all installed cell voltages ($V_{\text{EMF}} = \sum V_{\text{cell}}$). 1 cell = $3.7\text{ V}$, 4 cells = $14.8\text{ V}$, 16 cells = $59.2\text{ V}$. Internal resistances add in series.
   * **PARALLEL:** Pack EMF equals average cell EMF ($V_{\text{EMF}} \approx 3.7\text{ V}$), with max ampacity scaling up as $N \times I_{\text{cell}}$.
   * **Wiring Toggle:** Right-click the rack with a `Copper Busbar` or any `Cable` block item to instantly switch between Series and Parallel topologies!
@@ -65,7 +68,7 @@ Battery blocks are stationary `BlockEntity` structures placed in the world as di
   ```
 
 ### 2.5 NiMH Battery Pack Block (`voltcraft:battery_block_nimh`)
-* **Chemistry:** Nickel-Metal Hydride ($24\text{ V}$ nominal [20S], $50\text{ Ah} / 1.2\,\text{kWh}$, $1000$ cycles).
+* **Config:** `NIMH, 20S, 20P` → $20 \times 1.2\text{ V} = 24\text{ V}$ nominal, $20 \times 2.5\text{ Ah} = 50\text{ Ah} / 1.2\,\text{kWh}$, 800 cycles, $65^\circ\text{C}$.
 * High safety, non-toxic, reliable intermediate industrial storage without expensive lithium requirement.
 * **Crafting Table:**
   ```
@@ -76,7 +79,7 @@ Battery blocks are stationary `BlockEntity` structures placed in the world as di
   ```
 
 ### 2.6 NiCd Battery Pack Block (`voltcraft:battery_block_nicd`)
-* **Chemistry:** Nickel-Cadmium ($24\text{ V}$ nominal [20S], $30\text{ Ah} / 720\,\text{Wh}$, $1500$ cycles).
+* **Config:** `NICD, 20S, 25P` → $20 \times 1.2\text{ V} = 24\text{ V}$ nominal, $25 \times 1.2\text{ Ah} = 30\text{ Ah} / 720\,\text{Wh}$, 1000 cycles, $80^\circ\text{C}$.
 * Extreme temperature resilience (operates in sub-zero and extreme desert heat), rugged high-drain tolerance.
 * **Crafting Table:**
   ```
@@ -93,6 +96,9 @@ Battery blocks are stationary `BlockEntity` structures placed in the world as di
 Electrochemical cells operate strictly on **Direct Current (DC)** via unidirectional ion transport between anode and cathode:
 
 ### 3.1 Unrectified AC Behavior
+> Thresholds below ($80/95/140^\circ\text{C}$) are **spec-text illustration**, not code constants.
+> Code runaway gates are per-chemistry (`BatteryChemistry`): Li-Ion $150^\circ\text{C}$,
+> Lead-Acid $70^\circ\text{C}$, LFP $270^\circ\text{C}$, LTO $200^\circ\text{C}$, NiMH $65^\circ\text{C}$, NiCd $80^\circ\text{C}$.
 * **Zero Net Charge ($\Delta\text{SoC} = 0$):** Symmetrical alternating current cycles cancel out net faradaic charge transfer ($\int_0^T I(t)dt = 0$).
 * **Joule Heating ($P = I_{\text{rms}}^2 \cdot R_{\text{int}}$):** Alternating current continuously passes through the internal resistance of the cells, dissipating high thermal power into the pack.
 * **Electrode Degradation & Delamination:** Rapid cyclic polar reversal strips and plates dendrites, breaking down solid-electrolyte interphase (SEI) layers and rapidly degrading State of Health ($\text{SoH}$).

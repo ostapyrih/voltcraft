@@ -19,6 +19,18 @@ $$\tilde{V} = V_{\text{RMS}} \angle \theta \qquad \tilde{I} = I_{\text{RMS}} \an
 
 ## 2. Inverter Topologies & Waveform Quality
 
+> **Code source:** `simulation/conversion/InverterType.java` — exact THD / efficiency / power / voltage.
+> All five output $230\text{ V}$ nominal. DC input modes with UVLO/OVP are implemented in
+> `InverterBlockEntity` (12 V in: UVLO 10 V / OVP 16.5 V; 24 V in: 20 V / 33 V; 48 V in: 40 V / 66 V).
+
+| Inverter (code) | Block ID | THD | $\eta$ | Max power | Grid-tie | ATS |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Square Wave | `voltcraft:inverter_square_wave` | $48.0\%$ | $0.90$ | $1500\text{ W}$ | no | no |
+| Modified Sine | `voltcraft:inverter_modified_sine` | $28.0\%$ | $0.92$ | $3000\text{ W}$ | no | no |
+| Pure Sine SPWM | `voltcraft:inverter_pure_sine` | $2.5\%$ | $0.96$ | $5000\text{ W}$ | no | no |
+| Synchronous Grid-Tie | `voltcraft:inverter_grid_tie` | $2.0\%$ | $0.97$ | $6000\text{ W}$ | **yes** (PLL + 2-tick anti-islanding) | no |
+| Hybrid ESS Multi-Mode | `voltcraft:inverter_hybrid_ess` | $2.0\%$ | $0.96$ | $8000\text{ W}$ | **yes** | **yes** ($<10\text{ ms}$ ATS) |
+
 $$\text{THD} = \frac{\sqrt{\sum_{n=2}^\infty V_n^2}}{V_1}$$
 
 ```
@@ -49,44 +61,57 @@ Square Wave                  Modified Sine Wave           Pure Sine Wave (SPWM)
 
 ## 4. Inverter Hardware Crafting Recipes
 
+> Exact patterns from `VoltcraftRecipeGenerator` / `src/main/generated/data/voltcraft/recipe/inverter_*.json`.
+> Previous wiki patterns (transformer-core/redstone-dust, comparator, steel-sheet variants) were stale.
+
 ### 4.1 Square Wave Inverter (`voltcraft:inverter_square_wave`)
 ```
-[ Iron Ingot         ] [ Bare Copper Wire ] [ Iron Ingot         ]
-[ Transformer Core   ] [ Redstone Dust    ] [ Transformer Core   ]
-[ Iron Ingot         ] [ Terracotta       ] [ Iron Ingot         ]
-==> Yields: 1x Square Wave Inverter
+Pattern IMI/LWE/CRN (I = iron ingot, M = MOSFET, L = laminated core,
+W = magnet wire, E = capacitor, C = bare Cu, R = repeater, N = insulated Cu):
+[ Iron Ingot ] [ Power MOSFET ] [ Iron Ingot ]
+[ Laminated Core ] [ Magnet Wire ] [ Capacitor ]
+[ Bare Copper Wire ] [ Repeater ] [ Insulated Copper Cable ]
+==> Yields: 1x Square Wave Inverter (1500W)
 ```
 
 ### 4.2 Modified Sine Wave Inverter (`voltcraft:inverter_modified_sine`)
 ```
-[ Iron Ingot             ] [ Copper Magnet Wire ] [ Iron Ingot             ]
-[ Power MOSFET           ] [ Transformer Core   ] [ Power MOSFET           ]
-[ Insulated Copper Cable ] [ Redstone Repeater  ] [ Insulated Copper Cable ]
-==> Yields: 1x Modified Sine Wave Inverter
+Pattern AMA/MLE/CBN (A = aluminum, M = MOSFET, L = core, E = capacitor,
+C = bare Cu, B = BMS, N = insulated Cu):
+[ Aluminum Ingot ] [ Power MOSFET ] [ Aluminum Ingot ]
+[ Power MOSFET ] [ Laminated Core ] [ Capacitor ]
+[ Bare Copper Wire ] [ BMS Board ] [ Insulated Copper Cable ]
+==> Yields: 1x Modified Sine Wave Inverter (3000W)
 ```
 
 ### 4.3 Pure Sine Wave SPWM Inverter (`voltcraft:inverter_pure_sine`)
 ```
-[ Aluminum Ingot         ] [ Filter Capacitor   ] [ Aluminum Ingot         ]
-[ Power MOSFET           ] [ BMS / Control PCB  ] [ Power MOSFET           ]
-[ Insulated Copper Cable ] [ Transformer Core   ] [ Insulated Copper Cable ]
-==> Yields: 1x Pure Sine Wave Inverter
+Pattern AMA/BLW/HEN (A = aluminum, M = MOSFET, B = BMS, L = core,
+W = magnet wire, H = heavy Cu, E = capacitor, N = insulated Cu):
+[ Aluminum Ingot ] [ Power MOSFET ] [ Aluminum Ingot ]
+[ BMS Board ] [ Laminated Core ] [ Magnet Wire ]
+[ Heavy Copper Cable ] [ Capacitor ] [ Insulated Copper Cable ]
+==> Yields: 1x Pure Sine Wave Inverter (5000W)
 ```
 
 ### 4.4 Synchronous Grid-Tie Inverter (`voltcraft:inverter_grid_tie`)
 ```
-[ Silver Precision Wire  ] [ Filter Capacitor   ] [ Silver Precision Wire  ]
-[ Power MOSFET           ] [ BMS / Control PCB  ] [ Power MOSFET           ]
-[ Insulated Copper Cable ] [ Redstone Comparator] [ Insulated Copper Cable ]
-==> Yields: 1x Grid-Tie Inverter
+Pattern SMS/BLR/HEN (S = silver ingot, M = MOSFET, B = BMS, L = core,
+R = contactor relay, H = heavy Cu, E = capacitor, N = insulated Cu):
+[ Silver Ingot ] [ Power MOSFET ] [ Silver Ingot ]
+[ BMS Board ] [ Laminated Core ] [ Contactor Relay ]
+[ Heavy Copper Cable ] [ Capacitor ] [ Insulated Copper Cable ]
+==> Yields: 1x Grid-Tie Inverter (6000W)
 ```
 
 ### 4.5 Hybrid ESS Multi-Mode Inverter (`voltcraft:inverter_hybrid_ess`)
 ```
-[ Pure Sine Inverter     ] [ Contactor Relay    ] [ Grid-Tie Inverter      ]
-[ BMS / Control PCB      ] [ Heavy Copper Cable ] [ Filter Capacitor       ]
-[ Steel Sheet / Ingot    ] [ Copper Busbar      ] [ Steel Sheet / Ingot    ]
-==> Yields: 1x Hybrid ESS Inverter
+Pattern GMG/BRB/HLN (G = gold ingot, M = MOSFET, B = BMS, R = contactor,
+H = heavy Cu, L = core, N = insulated Cu):
+[ Gold Ingot ] [ Power MOSFET ] [ Gold Ingot ]
+[ BMS Board ] [ Contactor Relay ] [ BMS Board ]
+[ Heavy Copper Cable ] [ Laminated Core ] [ Insulated Copper Cable ]
+==> Yields: 1x Hybrid ESS Inverter (8000W)
 ```
 
 ---

@@ -29,6 +29,19 @@ Each conversion topology enforces physical AC vs DC waveform contracts:
 
 ## 3. DC-DC Converter Topologies (Switched-Mode SMPS)
 
+> **Code source:** `simulation/conversion/ConverterType.java` — exact ratings.
+> GUI offers only `[5V] / [12V] / [24V] / [48V]` presets. Output law:
+> BUCK $\min(V_{\text{in}}, V_{\text{set}})$, BOOST $\max(V_{\text{in}}, V_{\text{set}})$,
+> BUCK_BOOST $V_{\text{set}}$, LDO $V_{\text{set}}$ iff $V_{\text{in}} \ge V_{\text{set}}$ else $0$.
+> LDO efficiency is dynamic $\eta = V_{\text{out}} / V_{\text{in}}$.
+
+| Type | Block ID | $\eta$ (nom.) | Max $I$ | Default $V$ | $V_{\text{in}}$ range | Linear |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Buck | `voltcraft:converter_dc_buck` | $0.94$ | $100\text{ A}$ | $12\text{ V}$ | $8\text{--}60\text{ V}$ | no |
+| Boost | `voltcraft:converter_dc_boost` | $0.92$ | $60\text{ A}$ | $48\text{ V}$ | $10\text{--}40\text{ V}$ | no |
+| Buck-Boost / SEPIC | `voltcraft:converter_dc_buck_boost` | $0.90$ | $100\text{ A}$ | $24\text{ V}$ | $8\text{--}60\text{ V}$ | no |
+| Linear LDO | `voltcraft:regulator_linear_ldo` | dynamic ($V_{\text{out}}/V_{\text{in}}$) | $20\text{ A}$ | $5\text{ V}$ | $6\text{--}35\text{ V}$ | **yes** ($P_{\text{loss}} = (V_{\text{in}} - V_{\text{out}}) \cdot I$) |
+
 ```
        Buck (Step-Down)                     Boost (Step-Up)
         Switch      Inductor                 Inductor       Diode
@@ -50,79 +63,111 @@ Each conversion topology enforces physical AC vs DC waveform contracts:
 
 ### 4.1 AC Transformers
 $$\frac{V_s}{V_p} = \frac{N_s}{N_p} = a \qquad \frac{I_s}{I_p} = \frac{1}{a}$$
+* Code (`TransformerType`): both units $5000\text{ VA}$, $\eta = 0.96$.
+  Step-Down $a = 24/230$ ($230\text{ V} \to 24\text{ V}$); Step-Up $a = 230/24$ ($24\text{ V} \to 230\text{ V}$).
 * Uses laminated silicon steel cores to reduce hysteresis ($P_h \propto f \cdot B_{\text{max}}^{1.6}$) and eddy current losses.
 * Strictly requires alternating magnetic flux ($f > 0$). Applying continuous DC causes zero back-EMF, resulting in near dead-short conditions and instantaneous breaker trip.
 
 ### 4.2 AC-DC Rectifiers & Filtering
-* **Bridge Rectifier:** 4-diode Graetz bridge with $1.4\text{V}$ forward drop.
-* **Active Synchronous Rectifier:** MOSFET-based low-$R_{\text{DS(on)}}$ rectification ($>98.5\%$ efficiency).
+* **Bridge Rectifier** (`RectifierType.BRIDGE`): $1.40\text{ V}$ drop ($2 \times 0.7\text{ V}$ Si),
+  $\eta = 0.88$, $32\text{ A}$ max. DC bus: $V_{\text{dc}} = \max(0, V_{\text{ac,rms}} \cdot \sqrt{2} - 1.40)$.
+* **Active Synchronous Rectifier** (`ACTIVE_SYNCHRONOUS`): $0.05\text{ V}$ MOSFET drop,
+  $\eta = 0.985$, $64\text{ A}$ max.
 * **Capacitor Smoothing:** Output ripple voltage $V_{\text{ripple}} \approx \frac{I_{\text{load}}}{2 f C}$. Sensitive computing logic crashes if ripple exceeds $\pm 5\%$.
 * **Mandatory for Battery Charging:** Any AC generation must be routed through a Rectifier before connecting to stationary battery blocks or battery racks.
+
+### 4.3 Rotary Energy Bridge — 230 V AC to E (`voltcraft:converter_eu`)
+> Code: `simulation/conversion/EuConverterLogic.java`, `block/conversion/EuConverterBlock.java`,
+> TeamReborn Energy API (`EnergyStorage.SIDED`). Display name: **Rotary Energy Bridge (230V AC to E)**;
+> registry/class IDs stay `converter_eu` / `EuConverter*` for save compat.
+* **Strict AC gate (rear face only):** $207\text{--}253\text{ V}$ ($230\text{ V} \pm 10\%$), $f \ge 40.0\text{ Hz}$.
+  DC ($f < 40\text{ Hz}$) → `DC REJECT`, $0\text{ E}$; $V < 207\text{ V}$ → brownout, $0\text{ E}$;
+  $V > 253\text{ V}$ → surge trip latch until reset; thermal trip at $125^\circ\text{C}$.
+* **Conversion:** $25\text{ W} \to 1\text{ E/tick}$ ($P/25.0$ E/t, fractional accumulator),
+  buffer $10{,}000\text{ E}$, extraction $\le 512\text{ E/t}$ on non-input faces.
+  Idle demand $= (\text{needed E} \times 25.0) + 5.0\text{ W}$ (needed capped at $128\text{ E/t}$).
+* **Recipe** (`converter_eu.json`, pattern `GMG/TLT/IRI`): gold bus cable + MOSFET +
+  laminated core + heavy copper cable + iron + redstone → 1x.
 
 ---
 
 ## 5. Converter Crafting Recipes
 
+> Exact patterns from `src/main/generated/data/voltcraft/recipe/converter_*.json`,
+> `transformer_*.json`, `rectifier_*.json`, `regulator_*.json`.
+> Previous wiki entries (terracotta bases, comparator/steel-sheet variants, shapeless LDO) were stale.
+
 ### 5.1 Buck Step-Down Converter (`voltcraft:converter_dc_buck`)
 ```
-[ Iron Ingot         ] [ Copper Magnet Wire ] [ Iron Ingot         ]
-[ Power MOSFET       ] [ Filter Capacitor   ] [ Schottky Diode     ]
-[ Bare Copper Wire   ] [ Terracotta         ] [ Bare Copper Wire   ]
+Pattern ADA/MWE/ICI (A = aluminum, D = schottky, M = MOSFET, W = magnet wire,
+E = capacitor, I = iron ingot, C = bare Cu):
+[ Aluminum Ingot ] [ Schottky Diode     ] [ Aluminum Ingot ]
+[ Power MOSFET   ] [ Magnet Wire        ] [ Capacitor      ]
+[ Iron Ingot     ] [ Bare Copper Wire   ] [ Iron Ingot     ]
 ==> Yields: 1x Buck Step-Down Converter
 ```
 
 ### 5.2 Boost Step-Up Converter (`voltcraft:converter_dc_boost`)
 ```
-[ Iron Ingot         ] [ Schottky Diode     ] [ Iron Ingot         ]
-[ Copper Magnet Wire ] [ Filter Capacitor   ] [ Power MOSFET       ]
-[ Bare Copper Wire   ] [ Terracotta         ] [ Bare Copper Wire   ]
+Pattern AWA/MDE/ICI:
+[ Aluminum Ingot ] [ Magnet Wire      ] [ Aluminum Ingot ]
+[ Power MOSFET   ] [ Schottky Diode   ] [ Capacitor      ]
+[ Iron Ingot     ] [ Bare Copper Wire ] [ Iron Ingot     ]
 ==> Yields: 1x Boost Step-Up Converter
 ```
 
 ### 5.3 Universal Buck-Boost / SEPIC Converter (`voltcraft:converter_dc_buck_boost`)
 ```
-[ Aluminum Ingot         ] [ Filter Capacitor   ] [ Aluminum Ingot         ]
-[ Power MOSFET           ] [ Copper Magnet Wire ] [ Power MOSFET           ]
-[ Insulated Copper Cable ] [ BMS / Control PCB  ] [ Insulated Copper Cable ]
+Pattern AWE/MBD/IWI (B = BMS board):
+[ Aluminum Ingot ] [ Magnet Wire      ] [ Capacitor      ]
+[ Power MOSFET   ] [ BMS Board        ] [ Schottky Diode ]
+[ Iron Ingot     ] [ Magnet Wire      ] [ Iron Ingot     ]
 ==> Yields: 1x Universal Buck-Boost Converter
 ```
 
 ### 5.4 Linear LDO Voltage Regulator (`voltcraft:regulator_linear_ldo`)
-Crafting Table (Shapeless):
 ```
-[ Power MOSFET ] + [ Copper Nugget ] + [ Aluminum Ingot (Heatsink) ]
-==> Yields: 2x Linear LDO Regulator
+Pattern AAA/RMR/CEC — SHAPED (not shapeless), 1x yield:
+[ Aluminum Ingot   ] [ Aluminum Ingot   ] [ Aluminum Ingot   ]
+[ Rubber Sheet     ] [ Power MOSFET     ] [ Rubber Sheet     ]
+[ Bare Copper Wire ] [ Capacitor        ] [ Bare Copper Wire ]
+==> Yields: 1x Linear LDO Regulator
 ```
 
 ### 5.5 AC Step-Down Transformer (`voltcraft:transformer_ac_step_down`)
 ```
-[ Iron Ingot             ] [ Transformer Core   ] [ Iron Ingot             ]
-[ Copper Magnet Wire     ] [ Transformer Core   ] [ Bare Copper Wire       ]
-[ Iron Ingot             ] [ Insulated Cable    ] [ Iron Ingot             ]
-==> Yields: 1x AC Step-Down Transformer
+Pattern ILI/WLC/TCT (I = iron ingot, L = laminated core, W = magnet wire,
+C = bare Cu, T = terracotta):
+[ Iron Ingot     ] [ Laminated Core   ] [ Iron Ingot     ]
+[ Magnet Wire    ] [ Laminated Core   ] [ Bare Copper Wire ]
+[ Iron Ingot     ] [ Terracotta       ] [ Iron Ingot     ]
+==> Yields: 1x AC Step-Down Transformer (230V to 24V)
 ```
 
 ### 5.6 AC Step-Up Transformer (`voltcraft:transformer_ac_step_up`)
 ```
-[ Iron Ingot             ] [ Transformer Core   ] [ Iron Ingot             ]
-[ Bare Copper Wire       ] [ Transformer Core   ] [ Copper Magnet Wire     ]
-[ Iron Ingot             ] [ Insulated Cable    ] [ Iron Ingot             ]
-==> Yields: 1x AC Step-Up Transformer
+Pattern ILI/CLW/TCT (magnet wire and bare Cu swapped vs step-down):
+[ Iron Ingot     ] [ Laminated Core   ] [ Iron Ingot     ]
+[ Bare Copper Wire ] [ Laminated Core ] [ Magnet Wire    ]
+[ Iron Ingot     ] [ Terracotta       ] [ Iron Ingot     ]
+==> Yields: 1x AC Step-Up Transformer (24V to 230V)
 ```
 
 ### 5.7 Full-Wave Bridge Rectifier (`voltcraft:rectifier_bridge`)
 ```
-[ Schottky Diode     ] [ Filter Capacitor   ] [ Schottky Diode     ]
-[ Bare Copper Wire   ] [ Terracotta         ] [ Bare Copper Wire   ]
-[ Schottky Diode     ] [ Filter Capacitor   ] [ Schottky Diode     ]
+Pattern RDR/DED/CDC (R = rubber, D = schottky diode, E = capacitor, C = bare Cu):
+[ Rubber Sheet     ] [ Schottky Diode ] [ Rubber Sheet     ]
+[ Schottky Diode   ] [ Capacitor      ] [ Schottky Diode   ]
+[ Bare Copper Wire ] [ Schottky Diode ] [ Bare Copper Wire ]
 ==> Yields: 1x Bridge Rectifier
 ```
 
 ### 5.8 Active Synchronous Rectifier (`voltcraft:rectifier_active_synchronous`)
 ```
-[ Power MOSFET           ] [ Filter Capacitor   ] [ Power MOSFET           ]
-[ BMS / Control PCB      ] [ Heat Sink / Alum   ] [ BMS / Control PCB      ]
-[ Power MOSFET           ] [ Filter Capacitor   ] [ Power MOSFET           ]
+Pattern AMA/MBM/CEC (A = aluminum, M = MOSFET, B = BMS, C = bare Cu, E = capacitor):
+[ Aluminum Ingot   ] [ Power MOSFET   ] [ Aluminum Ingot   ]
+[ Power MOSFET     ] [ BMS Board      ] [ Power MOSFET     ]
+[ Bare Copper Wire ] [ Capacitor      ] [ Bare Copper Wire ]
 ==> Yields: 1x Active Synchronous Rectifier
 ```
 

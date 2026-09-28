@@ -18,23 +18,29 @@ $$I(V) = I_{\text{ph}} - I_0 \left[ \exp\left( \frac{q (V + I \cdot R_s)}{n \cdo
 Requires an unobstructed sky view above (`world.isSkyVisible(pos.up())`):
 * **Celestial Zenith Angle:** Computed from `world.getTimeOfDay()`. Solar noon occurs at tick 6,000 where $\cos(\theta_{\text{zenith}}) = 1.0$.
 * **Air Mass Beam Attenuation:** Direct sunlight intensity scales realistically as the sun traverses the horizon.
-* **Weather Factors:**
-  - Clear Sky: $1.0\times$ direct beam + diffuse irradiance.
-  - Rain / Overcast: $0.20\text{--}0.35\times$ diffuse irradiance.
-  - Thunderstorm: $0.05\text{--}0.12\times$ dark overcast.
+* **Weather Factors (exact, `SolarPanelType.getWeatherFactor`):**
+  - Clear Sky: $1.0\times$.
+  - Rain: Thin-Film CdTe $0.40\times$, all others $0.25\times$.
+  - Thunderstorm: Thin-Film CdTe $0.20\times$, all others $0.10\times$.
+  - Concentrator CPV: **$0.0\times$** in any rain or thunder (direct-beam only).
   - Night: $0.0\text{ W/m}^2$.
-* **Temperature Coefficient ($\gamma_T \approx -0.38\%/^\circ\text{C}$):** Panels produce higher output in cold biomes (Snowy Plains, Ice Spikes) and derate in hot environments (Desert, Badlands, Nether).
+* **Temperature Coefficients (exact per type):** Mono PERC $-0.35\%/^\circ\text{C}$,
+  Poly $-0.39\%/^\circ\text{C}$, Thin-Film $-0.25\%/^\circ\text{C}$, CPV $-0.15\%/^\circ\text{C}$.
 
 ---
 
 ## 2. Solar Panel Technology Matrix
 
-| Solar Panel Type | Block ID | $P_{\text{mp}}$ (STC) | $V_{\text{mp}}$ | $I_{\text{mp}}$ | $V_{\text{oc}}$ | $I_{\text{sc}}$ | Highlights |
-|---|---|---|---|---|---|---|---|
-| **Monocrystalline PERC** | `voltcraft:solar_panel_monocrystalline` | 400 W | 40.0 V | 10.0 A | 48.0 V | 10.8 A | High efficiency; bypass diode string protection against hot spots |
-| **Polycrystalline** | `voltcraft:solar_panel_polycrystalline` | 300 W | 32.0 V | 9.38 A | 38.5 V | 10.2 A | Cost-effective mid-game solar generation |
-| **Thin-Film CdTe** | `voltcraft:solar_panel_thin_film` | 250 W | 60.0 V | 4.17 A | 72.0 V | 4.6 A | Superior performance in overcast/diffuse lighting & high temperatures |
-| **Concentrator CPV** | `voltcraft:solar_panel_concentrator` | 700 W | 50.0 V | 14.0 A | 62.0 V | 15.5 A | Multi-junction aerospace cell with Fresnel lens array; requires direct beam |
+| Solar Panel Type | Block ID | $P_{\text{mp}}$ (STC) | $V_{\text{mp}}$ | $I_{\text{mp}}$ | $V_{\text{oc}}$ | $I_{\text{sc}}$ | $\eta$ / $\gamma_T$ | Highlights |
+|---|---|---|---|---|---|---|---|---|
+| **Monocrystalline PERC** | `voltcraft:solar_panel_monocrystalline` | 400 W | 40.0 V | 10.0 A | 48.0 V | 10.8 A | 21.5% / $-0.35\%/^\circ\text{C}$ | High efficiency; bypass diode string protection against hot spots |
+| **Polycrystalline** | `voltcraft:solar_panel_polycrystalline` | 300 W | 32.0 V | 9.38 A | 38.5 V | 10.1 A | 17.0% / $-0.39\%/^\circ\text{C}$ | Cost-effective mid-game solar generation |
+| **Thin-Film CdTe** | `voltcraft:solar_panel_thin_film` | 250 W | 70.0 V | 3.57 A | 88.0 V | 4.0 A | 15.0% / $-0.25\%/^\circ\text{C}$ | Superior performance in overcast/diffuse lighting & high temperatures |
+| **Concentrator CPV** | `voltcraft:solar_panel_concentrator` | 700 W | 50.0 V | 14.0 A | 60.0 V | 15.0 A | 38.0% / $-0.15\%/^\circ\text{C}$ | Multi-junction aerospace cell with Fresnel lens array; requires direct beam (0 output in rain/thunder) |
+
+> Source: `simulation/generation/SolarPanelType.java`. Previous wiki values for Thin-Film
+> ($60\text{ V}/4.17\text{ A}/72\text{ V}/4.6\text{ A}$), Poly $I_{\text{sc}} = 10.2\text{ A}$ and
+> CPV $V_{\text{oc}}/I_{\text{sc}} = 62\text{ V}/15.5\text{ A}$ were stale and have been corrected.
 
 ---
 
@@ -44,11 +50,17 @@ Requires an unobstructed sky view above (`world.isSkyVisible(pos.up())`):
 * **Output Port (Front / North - Green `[OUT]`):** Connects to battery bank ($12\text{V}$, $24\text{V}$, or $48\text{V}$ nominal).
 * **Maximum Output Current:** $60\text{ A}$.
 * **Conversion Efficiency:** $98\%$ synchronous buck conversion.
-* **Tracking Algorithm:** Perturb & Observe (P&O) dynamically shifts terminal voltage to lock onto $(V_{\text{mp}}, I_{\text{mp}})$.
-* **3-Stage Battery Charging State Machine:**
+* **Tracking Algorithm:** Perturb & Observe (P&O) in `MPPTLogic`: $0.2\text{ V}$ steps,
+  target window $10\text{--}150\text{ V}$, $0.05\text{ W}$ noise deadband, rail-settled gating
+  (servo band $+0.5\text{ V}$, demand deadband $\max(2\text{ W}, 5\%)$).
+* **3-Stage Battery Charging State Machine (exact thresholds):**
   1. **Bulk:** Constant current injection at maximum available solar power until absorption voltage threshold is reached.
-  2. **Absorption:** Constant voltage saturation stage until battery current tapers below threshold.
-  3. **Float:** Lower maintenance voltage to keep battery fully charged while avoiding electrolyte outgassing.
+  2. **Absorption:** $14.4\text{ V}$ per 12 V bank ($28.8\text{ V}$ @ 24 V, $57.6\text{ V}$ @ 48 V) until current tapers $< 0.2\text{ A}$ or $1200$-tick timeout.
+  3. **Float:** $13.6\text{ V}$ per 12 V bank ($27.2\text{ V}$ @ 24 V, $54.4\text{ V}$ @ 48 V); returns to Bulk if rail sags $> 1.0\text{ V}$ below float.
+* **Bank presets & protection:** `[12V Bank]` / `[24V Bank]` / `[48V Bank]` (snap $\le 15\text{ V} \to 12$, $\le 30\text{ V} \to 24$, else $48$).
+  Nominal-mismatch ($> 18\text{ V}$ on 12 V bank, outside $18\text{--}36\text{ V}$ on 24 V, $< 36\text{ V}$ on 48 V)
+  or live-rail mismatch trips output to $0\text{ A}$. Zero solar ($0\text{ W}$ / $V_{\text{in}} \le 1\text{ V}$)
+  yields strictly $0.0\text{ A}$ — no phantom current. Controller housekeeping draw $2\text{ W}$ in Float.
 
 ---
 
