@@ -35,7 +35,7 @@ import team.reborn.energy.api.base.SimpleEnergyStorage;
  *
  * <p>Converter kernel adapter: this BE implements {@link KernelAttachedBlock} through the shared
  * {@link AbstractPowerConverterBlockEntity.ConverterElement} 4-terminal pattern. The input pair
- * (east in+, west in−) stamps the staged grid-side demand; the output pair (north/south) is
+ * (BACK in+, LEFT in−, FACING-relative) stamps the staged grid-side demand; the output pair is
  * reserved open (staged EMF identically zero) because converted energy leaves through the
  * TeamReborn storage API, never the grid. Like the other converters the element holds no kernel
  * state (temperature/conversion advance stay BE-side); {@link #tickElectrical} only stages the
@@ -172,12 +172,28 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
 
     @Override
     public BlockPos[] getTerminalPositions() {
-        int[][] o = AbstractPowerConverterBlockEntity.ConverterElement.TERMINAL_OFFSETS;
-        BlockPos[] out = new BlockPos[o.length];
-        for (int k = 0; k < o.length; k++) {
-            out[k] = pos.add(o[k][0], o[k][1], o[k][2]);
+        return AbstractPowerConverterBlockEntity.ConverterElement
+            .resolveConverterTerminals(pos, readFacing());
+    }
+
+    /**
+     * Reads {@code FACING} from the cached state with a {@link Direction#NORTH}
+     * fallback (null-world / test-double / wrong-block safe: only {@code pos} plus
+     * the cached state are read, never the world).
+     */
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(EuConverterBlock.FACING)) {
+                Direction facing = cached.get(EuConverterBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall through to NORTH.
         }
-        return out;
+        return Direction.NORTH;
     }
 
     @Override

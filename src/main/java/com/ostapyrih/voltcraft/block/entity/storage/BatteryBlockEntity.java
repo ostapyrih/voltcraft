@@ -36,9 +36,9 @@ import java.util.function.BooleanSupplier;
  * the telemetry cell — the nested class is a pure function of its inputs.</p>
  *
  * <ul>
- *   <li>Terminals (item 4): two adjacent positions, east/west
- *       ({@code TERMINAL_OFFSETS = {{1,0,0},{-1,0,0}}}). West-positive source polarity
- *       convention: {@code terminals[1]} (west) is the positive terminal, so the
+ *   <li>Terminals (item 4): two adjacent positions, north/south
+ *       ({@code TERMINAL_OFFSETS = {{0,0,-1},{0,0,1}}}). South-positive source polarity
+ *       convention: {@code terminals[1]} (south) is the positive terminal, so the
  *       current entering {@code terminals[0]} ({@code It[0]}) is positive while the
  *       pack discharges and {@code dSoc/dt = -It[0]/Q}.</li>
  *   <li>States (item 7): exactly 3 kernel-owned reals, {@code [soc, temperatureC,
@@ -123,8 +123,8 @@ public class BatteryBlockEntity extends BlockEntity implements KernelAttachedBlo
      * registry, world, or block-entity instance.
      */
     public static final class BatteryElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /** Terminal offsets: north / south of the BE position. */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
         /** Floor for the stamped pack series resistance in ohms. */
         public static final double MIN_PACK_RESISTANCE_OHM = 1e-4;
         /** BMS over-temperature trip threshold in Celsius. */
@@ -188,7 +188,7 @@ public class BatteryBlockEntity extends BlockEntity implements KernelAttachedBlo
             double r = Math.max(MIN_PACK_RESISTANCE_OHM,
                 packResistance(chemistry, seriesCount, parallelCount, soc,
                     state[STATE_TEMP], state[STATE_HEALTH]));
-            // West-positive source polarity: terminals[1] (west) is positive, so It[0] > 0 on discharge.
+            // South-positive source polarity: terminals[1] (south) is positive, so It[0] > 0 on discharge.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / r, 0.0), new Complex(emf, 0.0));
         }

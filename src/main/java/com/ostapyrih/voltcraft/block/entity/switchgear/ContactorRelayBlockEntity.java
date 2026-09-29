@@ -32,7 +32,7 @@ import java.util.function.BooleanSupplier;
  * {@code BlockEntity} subclasses).</p>
  *
  * <ul>
- *   <li>Terminals: two adjacent positions, east/west.</li>
+ *   <li>Terminals: two adjacent positions, north/south (no FACING property).</li>
  *   <li>States: zero kernel states; {@code closed} is a BE boolean field (item 9/13).</li>
  *   <li>{@link #tickElectrical(ServerWorld)}: no automatic logic (item 10).</li>
  * </ul>
@@ -58,8 +58,8 @@ public class ContactorRelayBlockEntity extends BlockEntity implements KernelAtta
      * registry, world, or block-entity instance.
      */
     public static final class ContactorElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /** Terminal offsets: north / south of the BE position (no FACING property). */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
         /** BE default: contacts open (coil unpowered). */
         public static final boolean DEFAULT_CLOSED = false;
 

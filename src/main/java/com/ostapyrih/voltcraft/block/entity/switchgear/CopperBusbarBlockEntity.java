@@ -6,6 +6,7 @@ import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
 import com.ostapyrih.voltcraft.api.electrical.Stamps;
 import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
+import com.ostapyrih.voltcraft.block.switchgear.CopperBusbarBlock;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityType;
@@ -13,6 +14,7 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 
 import java.util.List;
 import java.util.Objects;
@@ -25,7 +27,9 @@ import java.util.Objects;
  * cannot initialize {@code BlockEntity} subclasses).</p>
  *
  * <ul>
- *   <li>Terminals: two adjacent positions, east/west.</li>
+ *   <li>Terminals: two adjacent positions, FACING-relative {@code [FRONT, BACK]}
+ *       ({@code TERMINAL_OFFSETS = {{0,0,-1},{0,0,1}}} is the canonical NORTH
+ *       orientation).</li>
  *   <li>States: zero kernel states; always closed (no discrete flag).</li>
  *   <li>Element stamp: unconditional low-impedance series admittance
  *       {@code 1 / R_BUSBAR_OHM} (heavier gauge than branch switches).</li>
@@ -48,8 +52,23 @@ public class CopperBusbarBlockEntity extends BlockEntity implements KernelAttach
      * registry, world, or block-entity instance.
      */
     public static final class BusbarElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /**
+         * Canonical NORTH-orientation terminal offsets: {@code [0]=north (FRONT),
+         * [1]=south (BACK)}. Source of truth only for the default facing; the
+         * runtime layout is FACING-relative via {@link #resolveTerminals}.
+         */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
+
+        /**
+         * FACING-relative terminal resolution (pure, null-world-safe):
+         * {@code [FRONT, BACK]} = {@code [pos.offset(facing),
+         * pos.offset(facing.getOpposite())]}. A null facing degrades to
+         * {@link Direction#NORTH}.
+         */
+        public static BlockPos[] resolveTerminals(BlockPos pos, Direction facing) {
+            Direction f = facing != null ? facing : Direction.NORTH;
+            return new BlockPos[]{pos.offset(f), pos.offset(f.getOpposite())};
+        }
 
         @Override
         public int terminalCount() {
@@ -114,12 +133,27 @@ public class CopperBusbarBlockEntity extends BlockEntity implements KernelAttach
 
     @Override
     public BlockPos[] getTerminalPositions() {
-        int[][] o = BusbarElement.TERMINAL_OFFSETS;
-        BlockPos[] out = new BlockPos[o.length];
-        for (int k = 0; k < o.length; k++) {
-            out[k] = pos.add(o[k][0], o[k][1], o[k][2]);
+        return BusbarElement.resolveTerminals(pos, readFacing());
+    }
+
+    /**
+     * Reads {@code FACING} from the cached state with a {@link Direction#NORTH}
+     * fallback (null-world / test-double / wrong-block safe: only {@code pos} plus
+     * the cached state are read, never the world).
+     */
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(CopperBusbarBlock.FACING)) {
+                Direction facing = cached.get(CopperBusbarBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall through to NORTH.
         }
-        return out;
+        return Direction.NORTH;
     }
 
     @Override

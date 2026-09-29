@@ -132,10 +132,11 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
      * registry, world, or block-entity instance.
      *
      * <ul>
-     *   <li>Terminals (item 4): four adjacent positions —
-     *       {@code TERMINAL_OFFSETS = {east, west, north, south}}. The input pair is
-     *       {@code terminals[0..1]} (east in+, west in−; {@code Vin = V[0] − V[1]}), the
-     *       output pair is {@code terminals[2..3]} (north out+, south out−;
+     *   <li>Terminals (item 4): four adjacent positions, FACING-relative —
+     *       {@code [BACK in+, LEFT in−, FRONT out+, RIGHT out−]} resolved by
+     *       {@link ConverterElement#resolveConverterTerminals}. The input pair is
+     *       {@code terminals[0..1]} ({@code Vin = V[0] − V[1]}), the
+     *       output pair is {@code terminals[2..3]} (FRONT out+, RIGHT out−;
      *       {@code Vout = V[2] − V[3]}). The stamp never couples the pairs: the two sides
      *       stay galvanically isolated, like the legacy dual-grid bridge.</li>
      *   <li>States (item 7): exactly 0 kernel-owned reals. Converters carry no integrator
@@ -175,10 +176,30 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
      */
     public static final class ConverterElement implements ElectricalElement {
         /**
-         * Terminal offsets: input pair east/west, output pair north/south.
-         * {@code [0]=east in+, [1]=west in−, [2]=north out+, [3]=south out−}.
+         * Canonical NORTH-orientation terminal offsets: {@code [0]=south in+,
+         * [1]=west in−, [2]=north out+, [3]=east out−}. Source of truth only for
+         * the default facing; the runtime layout is FACING-relative via
+         * {@link #resolveConverterTerminals}.
          */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}, {0, 0, -1}, {0, 0, 1}};
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, 1}, {-1, 0, 0}, {0, 0, -1}, {1, 0, 0}};
+
+        /**
+         * FACING-relative terminal resolution (pure, null-world-safe): input pair
+         * {@code [BACK+, LEFT−]}, output pair {@code [FRONT+, RIGHT−]}, i.e.
+         * {@code [0]=pos.offset(facing.getOpposite())},
+         * {@code [1]=pos.offset(facing.rotateYCounterclockwise())},
+         * {@code [2]=pos.offset(facing)}, {@code [3]=pos.offset(facing.rotateYClockwise())}.
+         * A null facing degrades to {@link Direction#NORTH}.
+         */
+        public static BlockPos[] resolveConverterTerminals(BlockPos pos, Direction facing) {
+            Direction f = facing != null ? facing : Direction.NORTH;
+            return new BlockPos[]{
+                pos.offset(f.getOpposite()),
+                pos.offset(f.rotateYCounterclockwise()),
+                pos.offset(f),
+                pos.offset(f.rotateYClockwise())
+            };
+        }
         /** Output source series resistance in ohms (existing 50 mΩ constant). */
         public static final double SOURCE_R_OHM = 0.05;
         /** Idle draw in watts added to every staged demand (existing constant). */
@@ -641,12 +662,27 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     @Override
     public BlockPos[] getTerminalPositions() {
-        int[][] o = ConverterElement.TERMINAL_OFFSETS;
-        BlockPos[] out = new BlockPos[o.length];
-        for (int k = 0; k < o.length; k++) {
-            out[k] = pos.add(o[k][0], o[k][1], o[k][2]);
+        return ConverterElement.resolveConverterTerminals(pos, readFacing());
+    }
+
+    /**
+     * Reads {@code FACING} from the cached state with a {@link Direction#NORTH}
+     * fallback (null-world / test-double / wrong-block safe: only {@code pos} plus
+     * the cached state are read, never the world).
+     */
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(AbstractPowerConverterBlock.FACING)) {
+                Direction facing = cached.get(AbstractPowerConverterBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall through to NORTH.
         }
-        return out;
+        return Direction.NORTH;
     }
 
     @Override

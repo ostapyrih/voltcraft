@@ -25,7 +25,7 @@ import java.util.Objects;
  * cannot initialize {@code BlockEntity} subclasses).</p>
  *
  * <ul>
- *   <li>Terminals: two adjacent positions, east/west.</li>
+ *   <li>Terminals: two adjacent positions, north/south (no FACING property).</li>
  *   <li>States: zero kernel states; always closed (no discrete flag).</li>
  *   <li>Element stamp: unconditional low-impedance series admittance
  *       {@code 1 / R_SPLICE_OHM}.</li>
@@ -48,8 +48,8 @@ public class JunctionBoxBlockEntity extends BlockEntity implements KernelAttache
      * registry, world, or block-entity instance.
      */
     public static final class SpliceElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /** Terminal offsets: north / south of the BE position (no FACING property). */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
 
         @Override
         public int terminalCount() {

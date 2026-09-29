@@ -44,8 +44,8 @@ import java.util.function.IntSupplier;
  * the write-only telemetry cell, and the (empty) state array.</p>
  *
  * <ul>
- *   <li>Terminals: two adjacent positions, east/west
- *       ({@code TERMINAL_OFFSETS = {{1,0,0},{-1,0,0}}}). Load sign convention is
+ *   <li>Terminals: two adjacent positions, north/south
+ *       ({@code TERMINAL_OFFSETS = {{0,0,-1},{0,0,1}}}). Load sign convention is
  *       {@code T0}-referenced: {@code V = Vt[0] - Vt[1]}, consumed current
  *       {@code It[0]} (positive while consuming).</li>
  *   <li>States: exactly 0 kernel-owned reals. Mode/target settings are discrete
@@ -73,8 +73,8 @@ public class CreativeLoadBlockEntity extends BlockEntity implements KernelAttach
      * block-entity instance.
      */
     public static final class CreativeLoadElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /** Terminal offsets: north / south of the BE position. */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
         /** Mode ordinal of {@code CONSTANT_RESISTANCE} (mirrors {@code LoadMode}). */
         public static final int MODE_RESISTANCE = 0;
         /** Mode ordinal of {@code CONSTANT_POWER} (mirrors {@code LoadMode}). */

@@ -45,8 +45,8 @@ import java.util.function.IntSupplier;
  * unit-testable); only state/BMS/wiring bodies are static.</p>
  *
  * <ul>
- *   <li>Terminals (item 4): two adjacent positions, east/west. West-positive source polarity
- *       convention shared with {@link BatteryBlockEntity}: {@code terminals[1]} (west)
+ *   <li>Terminals (item 4): two adjacent positions, north/south. South-positive source polarity
+ *       convention shared with {@link BatteryBlockEntity}: {@code terminals[1]} (south)
  *       is positive, so {@code It[0]} is positive while the rack discharges.</li>
  *   <li>States (item 7): exactly 3 kernel-owned reals, {@code [soc, temperatureC,
  *       health]} as pack averages. Defensive copies via
@@ -108,8 +108,8 @@ public class BatteryRackBlockEntity extends BlockEntity implements KernelAttache
      * registry, world, or block-entity instance.
      */
     public static final class RackElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /** Terminal offsets: north / south of the BE position. */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
         /** Documented default cell chemistry for kernel math (legacy spec default). */
         public static final BatteryChemistry DEFAULT_CHEMISTRY = BatteryChemistry.LI_ION_18650;
         /** Wiring name persisted under {@code "wiring_mode"} for series mode. */
@@ -164,7 +164,7 @@ public class BatteryRackBlockEntity extends BlockEntity implements KernelAttache
             double r = Math.max(BatteryBlockEntity.BatteryElement.MIN_PACK_RESISTANCE_OHM,
                 BatteryBlockEntity.BatteryElement.packResistance(DEFAULT_CHEMISTRY, series, parallel,
                     soc, state[BatteryBlockEntity.STATE_TEMP], state[BatteryBlockEntity.STATE_HEALTH]));
-            // West-positive source polarity: terminals[1] (west) is positive.
+            // South-positive source polarity: terminals[1] (south) is positive.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / r, 0.0), new Complex(emf, 0.0));
         }

@@ -36,10 +36,10 @@ import java.util.function.DoubleSupplier;
  * pure function of its inputs.</p>
  *
  * <ul>
- *   <li>Terminals (item 4): two adjacent positions, east/west. West-positive source polarity
- *       convention: {@code terminals[1]} (west) is positive. (Panels expose DC terminals
+ *   <li>Terminals (item 4): two adjacent positions, north/south. South-positive source polarity
+ *       convention: {@code terminals[1]} (south) is positive. (Panels expose DC terminals
  *       on the underside/edges — {@code SolarPanelBlock.canConnect} excludes only the
- *       sky face; terminal positions stay east/west like the switchgear adapters.)</li>
+ *       sky face; terminal positions stay north/south like the switchgear adapters.)</li>
  *   <li>States (item 7): exactly 1 kernel-owned real, {@code [temperatureC]}.
  *       Irradiance, EMF, resistance, and power ratings are discrete <b>staging</b>
  *       inputs, never in the state array (item 9). Defensive copies on
@@ -92,8 +92,8 @@ public class SolarPanelBlockEntity extends BlockEntity implements KernelAttached
      * registry, world, or block-entity instance.
      */
     public static final class SolarElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /** Terminal offsets: north / south of the BE position. */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
         /** Floor for the staged Thevenin resistance in ohms. */
         public static final double MIN_RESISTANCE_OHM = 0.05;
         /** Irradiance heating gain in W per W/m^2. */
@@ -149,7 +149,7 @@ public class SolarPanelBlockEntity extends BlockEntity implements KernelAttached
                 return;
             }
             double r = Math.max(MIN_RESISTANCE_OHM, internalResistance.getAsDouble());
-            // West-positive source polarity: terminals[1] (west) is positive.
+            // South-positive source polarity: terminals[1] (south) is positive.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / r, 0.0), new Complex(emf, 0.0));
         }

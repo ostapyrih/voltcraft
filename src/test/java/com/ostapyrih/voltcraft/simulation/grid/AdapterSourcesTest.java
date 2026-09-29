@@ -49,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * coverage boundary.</p>
  *
  * <p>Polarity note: all source adapters stamp the Thevenin EMF with
- * {@code terminals[1]} (west) positive, so {@code It[0]} is positive while the element
+ * {@code terminals[1]} (south) positive, so {@code It[0]} is positive while the element
  * delivers power and battery {@code dSoc/dt = -It[0]/Q} holds.</p>
  */
 class AdapterSourcesTest {
@@ -698,7 +698,7 @@ class AdapterSourcesTest {
     // ---- terminal conventions ----
 
     @Test
-    void terminalOffsetsAreAdjacentEastWest() {
+    void terminalOffsetsAreAdjacentNorthSouth() {
         int[][][] twoTerminal = {
             BatteryElement.TERMINAL_OFFSETS,
             RackElement.TERMINAL_OFFSETS,
@@ -708,9 +708,9 @@ class AdapterSourcesTest {
         };
         for (int[][] offsets : twoTerminal) {
             assertEquals(2, offsets.length);
-            // East / west convention shared by all two-terminal source adapters.
-            assertArrayEquals(new int[]{1, 0, 0}, offsets[0]);
-            assertArrayEquals(new int[]{-1, 0, 0}, offsets[1]);
+            // North / south convention shared by all two-terminal source adapters.
+            assertArrayEquals(new int[]{0, 0, -1}, offsets[0]);
+            assertArrayEquals(new int[]{0, 0, 1}, offsets[1]);
         }
     }
 }

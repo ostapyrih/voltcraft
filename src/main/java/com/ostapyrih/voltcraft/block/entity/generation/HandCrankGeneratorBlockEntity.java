@@ -32,8 +32,8 @@ import java.util.Objects;
  * {@code getFrequency() == 0.0}; this adapter keeps DC per spec.)</p>
  *
  * <ul>
- *   <li>Terminals (item 4): two adjacent positions, east/west. West-positive source polarity
- *       convention: {@code terminals[1]} (west) is positive, so {@code It[0]} is
+ *   <li>Terminals (item 4): two adjacent positions, north/south. South-positive source polarity
+ *       convention: {@code terminals[1]} (south) is positive, so {@code It[0]} is
  *       positive while the dynamo delivers.</li>
  *   <li>States (item 7): exactly 2 kernel-owned reals, {@code [flywheelSpeed,
  *       totalEnergyJoules]} with speed normalized to {@code [0,1]}. Defensive copies on
@@ -93,8 +93,8 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements Kernel
      * registry, world, or block-entity instance.
      */
     public static final class CrankElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /** Terminal offsets: north / south of the BE position. */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
         /** Open-circuit EMF in volts at full flywheel speed (12 V nominal). */
         public static final double EMF_AT_FULL_SPEED = 13.8;
         /** Internal winding resistance in ohms. */
@@ -143,7 +143,7 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements Kernel
             if (!(speed > 0.0)) {
                 return;
             }
-            // West-positive source polarity: terminals[1] (west) is positive.
+            // South-positive source polarity: terminals[1] (south) is positive.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / WINDING_RESISTANCE_OHM, 0.0),
                 new Complex(emfForSpeed(speed), 0.0));

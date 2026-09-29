@@ -696,12 +696,12 @@ class AdapterIntegrationTest {
         assertEquals(100.0 / (230.0 * 230.0), y4[0][0].re, 1e-12);
         assertEquals(0.0, inj4[0].re, 0.0);
 
-        // Disabled stamps an open circuit; terminal offsets are adjacent east/west.
+        // Disabled stamps an open circuit; terminal offsets are adjacent north/south.
         enabled[0] = false;
         double[] open = stampConductance(load, new int[]{0, 1}, 2);
         assertEquals(0.0, open[0], 0.0);
-        assertEquals(1, Math.abs(CreativeLoadElement.TERMINAL_OFFSETS[0][0]));
-        assertEquals(-CreativeLoadElement.TERMINAL_OFFSETS[0][0],
-            CreativeLoadElement.TERMINAL_OFFSETS[1][0]);
+        assertEquals(1, Math.abs(CreativeLoadElement.TERMINAL_OFFSETS[0][2]));
+        assertEquals(-CreativeLoadElement.TERMINAL_OFFSETS[0][2],
+            CreativeLoadElement.TERMINAL_OFFSETS[1][2]);
     }
 }

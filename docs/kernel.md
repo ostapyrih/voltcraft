@@ -358,6 +358,41 @@ their tests): the kernel islands are now the single subsystem.
   so discharge current entering `terminals[0]` (`It[0]`) is positive. Creative
   loads are `T0`-referenced instead (`V = Vt[0] − Vt[1]`, consumed `It[0]`).
 
+#### Terminal Layout Convention (frozen)
+
+Supersedes the east/west paragraph above; the frozen convention is:
+
+- 2-terminal blocks (battery, rack, solar, portable/crank generators, creative
+  generator/load; switchgear without a `FACING` property — contactor, junction):
+  fixed `[pos.north(), pos.south()]` from
+  `TERMINAL_OFFSETS = {{0,0,-1},{0,0,1}}`. No `FACING` is read; null-world-safe.
+  Slot polarity is unchanged by the move (`terminals[1]`/south stays the stamped
+  positive terminal for sources; stamps, derivatives, state counts, and NBT are
+  untouched).
+- 4-terminal converters (all `AbstractPowerConverterBlockEntity` subclasses plus
+  the EU bridge, which shares the `ConverterElement` pattern): FACING-relative
+  `[BACK, LEFT, FRONT, RIGHT]` =
+  `[pos.offset(FACING.getOpposite()), pos.offset(FACING.rotateYCounterclockwise()), pos.offset(FACING), pos.offset(FACING.rotateYClockwise())]`
+  via the pure `ConverterElement.resolveConverterTerminals(pos, facing)` helper
+  (input pair `[0..1]`, output pair `[2..3]`, `+` before `−` within each pair).
+  `FACING` is read from the cached state with a `Direction.NORTH` fallback (null
+  world / test doubles / wrong block — only `pos` plus the cached state are read,
+  never the world); `TERMINAL_OFFSETS` keeps the canonical NORTH orientation
+  `[south, west, north, east]`. FACING=NORTH yields `[south, west, north, east]`;
+  FACING=SOUTH yields `[north, east, south, west]`.
+- Switchgear with a `FACING` property (knife switch, circuit breaker, fuse box,
+  copper busbar): FACING-relative `[FRONT, BACK]` =
+  `[pos.offset(FACING), pos.offset(FACING.getOpposite())]` via each element's
+  pure `resolveTerminals(pos, facing)` helper with the same NORTH fallback;
+  `TERMINAL_OFFSETS` keeps the canonical NORTH `[north, south]`.
+- No-single-cable-bridges-input-output geometry (FACING=NORTH: input `{S,W}`,
+  output `{N,E}`): the two sets are disjoint, and no 6-neighbor face cell around
+  the block is coincident-with/adjacent-to members of both sets. Within the
+  input pair, S and W are diagonal (`|d| = 2`, sharing only a vertical edge, not
+  a face), so no single face-adjacent cable cell touches both either.
+- Visuals are out of scope: this convention fixes logical terminal positions for
+  topology discovery only, not cable rendering or connector models.
+
 ### Islands and per-island omega
 
 - Island connectivity = topology conductors OR same-block terminal ownership

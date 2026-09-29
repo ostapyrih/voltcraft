@@ -42,8 +42,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * one-line delegates, vanilla NBT overrides, {@code tickElectrical} bodies mirroring
  * the covered statics 1:1) is the documented coverage boundary.</p>
  *
- * <p>Layout note: {@code terminals[0..1]} is the input pair (east in+, west in−),
- * {@code terminals[2..3]} is the output pair (north out+, south out−). The two pairs
+ * <p>Layout note: {@code terminals[0..1]} is the input pair (BACK in+, LEFT in−),
+ * {@code terminals[2..3]} is the output pair (FRONT out+, RIGHT out−), FACING-relative
+ * via {@code ConverterElement.resolveConverterTerminals} (canonical NORTH orientation
+ * {@code [south, west, north, east]} in {@code TERMINAL_OFFSETS}). The two pairs
  * are galvanically isolated: the stamp never writes cross-pair admittance.</p>
  */
 class AdapterConvertersTest {
@@ -460,10 +462,10 @@ class AdapterConvertersTest {
     void terminalOffsetsAreFourDistinctAdjacent() {
         int[][] o = ConverterElement.TERMINAL_OFFSETS;
         assertEquals(4, o.length);
-        assertArrayEquals(new int[]{1, 0, 0}, o[0]);
+        assertArrayEquals(new int[]{0, 0, 1}, o[0]);
         assertArrayEquals(new int[]{-1, 0, 0}, o[1]);
         assertArrayEquals(new int[]{0, 0, -1}, o[2]);
-        assertArrayEquals(new int[]{0, 0, 1}, o[3]);
+        assertArrayEquals(new int[]{1, 0, 0}, o[3]);
         for (int[] t : o) {
             assertEquals(1, Math.abs(t[0]) + Math.abs(t[1]) + Math.abs(t[2]));
         }

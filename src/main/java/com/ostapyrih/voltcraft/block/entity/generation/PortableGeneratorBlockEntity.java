@@ -35,10 +35,10 @@ import java.util.function.BooleanSupplier;
  * the nested class is a pure function of its inputs.</p>
  *
  * <ul>
- *   <li>Terminals (item 4): two adjacent positions, east/west. West-positive source polarity
- *       convention: {@code terminals[1]} (west) is positive. (The Block still exposes
+ *   <li>Terminals (item 4): two adjacent positions, north/south. South-positive source polarity
+ *       convention: {@code terminals[1]} (south) is positive. (The Block still exposes
  *       only the front-socket face via {@code canConnect}; terminal positions stay
- *       east/west like the switchgear adapters.)</li>
+ *       north/south like the switchgear adapters.)</li>
  *   <li>States (item 7): exactly 2 kernel-owned reals, {@code [temperatureC,
  *       remainingFuelTicks]}. Defensive copies on {@link #getStateArray()} (clone) /
  *       {@link #setStateArray(double[])} (copy into BE-owned storage, validated; fuel
@@ -102,8 +102,8 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements KernelA
      * registry, world, or block-entity instance.
      */
     public static final class GeneratorElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /** Terminal offsets: north / south of the BE position. */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
         /** Inverter bridge series resistance in ohms. */
         public static final double INTERNAL_RESISTANCE_OHM = 0.15;
         /** Pure sine wave output frequency in Hz. */
@@ -161,7 +161,7 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements KernelA
             if (!running.getAsBoolean()) {
                 return;
             }
-            // West-positive source polarity: terminals[1] (west) is positive.
+            // South-positive source polarity: terminals[1] (south) is positive.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / INTERNAL_RESISTANCE_OHM, 0.0),
                 new Complex(PortableGeneratorBlockEntity.OUTPUT_VOLTAGE_RMS, 0.0));

@@ -703,9 +703,9 @@ class AdapterSwitchgearTest {
         };
         for (int[][] offsets : twoTerminal) {
             assertEquals(2, offsets.length);
-            // East / west convention shared by all two-terminal switchgear adapters.
-            assertArrayEquals(new int[]{1, 0, 0}, offsets[0]);
-            assertArrayEquals(new int[]{-1, 0, 0}, offsets[1]);
+            // North / south convention shared by all two-terminal switchgear adapters.
+            assertArrayEquals(new int[]{0, 0, -1}, offsets[0]);
+            assertArrayEquals(new int[]{0, 0, 1}, offsets[1]);
             for (int[] o : offsets) {
                 BlockPos t = p.add(o[0], o[1], o[2]);
                 int manhattan = Math.abs(t.getX() - p.getX()) + Math.abs(t.getY() - p.getY())
@@ -713,7 +713,7 @@ class AdapterSwitchgearTest {
                 assertEquals(1, manhattan, "terminal must be adjacent: " + t);
             }
         }
-        assertEquals(p.east(), p.add(1, 0, 0));
-        assertEquals(p.west(), p.add(-1, 0, 0));
+        assertEquals(p.north(), p.add(0, 0, -1));
+        assertEquals(p.south(), p.add(0, 0, 1));
     }
 }

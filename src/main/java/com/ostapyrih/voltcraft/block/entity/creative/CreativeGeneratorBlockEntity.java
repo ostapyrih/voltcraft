@@ -32,7 +32,7 @@ import java.util.function.DoubleSupplier;
  * Provides freely configurable voltage, max current, internal resistance, and DC/AC frequency.
  *
  * <p>Kernel adapter: implements {@link KernelAttachedBlock} through the static
- * nested {@link CreativeGeneratorElement} (ideal Thevenin source with staged EMF, west-positive
+ * nested {@link CreativeGeneratorElement} (ideal Thevenin source with staged EMF, south-positive
  * source polarity: {@code terminals[1]} positive). All decision logic lives in the nested
  * class with supplier-injected staging because unit-test runtimes cannot initialize
  * {@code BlockEntity} subclasses at all ({@code BlockEntity.&lt;clinit&gt;} touches
@@ -40,8 +40,8 @@ import java.util.function.DoubleSupplier;
  * the write-only telemetry cell, and the (empty) state array.</p>
  *
  * <ul>
- *   <li>Terminals: two adjacent positions, east/west
- *       ({@code TERMINAL_OFFSETS = {{1,0,0},{-1,0,0}}}).</li>
+ *   <li>Terminals: two adjacent positions, north/south
+ *       ({@code TERMINAL_OFFSETS = {{0,0,-1},{0,0,1}}}).</li>
  *   <li>States: exactly 0 kernel-owned reals. Voltage/current/frequency settings are
  *       discrete staging inputs, never in the state array.</li>
  *   <li>Element stamp: Thevenin with staged {@code EMF} and
@@ -72,8 +72,8 @@ public class CreativeGeneratorBlockEntity extends BlockEntity implements KernelA
      * block-entity instance.
      */
     public static final class CreativeGeneratorElement implements ElectricalElement {
-        /** Terminal offsets: east / west of the BE position. */
-        public static final int[][] TERMINAL_OFFSETS = {{1, 0, 0}, {-1, 0, 0}};
+        /** Terminal offsets: north / south of the BE position. */
+        public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
         /** Floor for the staged Thevenin resistance in ohms (numerical-stability guard). */
         public static final double MIN_RESISTANCE_OHM = 1e-4;
         /** Telemetry cell index of the terminal voltage in volts. */
@@ -126,7 +126,7 @@ public class CreativeGeneratorBlockEntity extends BlockEntity implements KernelA
                 return;
             }
             double r = Math.max(MIN_RESISTANCE_OHM, internalResistance.getAsDouble());
-            // West-positive source polarity: terminals[1] (west) is positive.
+            // South-positive source polarity: terminals[1] (south) is positive.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / r, 0.0), new Complex(emf, 0.0));
         }
