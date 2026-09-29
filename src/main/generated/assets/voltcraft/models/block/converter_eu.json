@@ -2,11 +2,11 @@
   "parent": "minecraft:block/cube",
   "textures": {
     "down": "voltcraft:block/converter_eu_bottom",
-    "east": "voltcraft:block/converter_eu_side",
+    "east": "voltcraft:block/converter_eu_right",
     "north": "voltcraft:block/converter_eu_front",
     "particle": "voltcraft:block/converter_eu_front",
     "south": "voltcraft:block/converter_eu_back",
     "up": "voltcraft:block/converter_eu_top",
-    "west": "voltcraft:block/converter_eu_side"
+    "west": "voltcraft:block/converter_eu_left"
   }
 }

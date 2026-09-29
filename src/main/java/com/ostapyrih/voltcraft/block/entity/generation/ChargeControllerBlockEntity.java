@@ -37,8 +37,6 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
     private static final double MAX_INPUT_VOLTAGE = 150.0; // 150V Max PV open-circuit rating
     private static final double MAX_OUTPUT_CURRENT_A = 60.0; // 60A charge controller rating
     private static final double EFFICIENCY = 0.98; // 98% MPPT synchronous buck efficiency
-    private static final double MIN_EFFICIENCY_FLOOR = 0.1; // guards against div-by-near-zero
-    private static final double FLOAT_IDLE_DRAW_W = 2.0; // controller's own housekeeping draw in Float
     private static final int TRIP_GRACE_TICKS = 40;
     private static final double DEAD_RAIL_VOLTAGE = 1.0;
 

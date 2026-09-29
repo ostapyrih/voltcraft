@@ -2,11 +2,11 @@
   "parent": "minecraft:block/cube",
   "textures": {
     "down": "voltcraft:block/inverter_grid_tie_bottom",
-    "east": "voltcraft:block/inverter_grid_tie_side",
+    "east": "voltcraft:block/inverter_grid_tie_right",
     "north": "voltcraft:block/inverter_grid_tie_front",
     "particle": "voltcraft:block/inverter_grid_tie_front",
     "south": "voltcraft:block/inverter_grid_tie_back",
     "up": "voltcraft:block/inverter_grid_tie_top",
-    "west": "voltcraft:block/inverter_grid_tie_side"
+    "west": "voltcraft:block/inverter_grid_tie_left"
   }
 }

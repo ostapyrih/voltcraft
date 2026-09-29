@@ -4,7 +4,6 @@ import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
 import com.ostapyrih.voltcraft.api.electrical.GridConstants;
 import com.ostapyrih.voltcraft.api.electrical.Stamps;
-import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity.ConverterElement;
 import com.ostapyrih.voltcraft.block.entity.switchgear.EarthBlockEntity;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalKernel.KernelSolveResult;

@@ -55,21 +55,9 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
     private static final double IDLE_DRAW_WATTS = 2.0;
     private static final int DEFAULT_TRIP_GRACE_TICKS = 40; // 2-second grace so circuit solves/voltages establish before re-tripping
 
-    // --- Protection trips ---
-    private static final double ANTI_ISLANDING_MIN_GRID_VOLTAGE = 20.0;
-    private static final int ANTI_ISLANDING_TRIP_TICKS = 4; // 200ms sustained unpowered grid
-    private static final double WAVEFORM_CHECK_MIN_VOLTAGE = 2.0;
-    private static final double UVLO_TRIP_MARGIN = 0.9;
-    private static final int UVLO_TRIP_TICKS = 6; // 300ms sustained undervoltage under overload
-    private static final double OVERVOLTAGE_TRIP_MARGIN = 1.3;
-    private static final double THERMAL_TRIP_TEMPERATURE_C = 125.0;
-
     // --- Output throttling / brownout classification ---
     private static final double THROTTLE_ONSET_MARGIN = 1.10; // throttle engages below 110% of minVin
     private static final double MIN_THROTTLE = 0.1;
-    private static final double BROWNOUT_CURRENT_THRESHOLD = 0.1;
-    private static final double BROWNOUT_SAG_MARGIN = 0.90;
-    private static final double BROWNOUT_THROTTLE_THRESHOLD = 0.95;
 
     // --- Thermal model ---
     private static final double AMBIENT_TEMPERATURE_C = 20.0;
@@ -89,9 +77,6 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
     private static final double NOMINAL_INPUT_VOLTAGE_DEFAULT = 48.0;
     private static final double SERVO_TARGET_MULTIPLIER = 1.15;
     private static final double SERVO_TARGET_OFFSET_V = 0.5;
-    private static final double SOURCE_INTERNAL_RESISTANCE_OHM = 0.05; // 50 mOhm source impedance
-    private static final double MIN_VOLTAGE_FOR_RESISTANCE = 1.0;
-    private static final double MIN_RESISTANCE_OHM = 1e-4;
 
     protected double inputVoltage = 0.0;
     protected double inputCurrentAmps = 0.0;

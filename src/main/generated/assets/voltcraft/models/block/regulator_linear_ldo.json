@@ -2,11 +2,11 @@
   "parent": "minecraft:block/cube",
   "textures": {
     "down": "voltcraft:block/regulator_linear_ldo_bottom",
-    "east": "voltcraft:block/regulator_linear_ldo_side",
+    "east": "voltcraft:block/regulator_linear_ldo_right",
     "north": "voltcraft:block/regulator_linear_ldo_front",
     "particle": "voltcraft:block/regulator_linear_ldo_front",
     "south": "voltcraft:block/regulator_linear_ldo_back",
     "up": "voltcraft:block/regulator_linear_ldo_top",
-    "west": "voltcraft:block/regulator_linear_ldo_side"
+    "west": "voltcraft:block/regulator_linear_ldo_left"
   }
 }

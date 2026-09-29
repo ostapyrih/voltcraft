@@ -2,11 +2,11 @@
   "parent": "minecraft:block/cube",
   "textures": {
     "down": "voltcraft:block/rectifier_bridge_bottom",
-    "east": "voltcraft:block/rectifier_bridge_side",
+    "east": "voltcraft:block/rectifier_bridge_right",
     "north": "voltcraft:block/rectifier_bridge_front",
     "particle": "voltcraft:block/rectifier_bridge_front",
     "south": "voltcraft:block/rectifier_bridge_back",
     "up": "voltcraft:block/rectifier_bridge_top",
-    "west": "voltcraft:block/rectifier_bridge_side"
+    "west": "voltcraft:block/rectifier_bridge_left"
   }
 }
