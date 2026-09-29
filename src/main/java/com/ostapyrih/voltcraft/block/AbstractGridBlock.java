@@ -88,9 +88,10 @@ public abstract class AbstractGridBlock extends Block implements IElectricalConn
     }
 
     /**
-     * Conductor type used to seed the node on placement. Only the thermal spec and ampacity
-     * matter for a block's own node; the graph edges between adjacent blocks are constructed
-     * by {@code GridManager.linkNeighborsWithConductors}. Override to use a heavier gauge.
+     * Conductor type used when a cable block reports its placement to the island index.
+     * Only the thermal spec and ampacity matter for a block's own node; the graph edges
+     * between adjacent blocks are derived from adjacency at island rebuild.
+     * Override to use a heavier gauge.
      */
     protected ConductorType getPlacementConductorType() {
         return ConductorType.INSULATED_COPPER;

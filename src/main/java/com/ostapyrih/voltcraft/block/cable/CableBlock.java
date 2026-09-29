@@ -1,9 +1,10 @@
 package com.ostapyrih.voltcraft.block.cable;
 
+import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
 import com.ostapyrih.voltcraft.block.AbstractGridBlock;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
 import com.ostapyrih.voltcraft.simulation.grid.GridManager;
+import com.ostapyrih.voltcraft.simulation.grid.IslandContext;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ShapeContext;
@@ -32,7 +33,8 @@ import net.minecraft.world.tick.ScheduledTickView;
 /**
  * Passive topological electrical cable block.
  * Strict No-Wire-Ticking Law: Zero BlockEntity or per-block ticking.
- * Graph operations (admittance, Joule heating, failures) are executed centrally by ElectricalGrid.
+ * Graph operations (admittance, Joule heating, failures) are executed centrally by
+ * the kernel-owned island topology ({@code GridManager}).
  */
 public class CableBlock extends AbstractGridBlock implements Waterloggable {
 
@@ -103,7 +105,7 @@ public class CableBlock extends AbstractGridBlock implements Waterloggable {
 
     @Override
     public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
-        return null; // Passive topological cable: no block entity, physics runs in ElectricalGrid.
+        return null; // Passive topological cable: no block entity, physics runs in the kernel islands.
     }
 
     private boolean connectsTo(BlockView world, BlockPos pos, Direction side) {
@@ -196,18 +198,26 @@ public class CableBlock extends AbstractGridBlock implements Waterloggable {
         }
 
         ServerWorld serverWorld = (ServerWorld) world;
-        ElectricalGrid grid = GridManager.get(serverWorld).getGridAt(pos);
-        if (grid != null) {
-            double voltage = grid.getNodeVoltage(pos);
-            if (voltage >= 50.0) {
-                float damage = (float) Math.max(1.0, voltage / 25.0);
-                living.damage(serverWorld, serverWorld.getDamageSources().lightningBolt(), damage);
+        // Phase E: node voltage comes from the kernel-owned island (last solved operating
+        // point, magnitude form) instead of the deleted legacy grid.
+        double voltage = 0.0;
+        IslandContext island = GridManager.get(serverWorld).getIslandAt(pos);
+        if (island != null) {
+            Integer nodeIndex = island.nodeIndex().get(pos);
+            Complex[] solved = island.kernel().getLastSolution();
+            if (nodeIndex != null && solved != null
+                && nodeIndex >= 0 && nodeIndex < solved.length && solved[nodeIndex] != null) {
+                voltage = solved[nodeIndex].magnitude();
+            }
+        }
+        if (voltage >= 50.0) {
+            float damage = (float) Math.max(1.0, voltage / 25.0);
+            living.damage(serverWorld, serverWorld.getDamageSources().lightningBolt(), damage);
 
-                if (conductorType == ConductorType.STEEL_FENCE) {
-                    double dx = living.getX() - (pos.getX() + 0.5);
-                    double dz = living.getZ() - (pos.getZ() + 0.5);
-                    living.takeKnockback(1.2, -dx, -dz);
-                }
+            if (conductorType == ConductorType.STEEL_FENCE) {
+                double dx = living.getX() - (pos.getX() + 0.5);
+                double dz = living.getZ() - (pos.getZ() + 0.5);
+                living.takeKnockback(1.2, -dx, -dz);
             }
         }
     }

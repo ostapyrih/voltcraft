@@ -93,7 +93,7 @@ public abstract class AbstractPowerConverterBlock extends AbstractGridBlock {
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(World world, BlockState state, BlockEntityType<T> type) {
         return world.isClient() ? null : (w, p, s, be) -> {
             if (be instanceof AbstractPowerConverterBlockEntity converter) {
-                converter.tick((ServerWorld) w);
+                converter.tickElectrical((ServerWorld) w);
             }
         };
     }

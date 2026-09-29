@@ -1,18 +1,18 @@
 package com.ostapyrih.voltcraft.simulation.conversion;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
 import net.minecraft.util.math.BlockPos;
 
 /**
  * Pure simulation logic for the 230V AC to E Rotary Energy Bridge.
  * Decoupled from Minecraft BlockEntity lifecycle for unit testability and MNA grid solving.
  *
- * Implements IElectricConsumer strictly accepting 230V AC (207V-253V, >=40Hz),
- * converting 25 Watts continuous power into 1 E/t of standard Fabric energy
- * (wire unit is TeamReborn Energy E, bridged 1:1 with FE by interop mods).
+ * <p>Phase E: the legacy consumer grid contract is deleted. This class
+ * is a plain configuration/telemetry holder (230V AC window, EU bookkeeping, thermal);
+ * the kernel-side input-demand stamp lives in {@code EuConverterBlockEntity}'s
+ * {@code ConverterElement} wiring.</p>
  */
-public class EuConverterLogic implements IElectricConsumer {
+public class EuConverterLogic {
 
     public static final double NOMINAL_VOLTAGE = 230.0;
     public static final double MIN_OPERATING_VOLTAGE = 207.0; // 230V - 10%
@@ -48,42 +48,34 @@ public class EuConverterLogic implements IElectricConsumer {
         this(BlockPos.ORIGIN);
     }
 
-    @Override
     public BlockPos getPos() {
         return pos;
     }
 
-    @Override
     public ElectricalState getElectricalState() {
         return reportedState;
     }
 
-    @Override
     public void setElectricalState(ElectricalState state) {
         this.reportedState = state;
     }
 
-    @Override
     public double getNominalPowerDemand() {
         return targetDemandWatts;
     }
 
-    @Override
     public double getNominalVoltage() {
         return NOMINAL_VOLTAGE;
     }
 
-    @Override
     public double getMinOperatingVoltage() {
         return MIN_OPERATING_VOLTAGE;
     }
 
-    @Override
     public double getMaxOperatingVoltage() {
         return MAX_OPERATING_VOLTAGE;
     }
 
-    @Override
     public double getEquivalentResistance() {
         if (tripped || targetDemandWatts <= 0.0) {
             return Double.POSITIVE_INFINITY;
@@ -92,12 +84,10 @@ public class EuConverterLogic implements IElectricConsumer {
         return Math.max(1e-4, (v * v) / targetDemandWatts);
     }
 
-    @Override
     public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds) {
         onPowerReceived(terminalVoltage, deliveredCurrent, durationSeconds, inputFrequency);
     }
 
-    @Override
     public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds, double frequencyHz) {
         inputVoltage = terminalVoltage;
         inputCurrentAmps = deliveredCurrent;

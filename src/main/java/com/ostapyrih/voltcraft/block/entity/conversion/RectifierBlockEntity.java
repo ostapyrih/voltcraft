@@ -47,6 +47,11 @@ public class RectifierBlockEntity extends AbstractPowerConverterBlockEntity {
     }
 
     @Override
+    public boolean isACSource() {
+        return ConverterElement.isACOutput(getTypeKind());
+    }
+
+    @Override
     public double getEfficiency() {
         return rectifierType.getEfficiency();
     }

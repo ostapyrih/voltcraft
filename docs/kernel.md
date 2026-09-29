@@ -318,3 +318,135 @@ Mechanism notes:
   Phase 4 test 27); seeded (0x5EED) tree-regime robustness at
   100/100 with CP feasibility `P <= 0.8·Vs²/(4·Rint)` enforced by
   P-resampling (Phase 4 test 28).
+
+## Adapter layer (`GridManager` + `KernelAttachedBlock`, Phase E)
+
+The kernel owns the solve; the adapter owns topology, discovery, and the
+block-entity (BE) state lifecycle. Phase E deleted the legacy dual-grid subsystem
+(`ElectricalGrid`, `GridNode`, `GridConductor`, `GridTopologyHelper`,
+`ModifiedNodalAnalysis`, `ACSolver`, `api/energy/*`, `api/grid` legacy types and
+their tests): the kernel islands are now the single subsystem.
+
+### Node and conductor construction
+
+- Nodes are cable positions union declared terminal positions of
+  `KernelAttachedBlock`s. A cable and a terminal at the same position are the
+  same node. A block-entity position is NOT a node unless a cable or terminal
+  sits there.
+- Conductors form only between 6-Manhattan adjacent nodes (no diagonals), purely
+  mechanical with no semantic filtering:
+  - cable-to-cable and cable-to-terminal use `cableR`: the per-type base
+    resistance of the known cable endpoint(s) (averaged for mixed gauges), else
+    `CableConductorAdapter.DEFAULT_CABLE_R_OHM` (`0.001` ohm);
+  - terminal-to-terminal uses `CableConductorAdapter.TERMINAL_LINK_R_OHM`
+    (`0.0001` ohm): an internal near-short that never melts (melting temp `1e9`)
+    and is never a break candidate.
+
+### Terminal position convention
+
+- Every family exposes adjacent terminals as world positions derived from fixed
+  offsets of the BE position: all 2-terminal families (sources, storage,
+  switchgear, creative generator/load) use east/west
+  (`TERMINAL_OFFSETS = {{1,0,0},{-1,0,0}}`); converters use four terminals
+  east/west/north/south (`{{1,0,0},{-1,0,0},{0,0,-1},{0,0,1}}`) with the input
+  pair on `terminals[0..1]` (east in+, west in−) and the output pair on
+  `terminals[2..3]` (north out+, south out−); earth uses a single down terminal
+  (`{{0,-1,0}}`).
+- Source polarity convention (Phase C): `terminals[1]` is the positive terminal,
+  so discharge current entering `terminals[0]` (`It[0]`) is positive. Creative
+  loads are `T0`-referenced instead (`V = Vt[0] − Vt[1]`, consumed `It[0]`).
+
+### Islands and per-island omega
+
+- Island connectivity = topology conductors OR same-block terminal ownership
+  (all terminals of one block land in the same island even with no cable between
+  them; union-find, BFS-equivalent).
+- `resolveOmega`: no active source, or all-DC actives, gives `0`; at least one
+  active AC source gives `AC_OMEGA_RAD_PER_S`. Conductors and passives never
+  determine omega. Classification comes from the BE (`isActiveSource` /
+  `isACSource`): batteries/solar/generators/crank active when closed/staged and
+  always DC; converters active when untripped with positive staged EMF with the
+  waveform table DC-DC/rectifier/EU DC, inverter/transformer AC; loads and fuses
+  never source.
+- AC-island isolation: DC-only stamps (`constantPower`, `constantCurrent`,
+  `oneWayThevenin`) throw on `omega != 0`; converter inputs and creative loads
+  therefore stamp a resistive approximation (`R = Vnom²/P`, `R = Vnom/I`) on AC
+  islands. Islands solve independently: restaging one island leaves another
+  bit-identical (Phase D test `islandsSolveIndependently`, Phase E regression).
+
+### Adapter State Authority (BE → kernel → BE)
+
+- The BE owns persistent state; the kernel owns transient integration slots.
+  `setElements` zeroes kernel state, so the topology owner seeds the kernel from
+  the BE after every rebuild (`kernel.setElementState(i, be.getStateArray())`)
+  and commits kernel state back into the BE after every converged tick, before
+  the discrete phase (`be.setStateArray(kernel.getElementState(i))`).
+- Fallback discard is per-island: on `fallbackActive` the BE copies stay
+  authoritative — re-sync the kernel from the BE before the next solve and skip
+  the commit (converters additionally discard the write-only telemetry via
+  `resetTelemetry`); other islands commit normally. The kernel integrates even on
+  fallback operating points; that state is discarded, never copied across
+  generations.
+- All crossings are defensive copies: `getStateArray` clones,
+  `setStateArray`/`assignState` copies into BE-owned storage (never retains the
+  kernel array), `getElementState`/`getLastSolution` return copies. Discrete
+  flags (`tripped`, `blown`, `bmsOpen`, staged demand/EMF) are BE boolean/double
+  fields persisted in NBT, never inside the state array.
+
+### Deterministic mapping
+
+- Node indices follow the `BlockPos` sort order (`POS_ORDER`: x, then y, then z);
+  element indices follow sorted block-entity positions; islands order by minimum
+  node position. Rebuilds are deterministic regardless of discovery order, and
+  state is re-seeded by element index, so the same topology always maps the same
+  BE to the same kernel slots (incremental index: entries arrive via
+  place/break hooks and chunk-load scans, never a per-tick full scan).
+
+### Tick order
+
+Per server tick: rebuild-if-dirty (apply queued breaks, rebuild islands, clear
+dirty) → per island: `tickElectrical` (block discrete pre-phase: staging, trips,
+bookkeeping; never touches the kernel) → exactly one `kernel.tick()`
+(solve + integrate) → observation solve (exposes fallback/convergence flags
+without integrating again) → commit branch (sync kernel states to BEs) or
+discard branch (re-sync kernel from BEs; converters reset telemetry) →
+`findMeltedConductors` scan → queue cable breaks + mark dirty for the next
+boundary. Telemetry (`derivatives` caches) is therefore always one tick delayed:
+discrete decisions consume previous-tick values only.
+
+### Fallback rollback per family (contract items 11/14)
+
+- Battery/rack (`[soc, T, health]` / rack slice): BE authoritative on fallback,
+  else commit; BMS (`bmsNext`) opens below pack cutoff or above 60 °C and
+  recloses with hysteresis (`+series·0.05 V`, below 55 °C).
+- Solar/generator/crank (`[T]` / `[T, fuel]` / `[flywheel, energy]`): same
+  BE-authoritative rollback; staging (irradiance/EMF/fuel) is discrete-only.
+- Converters/EU bridge (0 states): re-sync is a no-op; owner discards telemetry
+  via `resetTelemetry`; trip latch + demand/EMF staging via the pure
+  `stageDemandWatts`/`stageEmf`/`tripNext` helpers.
+- Creative generator/load (0 states): same stateless rollback; bookkeeping folds
+  telemetry through the legacy energy formulas in `tickElectrical`.
+- Switchgear: knife/busbar/junction/contactor/breaker/earth (0 states, trip/blow
+  flags discrete); fuse (`[T, integrity]`, item 14): integrity/temperature roll
+  back like battery state while the latched `blown` flag persists and forces an
+  open stamp.
+
+### Topology index and dirty events; mutation boundary
+
+- Index events (all mark dirty, none scan per tick): chunk load (marks loaded),
+  chunk unload (clears the loaded flag, entry retained for persistence),
+  cable place/break hooks, attached-block add/remove. Rebuilds include only
+  positions whose own chunk is loaded; unloaded chunks contribute nothing, and
+  BE state arrays survive unload gaps in the BE (the kernel is re-seeded from
+  the BE on the post-reload rebuild).
+- Mutation boundary: conductor melts (`findMeltedConductors`, strict `>`,
+  side-effect free) only queue cable-break positions (`pendingBreaks`) plus the
+  dirty flag during island ticks; breaks apply (`world.breakBlock`) at the next
+  rebuild boundary, never mid-tick.
+- NBT keys are preserved per family (`stateArray` slices plus legacy mirrors
+  such as `state_of_charge`, `target_voltage`, `tripped`/`blown`/`bmsOpen`).
+- Known Phase E limitations: attached-block discovery has no production caller
+  yet (`putAttachedBlock` is driven by tests; the chunk seed scan covers cables
+  only), and a block straddling a loaded/unloaded chunk boundary with a partial
+  terminal set is not guarded at rebuild (chunk tests unload all involved
+  chunks together).

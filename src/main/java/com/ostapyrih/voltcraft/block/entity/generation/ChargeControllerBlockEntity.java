@@ -1,14 +1,12 @@
 package com.ostapyrih.voltcraft.block.entity.generation;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricSource;
-import com.ostapyrih.voltcraft.api.energy.IElectricStorage;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity;
+import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity;
+import com.ostapyrih.voltcraft.block.entity.storage.BatteryRackBlockEntity;
 import com.ostapyrih.voltcraft.screen.handler.ConverterScreenHandler;
 import com.ostapyrih.voltcraft.simulation.generation.MPPTLogic;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -17,13 +15,19 @@ import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
-import java.util.List;
-
 /**
  * Block entity for the MPPT Solar Charge Controller.
  * Executes Maximum Power Point Tracking (Perturb &amp; Observe) and multi-stage battery charging.
  * Limits load to what is available from upstream solar generation to prevent solar voltage drop.
  * Synchronizes with 12V, 24V, and 48V battery banks with active mismatch protection.
+ *
+ * <p>Phase E: reuses the shared converter 4-terminal kernel pattern inherited from
+ * {@link AbstractPowerConverterBlockEntity} (input pair east/west, output pair
+ * north/south; tripped plus demand/EMF staging via the parent statics). Legacy
+ * grid-graph queries (old-grid source scans) are replaced
+ * by previous-tick kernel telemetry (one-tick delay, item 12) plus direct neighbor
+ * block-entity inspection when a world is available. {@link #computeOutputVoltage}
+ * keeps the MPPT/bank staging; the legacy-only demand/current overrides are deleted.</p>
  */
 public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEntity {
 
@@ -137,49 +141,42 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
         return 48.0;
     }
 
-    /** The electrical grid attached to this converter's output port, or {@code null} off-thread/unconnected. */
-    private ElectricalGrid getOutputGrid() {
-        if (!(world instanceof ServerWorld sw)) {
-            return null;
-        }
-        return GridManager.get(sw).getGridAt(getOutputPos());
-    }
-
     private BlockPos getOutputPos() {
         return pos.offset(getOutputPortDirection());
     }
 
+    /**
+     * Phase E replacement for the legacy output-grid storage scan: storage presence is
+     * observed via the directly attached output-port block entity when the world is
+     * available, else via a live previous-tick output rail (telemetry, one-tick delay).
+     */
     public boolean hasDownstreamStorage() {
-        ElectricalGrid outGrid = getOutputGrid();
-        if (outGrid == null) {
-            return false;
+        BlockEntity out = world instanceof ServerWorld sw ? sw.getBlockEntity(getOutputPos()) : null;
+        if (out instanceof BatteryBlockEntity || out instanceof BatteryRackBlockEntity) {
+            return true;
         }
-        for (List<IElectricSource> list : outGrid.getSources().values()) {
-            for (IElectricSource src : list) {
-                if (src instanceof IElectricStorage) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return getDownstreamRailVoltage() > DEAD_RAIL_VOLTAGE;
     }
 
+    /**
+     * Previous-tick output-rail voltage from kernel telemetry (one-tick delay, item 12).
+     */
     public double getDownstreamRailVoltage() {
-        ElectricalGrid outGrid = getOutputGrid();
-        return outGrid != null ? outGrid.getNodeVoltage(getOutputPos()) : 0.0;
+        return actualOutputVoltage;
     }
 
+    /**
+     * Phase E replacement for the legacy output-grid nominal scan: checks the directly
+     * attached output-port battery's pack nominal against the bank rating. Rack and
+     * telemetry-only rails fall through to the live-voltage sanity check in
+     * {@link #isBatteryVoltageMismatch(double)}.
+     */
     public boolean isBatteryStorageMismatch() {
-        ElectricalGrid outGrid = getOutputGrid();
-        if (outGrid == null) {
-            return false;
-        }
-        for (List<IElectricSource> list : outGrid.getSources().values()) {
-            for (IElectricSource src : list) {
-                if (src instanceof IElectricStorage storage && isNominalVoltageMismatched(storage.getNominalVoltage())) {
-                    return true;
-                }
-            }
+        BlockEntity out = world instanceof ServerWorld sw ? sw.getBlockEntity(getOutputPos()) : null;
+        if (out instanceof BatteryBlockEntity battery) {
+            double nominal = battery.getChemistry().getNominalVoltage()
+                * Math.max(1, battery.getSeriesCount());
+            return isNominalVoltageMismatched(nominal);
         }
         return false;
     }
@@ -221,35 +218,24 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
 
     /**
      * Queries upstream generation capacity from connected solar panels.
+     *
+     * <p>Phase E: the legacy input-grid source scan is replaced by direct neighbor
+     * block-entity inspection (input port, then all 6 neighbors of the input position
+     * to tolerate panel replacement without cable reconnect), with a fallback to
+     * whatever this converter demonstrably drew last tick (telemetry, one-tick delay).</p>
      */
     public double getUpstreamAvailableSolarWatts() {
         if (world instanceof ServerWorld sw) {
             Direction inDir = getInputPortDirection();
             BlockPos inPos = pos.offset(inDir);
-            GridManager gm = GridManager.get(sw);
-            ElectricalGrid inGrid = gm.getGridAt(inPos);
-            if (inGrid != null) {
-                double total = 0.0;
-                for (List<IElectricSource> list : inGrid.getSources().values()) {
-                    for (IElectricSource src : list) {
-                        if (src instanceof SolarPanelBlockEntity sp) {
-                            total += sp.getPeakPowerAvailable();
-                        } else if (src != null && src.getElectromotiveForce() > 0.0) {
-                            total += src.getElectromotiveForce() * src.getMaxOutputCurrent();
-                        }
-                    }
-                }
-                if (total > 0.0) return total;
-            }
 
-            // Fallback: check input port position for direct panel connection
+            // Direct attachment: panel block entity at the input port position.
             BlockEntity be = sw.getBlockEntity(inPos);
             if (be instanceof SolarPanelBlockEntity sp) {
                 return sp.getPeakPowerAvailable();
             }
 
-            // Fallback 2: check all 6 neighbors for solar panels (handles panel replacement
-            // without cable reconnect - panels register at their own position, not wire position)
+            // Panel replacement tolerance: all 6 neighbors of the input position.
             for (Direction dir : Direction.values()) {
                 BlockPos neighborPos = inPos.offset(dir);
                 BlockEntity neighborBe = sw.getBlockEntity(neighborPos);
@@ -258,66 +244,10 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
                 }
             }
         }
+        if (inputVoltage > DEAD_RAIL_VOLTAGE && inputPowerWatts > 0.0) {
+            return inputPowerWatts;
+        }
         return 0.0;
-    }
-
-    /**
-     * {@link #getUpstreamAvailableSolarWatts()}, with a fallback to whatever this converter is
-     * already drawing when no panel can be located but power is demonstrably flowing in (e.g.
-     * a grid topology query missed the panel this tick).
-     */
-    private double effectiveAvailableSolarWatts() {
-        double availSolar = getUpstreamAvailableSolarWatts();
-        if (availSolar <= 0.0 && inputVoltage > DEAD_RAIL_VOLTAGE && inputPowerWatts > 0.0) {
-            availSolar = inputPowerWatts;
-        }
-        return availSolar;
-    }
-
-    @Override
-    protected double calculateInputPowerDemand() {
-        if (tripped || inputVoltage <= DEAD_RAIL_VOLTAGE) return 0.0;
-        double eta = Math.max(MIN_EFFICIENCY_FLOOR, getEfficiency());
-
-        // Bulk is the only stage where the battery is genuinely hungry and will accept
-        // everything the array can deliver. Absorption and Float sit at the target
-        // voltage with tapering acceptance, so their demand is derived from what the
-        // output side is actually taking — never from the panel's peak rating.
-        if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK) {
-            double availSolar = getUpstreamAvailableSolarWatts();
-            if (availSolar > 0.0) {
-                return availSolar;
-            }
-        }
-
-        return (outputPowerWatts / eta) + FLOAT_IDLE_DRAW_W;
-    }
-
-    @Override
-    protected double calculateAvailableOutputCurrent() {
-        if (tripped || inputVoltage <= DEAD_RAIL_VOLTAGE) return 0.0;
-
-        if (hasDownstreamStorage() && isBatteryStorageMismatch()) {
-            return 0.0;
-        }
-
-        double railV = getDownstreamRailVoltage();
-        double targetV = railV > DEAD_RAIL_VOLTAGE ? railV : Math.max(DEAD_RAIL_VOLTAGE, targetOutputVoltage);
-        double eta = Math.max(MIN_EFFICIENCY_FLOOR, getEfficiency());
-
-        double maxAmps;
-        if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK) {
-            // Bulk: the panel is the ceiling; take what it can give.
-            double availSolar = effectiveAvailableSolarWatts();
-            if (availSolar <= 0.0) {
-                return 0.0;
-            }
-            maxAmps = (availSolar * eta) / targetV;
-        } else {
-            // Absorption / Float: the battery's own acceptance is the ceiling.
-            maxAmps = (outputPowerWatts / eta) / targetV;
-        }
-        return Math.clamp(maxAmps, 0.0, getMaxOutputCurrent());
     }
 
     @Override
@@ -352,22 +282,17 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
     }
 
     @Override
-    public void tick(ServerWorld world) {
-        System.out.println("[CC] pos=" + pos.toShortString()
-        + " inDir=" + getInputPortDirection()
-        + " inPos=" + pos.offset(getInputPortDirection()).toShortString()
-        + " inGrid=" + (GridManager.get(world).getGridAt(pos.offset(getInputPortDirection())) == null
-            ? "null" : "ok")
-        + " inV=" + inputVoltage
-        + " tripped=" + tripped
-        + " stage=" + mpptLogic.getStage());
+    public void tickElectrical(ServerWorld world) {
+        // Kernel discrete phase: demand/EMF staging plus the bank-mismatch protection trip.
+        // The world argument is never dereferenced here (neighbor sensing runs inside the
+        // null-safe helpers above): null-safe by construction.
+        super.tickElectrical(world);
         if (hasDownstreamStorage() && isBatteryStorageMismatch()) {
             if (tripGraceTicks == 0) {
                 this.tripped = true;
                 this.reportedState = ElectricalState.SURGE;
             }
         }
-        super.tick(world);
     }
 
     @Override

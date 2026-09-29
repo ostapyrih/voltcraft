@@ -1,14 +1,18 @@
 package com.ostapyrih.voltcraft.simulation.creative;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
 import net.minecraft.util.math.BlockPos;
 
 /**
  * Pure simulation logic for the Creative Load block.
  * Decoupled from Minecraft BlockEntity lifecycle for unit testability and MNA grid solving.
+ *
+ * <p>Phase E: the legacy consumer grid contract is deleted. This class
+ * is a plain configuration/telemetry holder (mode/target presets plus consumed-energy
+ * bookkeeping); the kernel-side stamp lives in
+ * {@code CreativeLoadBlockEntity.CreativeLoadElement}.</p>
  */
-public class CreativeLoadLogic implements IElectricConsumer {
+public class CreativeLoadLogic {
 
     public enum LoadMode {
         CONSTANT_RESISTANCE("Constant Resistance (Ω)"),
@@ -132,24 +136,22 @@ public class CreativeLoadLogic implements IElectricConsumer {
         return this.targetValue;
     }
 
-    // ==================== IElectricComponent ====================
+    // ==================== Legacy grid hooks (now plain methods) ====================
+    // Formerly legacy component/consumer overrides; kept without an interface
+    // for the GUI/config path. The kernel reads staged values through the BE element.
 
-    @Override
     public BlockPos getPos() {
         return this.pos;
     }
 
-    @Override
     public ElectricalState getElectricalState() {
         return enabled ? ElectricalState.NOMINAL : ElectricalState.OFF;
     }
 
-    @Override
     public void setElectricalState(ElectricalState state) {}
 
-    // ==================== IElectricConsumer ====================
+    // ==================== Load ratings (now plain methods) ====================
 
-    @Override
     public double getNominalPowerDemand() {
         if (!enabled) return 0.0;
         return switch (mode) {
@@ -165,22 +167,18 @@ public class CreativeLoadLogic implements IElectricConsumer {
         };
     }
 
-    @Override
     public double getNominalVoltage() {
         return lastMeasuredVoltage > 0.5 ? lastMeasuredVoltage : 230.0;
     }
 
-    @Override
     public double getMinOperatingVoltage() {
         return 0.0;
     }
 
-    @Override
     public double getMaxOperatingVoltage() {
         return 1_000_000.0;
     }
 
-    @Override
     public double getEquivalentResistance() {
         if (!enabled) {
             return Double.POSITIVE_INFINITY;
@@ -200,7 +198,6 @@ public class CreativeLoadLogic implements IElectricConsumer {
         };
     }
 
-    @Override
     public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds) {
         this.lastMeasuredVoltage = terminalVoltage;
         this.lastDeliveredCurrent = deliveredCurrent;

@@ -52,6 +52,11 @@ public class ConverterBlockEntity extends AbstractPowerConverterBlockEntity {
     }
 
     @Override
+    public boolean isACSource() {
+        return ConverterElement.isACOutput(getTypeKind());
+    }
+
+    @Override
     public double getEfficiency() {
         return converterType.calculateEfficiency(inputVoltage, outputVoltageEmf);
     }
