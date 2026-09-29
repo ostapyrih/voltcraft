@@ -19,7 +19,7 @@ import java.util.Objects;
  *
  * <p>This class is final and not intended for subclassing.</p>
  *
- * <p>Phase 1 scope: {@link #solve()} only. No tick, no state integration, no
+ * <p>Solve scope: {@link #solve()} only. No tick, no state integration, no
  * terminal-current query, no melted-conductor scan.</p>
  */
 public final class ElectricalKernel {

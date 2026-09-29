@@ -45,7 +45,7 @@ import java.util.function.IntSupplier;
  * unit-testable); only state/BMS/wiring bodies are static.</p>
  *
  * <ul>
- *   <li>Terminals (item 4): two adjacent positions, east/west. Phase-C source polarity
+ *   <li>Terminals (item 4): two adjacent positions, east/west. West-positive source polarity
  *       convention shared with {@link BatteryBlockEntity}: {@code terminals[1]} (west)
  *       is positive, so {@code It[0]} is positive while the rack discharges.</li>
  *   <li>States (item 7): exactly 3 kernel-owned reals, {@code [soc, temperatureC,
@@ -164,7 +164,7 @@ public class BatteryRackBlockEntity extends BlockEntity implements KernelAttache
             double r = Math.max(BatteryBlockEntity.BatteryElement.MIN_PACK_RESISTANCE_OHM,
                 BatteryBlockEntity.BatteryElement.packResistance(DEFAULT_CHEMISTRY, series, parallel,
                     soc, state[BatteryBlockEntity.STATE_TEMP], state[BatteryBlockEntity.STATE_HEALTH]));
-            // Phase-C polarity: terminals[1] (west) is positive.
+            // West-positive source polarity: terminals[1] (west) is positive.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / r, 0.0), new Complex(emf, 0.0));
         }

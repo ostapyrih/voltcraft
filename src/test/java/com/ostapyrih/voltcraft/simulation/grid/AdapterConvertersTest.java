@@ -27,12 +27,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase D converter tests: 4-terminal converter kernel adapters.
+ * Converter adapter tests: 4-terminal converter kernel adapters.
  *
  * <p>Pure Java + kernel + adapter logic, no server, no registries. The same hard
- * environment constraint as Phases B/C applies: {@code BlockEntity.&lt;clinit&gt;}
+ * environment constraint as in the switchgear/source suites applies: {@code BlockEntity.&lt;clinit&gt;}
  * touches {@code Registries}, so no test may load/initialize an outer
- * {@code BlockEntity} subclass. Every branch of Phase D logic (4-terminal stamps,
+ * {@code BlockEntity} subclass. Every branch of converter logic (4-terminal stamps,
  * derivatives telemetry, discrete staging/trip transitions, state validation, NBT
  * bodies, terminal offsets, defaults) lives in the static nested
  * {@link ConverterElement}, which initializes independently of its enclosing BE class
@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code terminals[2..3]} is the output pair (north out+, south out−). The two pairs
  * are galvanically isolated: the stamp never writes cross-pair admittance.</p>
  */
-class PhaseDConverterTest {
+class AdapterConvertersTest {
 
     // ---- local fixtures ----
 
@@ -125,7 +125,7 @@ class PhaseDConverterTest {
     // ---- Proxy NBT fakes (cover production writeNbt/readNbt bodies) ----
 
     private static WriteView writeFake(Map<String, Object> store) {
-        return (WriteView) Proxy.newProxyInstance(PhaseDConverterTest.class.getClassLoader(),
+        return (WriteView) Proxy.newProxyInstance(AdapterConvertersTest.class.getClassLoader(),
             new Class<?>[]{WriteView.class}, (proxy, method, args) -> {
                 String name = method.getName();
                 if (name.equals("isEmpty")) {
@@ -144,7 +144,7 @@ class PhaseDConverterTest {
     }
 
     private static ReadView readFake(Map<String, Object> store) {
-        return (ReadView) Proxy.newProxyInstance(PhaseDConverterTest.class.getClassLoader(),
+        return (ReadView) Proxy.newProxyInstance(AdapterConvertersTest.class.getClassLoader(),
             new Class<?>[]{ReadView.class}, (proxy, method, args) -> {
                 String name = method.getName();
                 if (name.equals("getRegistries")) {

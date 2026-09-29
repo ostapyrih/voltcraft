@@ -36,10 +36,10 @@ import java.util.function.DoubleSupplier;
  * pure function of its inputs.</p>
  *
  * <ul>
- *   <li>Terminals (item 4): two adjacent positions, east/west. Phase-C source polarity
+ *   <li>Terminals (item 4): two adjacent positions, east/west. West-positive source polarity
  *       convention: {@code terminals[1]} (west) is positive. (Panels expose DC terminals
  *       on the underside/edges — {@code SolarPanelBlock.canConnect} excludes only the
- *       sky face; terminal positions stay east/west like Phase B.)</li>
+ *       sky face; terminal positions stay east/west like the switchgear adapters.)</li>
  *   <li>States (item 7): exactly 1 kernel-owned real, {@code [temperatureC]}.
  *       Irradiance, EMF, resistance, and power ratings are discrete <b>staging</b>
  *       inputs, never in the state array (item 9). Defensive copies on
@@ -149,7 +149,7 @@ public class SolarPanelBlockEntity extends BlockEntity implements KernelAttached
                 return;
             }
             double r = Math.max(MIN_RESISTANCE_OHM, internalResistance.getAsDouble());
-            // Phase-C polarity: terminals[1] (west) is positive.
+            // West-positive source polarity: terminals[1] (west) is positive.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / r, 0.0), new Complex(emf, 0.0));
         }

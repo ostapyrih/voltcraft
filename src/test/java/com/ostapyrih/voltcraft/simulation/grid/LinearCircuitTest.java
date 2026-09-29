@@ -19,9 +19,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase 1 linear physics kernel tests (tests 1-9).
+ * Linear circuit kernel tests (tests 1-9): complex arithmetic, resistive
+ * networks (Ohm's law, dividers, parallel loads), floating and earth
+ * references, singular and disconnected topologies, and solver elimination
+ * steps.
  */
-class Phase1LinearTest {
+class LinearCircuitTest {
 
     // ---- Test fixtures (static nested classes) ----
 
@@ -328,7 +331,7 @@ class Phase1LinearTest {
         };
         Complex[] inj = {new Complex(4, 0), new Complex(5, 0), new Complex(6, 0)};
         SolveResult r = ComplexNodalSolver.solve(y, inj);
-        System.out.println("Phase1 test9 matrix=[[2,1,1],[1,2,1],[1,1,2]] steps="
+        System.out.println("test9 matrix=[[2,1,1],[1,2,1],[1,1,2]] steps="
                 + r.linearEliminationSteps());
         assertEquals(3, r.linearEliminationSteps(),
                 "dense 3x3 with no zero sub-pivot factors must take 3 row updates");

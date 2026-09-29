@@ -8,7 +8,7 @@ import net.minecraft.util.math.BlockPos;
 /**
  * Kernel {@link Conductor} implementation wrapping one mechanical cable-adjacency branch.
  *
- * <p>Resistance policy (documented Phase A choice):</p>
+ * <p>Resistance policy (documented choice):</p>
  * <ul>
  *   <li>cable-to-cable and cable-to-terminal branches use {@code cableR}: the
  *       {@link ConductorType#getBaseResistance()} of the known cable endpoint(s)

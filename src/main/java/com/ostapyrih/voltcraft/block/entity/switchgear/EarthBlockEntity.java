@@ -40,7 +40,7 @@ import java.util.Objects;
  *       {@link EarthElement#checkState}.</li>
  *   <li>Element stamp: shunt conductance to implicit ground,
  *       {@code Y[t][t] += G_EARTH_S} with zero current injection. The constant matches
- *       the Phase-1 {@code TestEarth} precedent ({@code 1000 S ~= 0.001 ohm}).</li>
+ *       the linear-test {@code TestEarth} precedent ({@code 1000 S ~= 0.001 ohm}).</li>
  *   <li>Tick order (item 10): {@link #tickElectrical(ServerWorld)} is a no-op.</li>
  * </ul>
  *

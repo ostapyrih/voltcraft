@@ -4,7 +4,7 @@ package com.ostapyrih.voltcraft.api.data;
  * Representation of an alternating current (AC) sinusoidal quantity as a complex phasor.
  *
  * @param magnitude RMS amplitude of the voltage or current
- * @param phaseAngleRad Phase angle in radians
+ * @param phaseAngleRad phase angle in radians
  */
 public record Phasor(double magnitude, double phaseAngleRad) {
 

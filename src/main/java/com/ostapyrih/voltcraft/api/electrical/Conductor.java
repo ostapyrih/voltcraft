@@ -4,7 +4,7 @@ package com.ostapyrih.voltcraft.api.electrical;
  * A resistive conductor branch between two nodal indices.
  *
  * <p>Conductors are stamped as linear admittances by the kernel. The kernel
- * owns no thermal integration in Phase 1; temperature is carried on the
+ * performs no thermal integration itself; temperature is carried on the
  * conductor instance itself.</p>
  */
 public interface Conductor {

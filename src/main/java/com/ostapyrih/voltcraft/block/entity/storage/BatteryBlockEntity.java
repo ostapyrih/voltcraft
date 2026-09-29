@@ -37,7 +37,7 @@ import java.util.function.BooleanSupplier;
  *
  * <ul>
  *   <li>Terminals (item 4): two adjacent positions, east/west
- *       ({@code TERMINAL_OFFSETS = {{1,0,0},{-1,0,0}}}). Phase-C source polarity
+ *       ({@code TERMINAL_OFFSETS = {{1,0,0},{-1,0,0}}}). West-positive source polarity
  *       convention: {@code terminals[1]} (west) is the positive terminal, so the
  *       current entering {@code terminals[0]} ({@code It[0]}) is positive while the
  *       pack discharges and {@code dSoc/dt = -It[0]/Q}.</li>
@@ -87,8 +87,8 @@ import java.util.function.BooleanSupplier;
  * Rollback is per-island: other islands commit normally. The kernel integrates element
  * state even on fallback operating points, which is exactly the state being discarded.</p>
  *
- * <p>Phase C simplifications (documented): thermal-runaway explosion/destruction events
- * from the legacy implementation are removed (destruction wiring is Phase E scope);
+ * <p>Documented simplifications: thermal-runaway explosion/destruction events
+ * from the legacy implementation are removed (destruction wiring is deferred to a later change);
  * the BMS open-circuit replaces the legacy {@code DESTROYED} electrical state.</p>
  *
  * <p>NBT keys: {@code "stateArray"} ({@code Codec.DOUBLE.listOf()},
@@ -188,7 +188,7 @@ public class BatteryBlockEntity extends BlockEntity implements KernelAttachedBlo
             double r = Math.max(MIN_PACK_RESISTANCE_OHM,
                 packResistance(chemistry, seriesCount, parallelCount, soc,
                     state[STATE_TEMP], state[STATE_HEALTH]));
-            // Phase-C polarity: terminals[1] (west) is positive, so It[0] > 0 on discharge.
+            // West-positive source polarity: terminals[1] (west) is positive, so It[0] > 0 on discharge.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / r, 0.0), new Complex(emf, 0.0));
         }

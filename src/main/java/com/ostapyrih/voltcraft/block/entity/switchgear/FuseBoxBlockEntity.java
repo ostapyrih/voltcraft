@@ -65,7 +65,7 @@ import java.util.function.BooleanSupplier;
  * {@code setElements}, and copy kernel state back into the BE after every tick
  * before the discrete phase.</p>
  *
- * <p>Phase B simplifications (documented): fuse resistance stays constant while
+ * <p>Documented simplifications: fuse resistance stays constant while
  * integrity decays (no pre-blow resistance rise); temperature is telemetry only
  * (no thermal trip, no melting); fuse replacement is a BE stub
  * ({@link #replaceFuse()}).</p>
@@ -240,8 +240,8 @@ public class FuseBoxBlockEntity extends BlockEntity implements KernelAttachedBlo
     }
 
     /**
-     * Fuse-replacement stub (Block-use wiring with the fuse-alloy ingot is out of
-     * Phase B scope): restores an intact fuse at ambient temperature.
+     * Fuse-replacement stub (Block-use wiring with the fuse-alloy ingot is not yet connected):
+     * restores an intact fuse at ambient temperature.
      */
     public void replaceFuse() {
         this.blown = false;

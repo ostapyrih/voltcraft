@@ -7,7 +7,7 @@ import net.minecraft.util.math.BlockPos;
  * Pure simulation logic for the Creative Load block.
  * Decoupled from Minecraft BlockEntity lifecycle for unit testability and MNA grid solving.
  *
- * <p>Phase E: the legacy consumer grid contract is deleted. This class
+ * <p>Kernel-side: the legacy consumer grid contract is deleted. This class
  * is a plain configuration/telemetry holder (mode/target presets plus consumed-energy
  * bookkeeping); the kernel-side stamp lives in
  * {@code CreativeLoadBlockEntity.CreativeLoadElement}.</p>

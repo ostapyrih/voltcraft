@@ -19,7 +19,7 @@ import java.util.Objects;
 import java.util.function.BooleanSupplier;
 
 /**
- * Resettable circuit-breaker kernel adapter (Phase B: manual trip/reset only).
+ * Resettable circuit-breaker kernel adapter (manual trip/reset only).
  *
  * <p>Structural note: all decision logic lives in the static nested
  * {@link BreakerElement} with the trip flag supplier-injected (see
@@ -33,7 +33,7 @@ import java.util.function.BooleanSupplier;
  *       Conducting exactly when {@code !tripped}: untripped stamps series admittance
  *       {@code 1 / R_CLOSED_OHM}, tripped stamps nothing (open circuit).</li>
  *   <li>{@link #tickElectrical(ServerWorld)}: manual-reset stub only, no automatic
- *       trip in Phase B (item 10). Overcurrent auto-trip is Phase C/D scope.</li>
+ *       trip (item 10). Overcurrent auto-trip is deferred to a later change.</li>
  * </ul>
  *
  * <p>Defaults: {@code DEFAULT_TRIPPED = false}, matching
@@ -139,7 +139,7 @@ public class CircuitBreakerBlockEntity extends BlockEntity implements KernelAtta
     }
 
     /**
-     * Manual trip/set stub (Block-use and Phase C/D auto-trip wiring are out of scope).
+     * Manual trip/set stub (Block-use and auto-trip wiring are out of scope).
      */
     public void setTripped(boolean tripped) {
         this.tripped = tripped;
@@ -185,7 +185,7 @@ public class CircuitBreakerBlockEntity extends BlockEntity implements KernelAtta
 
     @Override
     public void tickElectrical(ServerWorld world) {
-        // Phase B: manual reset only; no auto-trip. Null world safe.
+        // Manual reset only; no auto-trip. Null world safe.
     }
 
     /**

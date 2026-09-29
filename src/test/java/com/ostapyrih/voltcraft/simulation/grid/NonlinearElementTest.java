@@ -18,15 +18,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase 2 nonlinear load tests (tests 10-19).
+ * Nonlinear element tests (tests 10-19): constant-current / constant-power /
+ * one-way-Thevenin stamps, Newton convergence, overload fallback, Tellegen
+ * power balance, DC-only enforcement, and input validation.
  *
  * <p>All kernel solves run at {@code omega = 0.0} (DC): the nonlinear
- * primitives reject any nonzero omega. Fixtures mirror the Phase 1 patterns
- * and are defined locally; {@code Phase1LinearTest} is untouched.</p>
+ * primitives reject any nonzero omega. Fixtures mirror the linear-circuit
+ * resistor/source/earth fixtures and are defined locally;
+ * {@code LinearCircuitTest} is untouched.</p>
  */
-class Phase2NonlinearTest {
+class NonlinearElementTest {
 
-    // ---- Test fixtures (static nested classes, Phase 1 patterns) ----
+    // ---- Test fixtures (static nested classes, linear-circuit patterns) ----
 
     /** Linear resistor between two terminals. */
     static final class TestResistor implements ElectricalElement {
@@ -297,7 +300,7 @@ class Phase2NonlinearTest {
         k.setInitialVoltage(new Complex[]{new Complex(12.0, 0.0), Complex.ZERO});
         KernelSolveResult r = k.solve();
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
-        System.out.println("Phase2 test11 iterations=" + r.newtonIterations());
+        System.out.println("test11 iterations=" + r.newtonIterations());
         assertTrue(r.newtonIterations() <= 20,
                 "expected <= 20 Newton iterations, got " + r.newtonIterations());
         double loadV = r.voltage()[0].sub(r.voltage()[1]).magnitude();
@@ -318,7 +321,7 @@ class Phase2NonlinearTest {
         k.setInitialVoltage(new Complex[]{new Complex(12.0, 0.0), Complex.ZERO});
         KernelSolveResult r = k.solve();
         double vLoad = r.voltage()[0].sub(r.voltage()[1]).re;
-        System.out.println("Phase2 test12 converged=" + r.converged()
+        System.out.println("test12 converged=" + r.converged()
                 + " singular=" + r.singular() + " fallbackActive=" + r.fallbackActive()
                 + " residual=" + r.residual() + " iterations=" + r.newtonIterations()
                 + " vLoad=" + vLoad);
@@ -338,7 +341,7 @@ class Phase2NonlinearTest {
         double iCp = (vLoad >= 0.1 && vLoad > 1e-6)
                 ? 1000.0 / vLoad
                 : vLoad * 1000.0 / (0.1 * 0.1);
-        System.out.println("Phase2 test12 vLoad=" + vLoad + " iSrc=" + iSrc + " iCp=" + iCp);
+        System.out.println("test12 vLoad=" + vLoad + " iSrc=" + iSrc + " iCp=" + iCp);
         assertTrue(Double.isFinite(iSrc) && Math.abs(iSrc) < 1e6, "source current=" + iSrc);
         assertTrue(Double.isFinite(iCp) && Math.abs(iCp) < 1e6, "CP current=" + iCp);
     }
@@ -354,7 +357,7 @@ class Phase2NonlinearTest {
         k.setInitialVoltage(new Complex[]{new Complex(12.0, 0.0), Complex.ZERO});
         KernelSolveResult r = k.solve();
         double vLoad = r.voltage()[0].sub(r.voltage()[1]).re;
-        System.out.println("Phase2 test12b converged=" + r.converged()
+        System.out.println("test12b converged=" + r.converged()
                 + " singular=" + r.singular() + " fallbackActive=" + r.fallbackActive()
                 + " residual=" + r.residual() + " iterations=" + r.newtonIterations()
                 + " vLoad=" + vLoad);
@@ -373,7 +376,7 @@ class Phase2NonlinearTest {
                 List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
         k.setInitialVoltage(new Complex[]{new Complex(12.0, 0.0), Complex.ZERO});
         KernelSolveResult r = k.solve();
-        System.out.println("Phase2 test13 iterations=" + r.newtonIterations()
+        System.out.println("test13 iterations=" + r.newtonIterations()
                 + " residual=" + r.residual());
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
         assertTrue(r.newtonIterations() <= 20,
@@ -410,7 +413,7 @@ class Phase2NonlinearTest {
 
         double pDissipated = pLoad + pConductor + pGmin;
         double relErr = Math.abs(pSourceDelivered - pDissipated) / Math.max(pSourceDelivered, 1e-12);
-        System.out.println("Phase2 test14 pSource=" + pSourceDelivered
+        System.out.println("test14 pSource=" + pSourceDelivered
                 + " pLoad=" + pLoad + " pCond=" + pConductor + " pGmin=" + pGmin);
         assertTrue(pSourceDelivered > 0.0, "source must deliver power");
         assertTrue(relErr < 1e-4, "power balance relErr=" + relErr);
@@ -421,7 +424,7 @@ class Phase2NonlinearTest {
         // CC 5 A element alone between two floating nodes (no earth, no source).
         // Below-vMin resistive fallback plus GMIN pins both nodes to ~0, so the
         // differential must vanish. No reference EMF exists for a current
-        // source, so the bound is absolute (cf. Phase 1 test 5 uses EMF-relative).
+        // source, so the bound is absolute (cf. the floating-Thevenin test, which uses an EMF-relative bound).
         ElectricalKernel k = kernel(2,
                 List.of(new TestConstantCurrent(5.0, 0.1)),
                 List.of(new int[]{0, 1}));

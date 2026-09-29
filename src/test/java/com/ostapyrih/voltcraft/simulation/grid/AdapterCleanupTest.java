@@ -16,7 +16,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase E conditional-approval regression (items 1–3 only).
+ * Adapter compliance tests (contract items 1–3): attached-block discovery is
+ * production-wired, partial-terminal blocks defer until all terminal chunks
+ * load, and melt breaks re-conduct through the remaining topology.
  *
  * <p>World-free: real {@link BlockPos} plus a local {@link KernelAttachedBlock}
  * double; no server, no registries, no block-entity classes.
@@ -31,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * ({@code applyPendingBreaks} into {@code knownCables}) uses; the re-conduct
  * question is purely about post-rebuild topology either way.
  */
-class PhaseEConditionTest {
+class AdapterCleanupTest {
 
     /** Stateless linear Thevenin source, positive at {@code terminals[0]}. */
     static final class TestThevenin implements ElectricalElement {

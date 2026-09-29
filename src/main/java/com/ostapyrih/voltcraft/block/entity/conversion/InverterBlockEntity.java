@@ -91,7 +91,7 @@ public class InverterBlockEntity extends AbstractPowerConverterBlockEntity {
         this.inverterTripped = false;
         this.overloadTicks = 0;
         this.cooldownTicks = 0;
-        // Phase E: the legacy output-grid presence probe is gone with the old grid.
+        // Kernel-side: the legacy output-grid presence probe is gone with the old grid.
         // ATS units default to island mode until external-grid sensing is re-wired
         // against island telemetry; non-ATS units are unaffected.
         if (inverterType.hasAutomaticTransferSwitch()) {

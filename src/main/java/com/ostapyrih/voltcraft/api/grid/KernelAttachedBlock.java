@@ -8,7 +8,7 @@ import net.minecraft.util.math.BlockPos;
  * Server-side contract for a block entity whose electrical behavior is simulated
  * centrally by the kernel-owned island topology ({@code GridManager}).
  *
- * <p>Phase A scope: topology and discovery only. No production block entity
+ * <p>Topology and discovery contract only. No production block entity
  * implements this interface yet; only test doubles do.</p>
  */
 public interface KernelAttachedBlock {

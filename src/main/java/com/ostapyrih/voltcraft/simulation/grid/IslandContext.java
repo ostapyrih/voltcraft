@@ -12,7 +12,7 @@ import java.util.Map;
 /**
  * Structural snapshot of one electrically isolated island.
  *
- * <p>Shape (Phase A contract): {@link #kernel}, {@link #elementIndex}
+ * <p>Shape (island contract): {@link #kernel}, {@link #elementIndex}
  * ({@code BlockPos -> int}, keyed by block-entity position, sorted by
  * {@code BlockPos} so indices are deterministic regardless of discovery order),
  * {@link #nodeIndex} ({@code BlockPos -> int}, sorted node positions),

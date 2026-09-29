@@ -34,7 +34,7 @@ import java.util.function.DoubleSupplier;
  * Bridges an upstream power network (as an input consumer) and downstream network (as an output source)
  * without shorting them into a single through-conductor.
  *
- * <p>Phase D kernel adapter: this BE implements {@link KernelAttachedBlock} through the static
+ * <p>Converter kernel adapter: this BE implements {@link KernelAttachedBlock} through the static
  * nested {@link ConverterElement}. All decision logic (stamps, derivatives telemetry, discrete
  * staging/trip/NBT/state helpers) lives in that nested class with supplier-injected discrete
  * cells, because unit-test runtimes cannot initialize {@code BlockEntity} subclasses at all
@@ -44,7 +44,7 @@ import java.util.function.DoubleSupplier;
  * boolean field, the staged demand/EMF fields, and the telemetry cell. The kernel path
  * ({@link #tickElectrical}) is authoritative for trip logic and staging; the legacy
  * dual-grid bridge ({@code tick}/{@code InputConsumer}/{@code OutputSource}) was removed
- * in Phase E.</p>
+ * when the kernel islands became the single subsystem.</p>
  */
 public abstract class AbstractPowerConverterBlockEntity extends BlockEntity implements KernelAttachedBlock, ExtendedScreenHandlerFactory<BlockPos> {
 
@@ -116,7 +116,7 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     protected ElectricalState reportedState = ElectricalState.OFF;
 
-    // --- Kernel path (Phase D): BE-owned adapter state ---
+    // --- Kernel path: BE-owned adapter state ---
     private final double[] stateArray = ConverterElement.newStateArray();
     private final double[] telemetryCell = new double[ConverterElement.TELE_LEN];
     private final ElectricalElement element = new ConverterElement(

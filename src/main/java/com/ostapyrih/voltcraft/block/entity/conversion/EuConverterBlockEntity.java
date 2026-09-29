@@ -33,7 +33,7 @@ import team.reborn.energy.api.base.SimpleEnergyStorage;
  * Exposes a TeamReborn EnergyStorage capability (1 E bridged 1:1 with FE by interop mods)
  * for any energy consumer, and actively pushes E to adjacent energy receivers.
  *
- * <p>Phase D kernel adapter: this BE implements {@link KernelAttachedBlock} through the shared
+ * <p>Converter kernel adapter: this BE implements {@link KernelAttachedBlock} through the shared
  * {@link AbstractPowerConverterBlockEntity.ConverterElement} 4-terminal pattern. The input pair
  * (east in+, west in−) stamps the staged grid-side demand; the output pair (north/south) is
  * reserved open (staged EMF identically zero) because converted energy leaves through the
@@ -146,7 +146,7 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
     // Kernel-side this is the shared 4-terminal converter pattern with the output pair
     // reserved open (see the class javadoc).
 
-    // --- Kernel path (Phase D): BE-owned adapter state ---
+    // --- Kernel path: BE-owned adapter state ---
     private final double[] kernelState =
         AbstractPowerConverterBlockEntity.ConverterElement.newStateArray();
     private final double[] telemetryCell =
@@ -215,7 +215,7 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
         // logic's current nominal need. The output EMF stays identically zero (reserved open).
         // Never mutates kernel state, never touches the kernel; the world argument is never
         // dereferenced (null-safe by construction). Energy pushes and the logic
-        // thermal/conversion advance stay in the legacy tick() path until Phase E removes it.
+        // thermal/conversion advance stay in the legacy tick() path (kernel migration pending).
         double teleVIn = telemetryCell[AbstractPowerConverterBlockEntity.ConverterElement.TELE_V_IN];
         double base = logic.getNominalPowerDemand();
         if (!Double.isFinite(base) || base < 0.0) {

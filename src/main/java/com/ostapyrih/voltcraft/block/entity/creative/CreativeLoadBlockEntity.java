@@ -34,7 +34,7 @@ import java.util.function.IntSupplier;
  * transformer loading, inverter THD and overcurrent trips.
  * Supports Constant Resistance, Constant Power, and Constant Current modes.
  *
- * <p>Phase E kernel adapter: implements {@link KernelAttachedBlock} through the static
+ * <p>Kernel adapter: implements {@link KernelAttachedBlock} through the static
  * nested {@link CreativeLoadElement} (resistive load in {@code CONSTANT_RESISTANCE},
  * constant-power in {@code CONSTANT_POWER}, constant-current in
  * {@code CONSTANT_CURRENT}). All decision logic lives in the nested class with

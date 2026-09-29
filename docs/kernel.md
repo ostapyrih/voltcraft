@@ -10,7 +10,7 @@ all voltages, states, and iteration live in the kernel.
 - `fallbackActive` reports whether the numerical crutch was active at the
   converged operating point (final iteration only).
 - The framework does not act on this signal (tick still integrates when
-  `converged==true`; see Phase 3 test 24b note).
+  `converged==true`; see Tick and element integration).
 - Adapter layers are responsible for interpreting `fallbackActive` (skip
   persistent state, trigger protection, display warning, etc.).
 
@@ -35,7 +35,7 @@ Mechanism notes:
   the last `Yf` value is kept (`false` if no `Yf` ran yet). `buildSystem`
   itself never clears the flag; the kernel owns clear/read.
 
-## Phase 3 — state integration and conductor thermal
+## State integration and conductor thermal
 
 - `tick()`: exactly one `solve()` per tick (item 15). Returns immediately
   when `!converged || singular` (item 6); the gate ignores
@@ -63,7 +63,8 @@ Mechanism notes:
   operating point without a `lastSolution` round-trip.
 - `findMeltedConductors()`: strict `temperature() > meltingTemp()`
   (not `>=`), side-effect free (item 13); returns a new list every call.
-- `lastSolution` is unchanged by Phase 3 queries (item 31): only `solve()`
+- `lastSolution` is unchanged by `tick` / `terminalCurrents` /
+  `findMeltedConductors` (item 31): only `solve()`
   writes it (`tick` integrates from the returned vector directly).
 
 ## Solver status (`ComplexNodalSolver`)
@@ -78,14 +79,14 @@ Mechanism notes:
   `linearEliminationSteps` counts only actual row updates.
 - Back-substitution never divides by a zero/non-finite diagonal: such
   rows yield `x[i] = ZERO` and iteration continues, so a singular system
-  still returns a finite voltage vector (no NaN/Inf; Phase 1 test 7,
-  Phase 4 test 32).
+  still returns a finite voltage vector (no NaN/Inf; singular-system
+  invariant).
 - `SolveResult`: `voltage` (last iterate), `converged =
   !singular && isFinite(residual) && residual < LINEAR_RESIDUAL_TOL`
   (`1e-9`), `singular`, normalized residual
   `||YV−I|| / max(||I||, ||YV||, 1)` (Euclidean norms over complex
   magnitudes), `linearEliminationSteps`.
-- Invariant: singular implies `!converged` (Phase 4 test 32).
+- Invariant: singular implies `!converged` (singularity invariant).
 - Helpers `zeroMatrix(n)` / `zeroVector(n)` reject `n < 0`;
   non-square `Y`, `Y/I` length mismatch, and null entries throw
   `IllegalArgumentException`.
@@ -95,9 +96,10 @@ Mechanism notes:
 - Every nodal diagonal receives a real `GMIN = 1e-9` S shunt on every
   system build (`buildSystem`), including the final `Yf` build and every
   backtracking trial build. It is real and power-relevant: Tellegen
-  balance must include `P_GMIN = GMIN·Σ|V|²` (Phase 2 test 14).
+  balance must include `P_GMIN = GMIN·Σ|V|²` (Tellegen power balance).
 - GMIN pins floating/disconnected nodes to finite voltages but carries
-  no reference EMF (cf. Phase 1 test 5 vs Phase 2 test 15).
+  no reference EMF (cf. floating networks: a Thevenin EMF pins the
+  differential, a lone current source does not).
 
 ## Newton loop (`ElectricalKernel.solve`)
 
@@ -121,9 +123,9 @@ Mechanism notes:
   isFinite(residual) && residual < LINEAR_RESIDUAL_TOL`. Any singular
   iteration forces the final result to `converged = false`, even if a
   later iteration looks converged.
-- Pure linear networks converge in 2 iterations (Phase 4 test 30
+- Pure linear networks converge in 2 iterations (the linear fast-path
   asserts `< 5`); nonlinear CP fixtures converge within 20 from a warm
-  start (Phase 2 tests 11, 13).
+  start (backtracking fixtures).
 - `n == 0` short-circuits to an empty, converged, non-singular result.
 
 ## Stamps sign convention
@@ -137,7 +139,7 @@ Mechanism notes:
   the element consumes. Throws on `Vt/It` length mismatch, null entries,
   or invalid `[from,to)` ranges.
 - Node-index and `Y/I` size checks throw `IllegalArgumentException`.
-- Sign audit (Phase 4 test 29): in a closed series loop the source shows
+- Sign audit (closed series loop): in a closed series loop the source shows
   `It[0] < 0` (delivering, negative entering at the positive terminal)
   and the load shows `It[0] > 0` (consuming). The audit needs a true
   loop: a source with a floating terminal is an open circuit (only
@@ -147,8 +149,8 @@ Mechanism notes:
 ## DC-only nonlinear primitives
 
 - `constantPower`, `constantCurrent`, `oneWayThevenin` throw
-  `IllegalArgumentException` on any `omega != 0.0` (Phase 2 test 17,
-  Phase 4 test 31, e.g. `314.159`). All kernel uses of these stamps run
+  `IllegalArgumentException` on any `omega != 0.0` (DC-only enforcement,
+  e.g. `314.159`). All kernel uses of these stamps run
   at `setOmega(0)`; purely linear tests are omega-agnostic.
 - `constantPower` (draws `P/v` from `a` toward `b`): linearization
   `I(v) ≈ (−P/v0²)·v + 2P/v0`, i.e. `g = −P/v0²`, `iEq = 2P/v0`,
@@ -156,26 +158,26 @@ Mechanism notes:
   `v0 <= 1e-6`): resistive `R = vMin²/P` (`admittance(P/vMin²)`, zero
   parallel current). Overload with no physical root converges onto the
   fallback point with `fallbackActive == true` and `V_load < vMin`
-  (Phase 2 test 12); a normal point reports no fallback (test 12b).
+  (overload fallback point); a normal operating point reports no fallback.
 - `constantCurrent` (draws `iSet` from `a` toward `b`): pure current
   source at/above `vMin`; fallback below `vMin` is a resistive
   `iSet/vMin` admittance with zero parallel current. Stamp-level sign:
   nodal `I = [−iSet, +iSet]`, element currents `It = [+iSet, −iSet]`
-  (Phase 2 test 18).
+  (constant-current sign audit).
 - `oneWayThevenin` (`g` S, `emf` V, softness `s` V): smoothed diode via
   softplus/sigmoid; `sourceOnly=true` delivers below `emf` and blocks
   reverse, `false` sinks above `emf` and blocks below. Stamp is the
   Newton linearization `iEq = i0 − dIdv·v0` as
   `admittance(dIdv) + draw(iEq)` with derivative floor `1e-9·g`.
   No `vMin`; fallback is reported when the floor is active
-  (`g·sigmoid(x/s) < 1e-9·g`). Stamp-level signs verified in Phase 2
-  test 16 (forward delivery `i0 ≈ −g·(emf − s·ln2)`, blocked reverse
+  (`g·sigmoid(x/s) < 1e-9·g`). Stamp-level signs verified by the
+  one-way-Thevenin audit (forward delivery `i0 ≈ −g·(emf − s·ln2)`, blocked reverse
   `|i0| ≈ g·s·ln2`, load-orientation sink).
 - Input validation for nonlinear primitives (item 27): `constantPower`
   requires finite `P > 0`, finite `vMin > 0`; `constantCurrent`
   requires finite `Iset > 0`, finite `vMin > 0`; `oneWayThevenin`
   requires finite `g > 0`, finite `s > 0`, finite `emf`; all three
-  require `omega == 0.0` (Phase 2 test 19).
+  require `omega == 0.0` (input-validation matrix).
 
 ## State ownership
 
@@ -198,7 +200,7 @@ Mechanism notes:
 - `tick()`: exactly one `solve()` per tick (item 15) with the fixed step
   `DT = 0.05` s. Returns immediately when `!converged || singular`
   (item 6), leaving element state and conductor temperatures
-  byte-identical (Phase 3 test 24). The gate ignores `fallbackActive`:
+  byte-identical (failed-solve gate). The gate ignores `fallbackActive`:
   a converged fallback point still integrates.
 - Element state uses one RK2 (midpoint) step at the SAME operating point
   for both stages (item 15): per element, `Vt` is gathered fresh from
@@ -207,12 +209,12 @@ Mechanism notes:
   element, only clones passed into `derivatives`, `k2` evaluated on a
   `mid = state + 0.5·dt·k1` copy (never an alias of kernel state), and
   kernel state mutated solely by `state[i] += dt·k2[i]`. Zero-length
-  state is a no-op (Phase 3 test 25).
+  state is a no-op (derivatives-purity check).
 - Verified consumers: exponential decay matches `10·e^(−0.5)` within 1%
-  after 10 ticks (Phase 3 test 20); SoC discharge `Δ = n·DT·I/Q`
-  exactly with `It[0] = +1 A` on both stages of every tick (test 21);
-  200-tick runs stay finite with final residual `< 1e-5`
-  (Phase 4 test 26).
+  after 10 ticks (exponential-decay check); SoC discharge `Δ = n·DT·I/Q`
+  exactly with `It[0] = +1 A` on both stages of every tick
+  (SoC-conservation check); 200-tick runs stay finite with final residual
+  `< 1e-5` (long-run stability check).
 
 ## Conductor thermal
 
@@ -222,7 +224,7 @@ Mechanism notes:
   the midpoint temperature: `d1 = (P − kc·(T−AMB))/cap`,
   `Tm = T + dt/2·d1`, `d2 = (P − kc·(Tm−AMB))/cap`,
   `T += dt·d2`, with `AMB = AMBIENT_C = 20.0 °C`.
-- Exact checks (Phase 3 tests 22–23): with zero cooling the RK2 step is
+- Exact checks (cable heating/cooling checks): with zero cooling the RK2 step is
   exact (`T = 20 + n·DT·P`); with cooling the trace follows
   `20 + P·(1−e^(−t))` while heating and Newton cooling
   `20 + (Theat−20)·e^(−t)` after the source is removed, monotonically
@@ -256,9 +258,9 @@ Mechanism notes:
   solve warm-starts from `lastSolution` (verified by a stamp spy that
   records the first-iteration voltage: after override-then-null the
   first stamped `V` equals `lastSolution` to `1e-12`, not the discarded
-  override — Phase 4 test 33). A length-mismatched override is ignored
+  override — warm-start override clearing). A length-mismatched override is ignored
   (falls through to `lastSolution`, then zeros).
-- Warm-start sensitivity (measured, Phase 4 test 28): on tree-loaded CP
+- Warm-start sensitivity (measured, seeded robustness generator): on tree-loaded CP
   networks a source-V start can trap Newton in a fallback/physical
   branch limit cycle (40 exhausted iterations), while a zero start
   converges in 2 iterations; the robustness generator therefore uses a
@@ -313,16 +315,16 @@ Mechanism notes:
 - Amendment: `fallbackActive` 7th result component, final-build-only
   semantics, ThreadLocal tracking, framework takes no action on it.
 - Verification: 200-tick finiteness with residual `< 1e-5`
-  (Phase 4 test 26); 100-node single-tick diagnostic
+  (long-run stability check); 100-node single-tick diagnostic
   (nodes = 100, elements = 51, conductors = 99 — report-only timing,
-  Phase 4 test 27); seeded (0x5EED) tree-regime robustness at
+  100-node diagnostic); seeded (0x5EED) tree-regime robustness at
   100/100 with CP feasibility `P <= 0.8·Vs²/(4·Rint)` enforced by
-  P-resampling (Phase 4 test 28).
+  P-resampling (seeded convergence-robustness generator).
 
-## Adapter layer (`GridManager` + `KernelAttachedBlock`, Phase E)
+## Adapter layer (`GridManager` + `KernelAttachedBlock`)
 
 The kernel owns the solve; the adapter owns topology, discovery, and the
-block-entity (BE) state lifecycle. Phase E deleted the legacy dual-grid subsystem
+block-entity (BE) state lifecycle. The kernel islands replaced the legacy dual-grid subsystem
 (`ElectricalGrid`, `GridNode`, `GridConductor`, `GridTopologyHelper`,
 `ModifiedNodalAnalysis`, `ACSolver`, `api/energy/*`, `api/grid` legacy types and
 their tests): the kernel islands are now the single subsystem.
@@ -352,7 +354,7 @@ their tests): the kernel islands are now the single subsystem.
   pair on `terminals[0..1]` (east in+, west in−) and the output pair on
   `terminals[2..3]` (north out+, south out−); earth uses a single down terminal
   (`{{0,-1,0}}`).
-- Source polarity convention (Phase C): `terminals[1]` is the positive terminal,
+- Source polarity convention (west-positive): `terminals[1]` is the positive terminal,
   so discharge current entering `terminals[0]` (`It[0]`) is positive. Creative
   loads are `T0`-referenced instead (`V = Vt[0] − Vt[1]`, consumed `It[0]`).
 
@@ -372,7 +374,7 @@ their tests): the kernel islands are now the single subsystem.
   `oneWayThevenin`) throw on `omega != 0`; converter inputs and creative loads
   therefore stamp a resistive approximation (`R = Vnom²/P`, `R = Vnom/I`) on AC
   islands. Islands solve independently: restaging one island leaves another
-  bit-identical (Phase D test `islandsSolveIndependently`, Phase E regression).
+  bit-identical (two-island independence check, adapter integration).
 
 ### Adapter State Authority (BE → kernel → BE)
 
@@ -445,14 +447,14 @@ discrete decisions consume previous-tick values only.
   rebuild boundary, never mid-tick.
 - NBT keys are preserved per family (`stateArray` slices plus legacy mirrors
   such as `state_of_charge`, `target_voltage`, `tripped`/`blown`/`bmsOpen`).
-- Phase E conditional resolutions (verified by PhaseEConditionTest): attached-block discovery is production-wired (AbstractGridBlock.onBlockAdded/onStateReplaced → putAttachedBlock/removeAttachedBlock, plus seedAttachedBlocks chunk scan); partial-terminal blocks are deferred until all terminal chunks load (ALL-terminals-in-groupSet guard, no NPE); melt re-conduct = reroute-correct (see Melt re-conduct policy below).
+- Conditional compliance resolutions (verified by `AdapterCleanupTest`): attached-block discovery is production-wired (AbstractGridBlock.onBlockAdded/onStateReplaced → putAttachedBlock/removeAttachedBlock, plus seedAttachedBlocks chunk scan); partial-terminal blocks are deferred until all terminal chunks load (ALL-terminals-in-groupSet guard, no NPE); melt re-conduct = reroute-correct (see Melt re-conduct policy below).
 
-### Melt re-conduct policy (Phase E conditional verdict)
+### Melt re-conduct policy (compliance verdict)
 
 - (a) Reroute through surviving topology after a melt break is CORRECT: the
   rebuild re-conducts only branches whose cable index entry still exists.
 - (b) A melt break that leaves the removed path conducting is a BUG (stale
   conductor reference). Evidence: parallel-lane reroute keeps load current
   positive-but-redistributed while sole-feed melt drives it to ~0
-  (`PhaseEConditionTest`: `meltReroutesThroughRemainingPath`,
+  (`AdapterCleanupTest`: `meltReroutesThroughRemainingPath`,
   `meltOfSoleFeedOpensCircuit`).

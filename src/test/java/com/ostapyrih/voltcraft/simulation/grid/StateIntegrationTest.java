@@ -18,17 +18,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase 3 state-integration and conductor-thermal tests (tests 20-25).
+ * State-integration and conductor-thermal tests (tests 20-25): RK2
+ * element-state integration, SoC conservation, cable heating/cooling exactness,
+ * failed-solve gating, and derivatives-call purity.
  *
- * <p>Fixtures are local static nested classes mirroring the Phase 1/2
- * patterns; {@code Phase1LinearTest} and {@code Phase2NonlinearTest} are
- * untouched. {@code setOmega(0)} is used wherever a nonlinear
- * (DC-only) stamp is involved; the purely linear tests are
- * omega-agnostic.</p>
+ * <p>Fixtures are local static nested classes mirroring the linear/nonlinear
+ * resistor/source patterns; {@code LinearCircuitTest} and
+ * {@code NonlinearElementTest} are untouched. {@code setOmega(0)} is used
+ * wherever a nonlinear (DC-only) stamp is involved; the purely linear tests
+ * are omega-agnostic.</p>
  */
-class Phase3IntegrationTest {
+class StateIntegrationTest {
 
-    // ---- Test fixtures (static nested classes, Phase 1/2 patterns) ----
+    // ---- Test fixtures (static nested classes, linear/nonlinear patterns) ----
 
     /** Linear resistor between two terminals. */
     static final class TestResistor implements ElectricalElement {
@@ -381,7 +383,7 @@ class Phase3IntegrationTest {
         }
         double got = k.getElementState(0)[0];
         double expected = 10.0 * Math.exp(-0.5);
-        System.out.println("Phase3 test20 got=" + got + " expected=" + expected);
+        System.out.println("test20 got=" + got + " expected=" + expected);
         assertEquals(expected, got, Math.abs(expected) * 0.01, "exp-decay after 10 ticks");
     }
 
@@ -410,7 +412,7 @@ class Phase3IntegrationTest {
         for (double it : soc.seenIt) {
             maxDev = Math.max(maxDev, Math.abs(it - 1.0));
         }
-        System.out.println("Phase3 test21 drop=" + drop + " expectedDrop=" + expectedDrop
+        System.out.println("test21 drop=" + drop + " expectedDrop=" + expectedDrop
                 + " maxItDev=" + maxDev);
         assertEquals(expectedDrop, drop, 1e-9, "SoC drop after 1 s at 1 A");
         assertTrue(maxDev < 1e-9, "every It[0] must equal +1 A, maxDev=" + maxDev);
@@ -447,7 +449,7 @@ class Phase3IntegrationTest {
         double p = v[0].sub(v[1]).magnitudeSquared() / 0.001;
         double expected4 = 20.0 + 4.0 * GridConstants.DT * p;
         double expected5 = 20.0 + 5.0 * GridConstants.DT * p;
-        System.out.println("Phase3 test22 t4=" + t4 + " expected4=" + expected4
+        System.out.println("test22 t4=" + t4 + " expected4=" + expected4
                 + " melted4=" + melted4.size() + " t5=" + t5 + " expected5=" + expected5
                 + " melted5=" + melted5.size() + " p=" + p);
         assertEquals(expected4, t4, 1e-9, "temperature after 4 ticks");
@@ -483,7 +485,7 @@ class Phase3IntegrationTest {
         Complex[] vh = k.getLastSolution();
         double p = vh[0].sub(vh[1]).magnitudeSquared() / 0.001;
         double expectedHeat = 20.0 + p * (1.0 - Math.exp(-10.0 * GridConstants.DT));
-        System.out.println("Phase3 test23 theat=" + theat + " expectedHeat=" + expectedHeat
+        System.out.println("test23 theat=" + theat + " expectedHeat=" + expectedHeat
                 + " p=" + p);
         assertEquals(expectedHeat, theat, 0.05, "temperature after 10 heating ticks");
         k.setElements(new ArrayList<>(), new ArrayList<>());
@@ -494,7 +496,7 @@ class Phase3IntegrationTest {
         }
         double tcool = c.temperature();
         double expectedCool = 20.0 + (theat - 20.0) * Math.exp(-20.0 * GridConstants.DT);
-        System.out.println("Phase3 test23 tcool=" + tcool + " expectedCool=" + expectedCool);
+        System.out.println("test23 tcool=" + tcool + " expectedCool=" + expectedCool);
         for (int i = 1; i < trace.size(); i++) {
             assertTrue(trace.get(i) < trace.get(i - 1),
                     "cooling must decrease monotonically at step " + i);
@@ -518,7 +520,7 @@ class Phase3IntegrationTest {
         k.setOmega(0.0);
         k.setElementState(1, new double[]{7.5});
         KernelSolveResult r = k.solve();
-        System.out.println("Phase3 test24 converged=" + r.converged()
+        System.out.println("test24 converged=" + r.converged()
                 + " singular=" + r.singular() + " residual=" + r.residual());
         assertFalse(r.converged(), "NaN injection must fail the solve");
         double[] before = k.getElementState(1);
@@ -564,7 +566,7 @@ class Phase3IntegrationTest {
         Complex[] vlast = k.getLastSolution();
         assertEquals(vlast[0].re, spy.vtSnap1[0].re, 0.0, "Vt[0] matches solved node 0");
         assertEquals(vlast[1].re, spy.vtSnap1[1].re, 0.0, "Vt[1] matches solved node 1");
-        System.out.println("Phase3 test25 calls=" + spy.calls
+        System.out.println("test25 calls=" + spy.calls
                 + " vt0=" + spy.vtSnap1[0] + " vt1=" + spy.vtSnap1[1]
                 + " it0=" + spy.itSnap1[0]);
     }

@@ -23,8 +23,8 @@ import java.util.function.BooleanSupplier;
  *
  * <p>Electrically identical to the knife switch (closed: series admittance
  * {@code 1 / R_CLOSED_OHM}; open: no stamp), but the discrete intent differs: contacts
- * close on coil power/redstone instead of a manual blade. Coil drive wiring is out of
- * Phase B scope; the BE owns the {@code closed} boolean field plus NBT only.</p>
+ * close on coil power/redstone instead of a manual blade. Coil drive wiring is not
+ * yet connected; the BE owns the {@code closed} boolean field plus NBT only.</p>
  *
  * <p>Structural note: all decision logic lives in the static nested
  * {@link ContactorElement} with the contact flag supplier-injected (see
@@ -136,7 +136,7 @@ public class ContactorRelayBlockEntity extends BlockEntity implements KernelAtta
     }
 
     /**
-     * Coil-drive stub (redstone/coil wiring is out of Phase B scope).
+     * Coil-drive stub (redstone/coil wiring is not yet connected).
      */
     public void setClosed(boolean closed) {
         this.closed = closed;

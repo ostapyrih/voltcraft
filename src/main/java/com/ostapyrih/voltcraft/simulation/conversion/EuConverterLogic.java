@@ -7,7 +7,7 @@ import net.minecraft.util.math.BlockPos;
  * Pure simulation logic for the 230V AC to E Rotary Energy Bridge.
  * Decoupled from Minecraft BlockEntity lifecycle for unit testability and MNA grid solving.
  *
- * <p>Phase E: the legacy consumer grid contract is deleted. This class
+ * <p>Kernel-side: the legacy consumer grid contract is deleted. This class
  * is a plain configuration/telemetry holder (230V AC window, EU bookkeeping, thermal);
  * the kernel-side input-demand stamp lives in {@code EuConverterBlockEntity}'s
  * {@code ConverterElement} wiring.</p>

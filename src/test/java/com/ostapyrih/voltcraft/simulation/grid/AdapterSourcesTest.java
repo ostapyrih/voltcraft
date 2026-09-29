@@ -31,12 +31,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase C source tests: stateful source/storage kernel adapters.
+ * Source adapter tests: stateful source/storage kernel adapters (battery,
+ * rack, solar, fuel and crank generators).
  *
  * <p>Pure Java + kernel + adapter logic, no server, no registries. The same hard
- * environment constraint as Phase B applies: {@code BlockEntity.&lt;clinit&gt;} touches
+ * environment constraint as in the switchgear suite applies: {@code BlockEntity.&lt;clinit&gt;} touches
  * {@code Registries}, so no test may load/initialize an outer {@code BlockEntity}
- * subclass. Every branch of Phase C logic (stamps, derivatives, discrete BMS/active
+ * subclass. Every branch of source adapter logic (stamps, derivatives, discrete BMS/active
  * transitions, state validation/copy, NBT bodies, terminal offsets, defaults) lives in
  * the static nested adapter classes ({@code BatteryElement}, {@code RackElement},
  * {@code SolarElement}, {@code GeneratorElement}, {@code CrankElement}), which
@@ -47,11 +48,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code tickElectrical} bodies mirroring the covered statics 1:1) is the documented
  * coverage boundary.</p>
  *
- * <p>Polarity note: all Phase C source adapters stamp the Thevenin EMF with
+ * <p>Polarity note: all source adapters stamp the Thevenin EMF with
  * {@code terminals[1]} (west) positive, so {@code It[0]} is positive while the element
  * delivers power and battery {@code dSoc/dt = -It[0]/Q} holds.</p>
  */
-class PhaseCSourceTest {
+class AdapterSourcesTest {
 
     // ---- local fixtures ----
 
@@ -86,7 +87,7 @@ class PhaseCSourceTest {
     // ---- Proxy NBT fakes (cover production writeNbt/readNbt bodies) ----
 
     private static WriteView writeFake(Map<String, Object> store) {
-        return (WriteView) Proxy.newProxyInstance(PhaseCSourceTest.class.getClassLoader(),
+        return (WriteView) Proxy.newProxyInstance(AdapterSourcesTest.class.getClassLoader(),
             new Class<?>[]{WriteView.class}, (proxy, method, args) -> {
                 String name = method.getName();
                 if (name.equals("isEmpty")) {
@@ -105,7 +106,7 @@ class PhaseCSourceTest {
     }
 
     private static ReadView readFake(Map<String, Object> store) {
-        return (ReadView) Proxy.newProxyInstance(PhaseCSourceTest.class.getClassLoader(),
+        return (ReadView) Proxy.newProxyInstance(AdapterSourcesTest.class.getClassLoader(),
             new Class<?>[]{ReadView.class}, (proxy, method, args) -> {
                 String name = method.getName();
                 if (name.equals("getRegistries")) {
@@ -304,7 +305,7 @@ class PhaseCSourceTest {
             BatteryElement.readNbtState(readFake(bad)), 0.0);
         assertTrue(BatteryElement.readNbtBmsOpen(readFake(bad)));
 
-        // Legacy-only store (pre-Phase-C world): triple restores in [soc, temp, health] order.
+        // Legacy-only store (pre-adapter NBT schema): triple restores in [soc, temp, health] order.
         Map<String, Object> legacy = new HashMap<>();
         legacy.put("state_of_charge", 0.33);
         legacy.put("state_of_health", 0.77);
@@ -707,7 +708,7 @@ class PhaseCSourceTest {
         };
         for (int[][] offsets : twoTerminal) {
             assertEquals(2, offsets.length);
-            // East / west convention shared by all two-terminal Phase C adapters.
+            // East / west convention shared by all two-terminal source adapters.
             assertArrayEquals(new int[]{1, 0, 0}, offsets[0]);
             assertArrayEquals(new int[]{-1, 0, 0}, offsets[1]);
         }

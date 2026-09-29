@@ -166,7 +166,7 @@ public class VoltcraftBlockEntityTypes {
         ).build()
     );
 
-    // --- Phase B static switchgear + earth adapters (kernel-attached, no wire ticking) ---
+    // --- Static switchgear + earth adapters (kernel-attached, no wire ticking) ---
 
     public static final BlockEntityType<EarthBlockEntity> EARTH_BLOCK_ENTITY = Registry.register(
         Registries.BLOCK_ENTITY_TYPE,

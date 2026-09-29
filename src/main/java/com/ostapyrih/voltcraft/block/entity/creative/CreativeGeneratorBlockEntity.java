@@ -31,8 +31,8 @@ import java.util.function.DoubleSupplier;
  * Creative-only power generator for testing grid networks, converters, cables, and loads.
  * Provides freely configurable voltage, max current, internal resistance, and DC/AC frequency.
  *
- * <p>Phase E kernel adapter: implements {@link KernelAttachedBlock} through the static
- * nested {@link CreativeGeneratorElement} (ideal Thevenin source with staged EMF, Phase-C
+ * <p>Kernel adapter: implements {@link KernelAttachedBlock} through the static
+ * nested {@link CreativeGeneratorElement} (ideal Thevenin source with staged EMF, west-positive
  * source polarity: {@code terminals[1]} positive). All decision logic lives in the nested
  * class with supplier-injected staging because unit-test runtimes cannot initialize
  * {@code BlockEntity} subclasses at all ({@code BlockEntity.&lt;clinit&gt;} touches
@@ -56,7 +56,7 @@ import java.util.function.DoubleSupplier;
  *       null-world safe.</li>
  * </ul>
  *
- * <p>Phase E simplifications (documented): the legacy solver-side current-limit clamp
+ * <p>Documented simplifications: the legacy solver-side current-limit clamp
  * ({@code maxCurrent}) is not staged into the kernel stamp — the element is an ideal
  * Thevenin source. Frequency selects island omega via {@link #isACSource()} but the
  * stamp itself is waveform-agnostic (same Thevenin at any omega).</p>
@@ -126,7 +126,7 @@ public class CreativeGeneratorBlockEntity extends BlockEntity implements KernelA
                 return;
             }
             double r = Math.max(MIN_RESISTANCE_OHM, internalResistance.getAsDouble());
-            // Phase-C polarity: terminals[1] (west) is positive.
+            // West-positive source polarity: terminals[1] (west) is positive.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / r, 0.0), new Complex(emf, 0.0));
         }

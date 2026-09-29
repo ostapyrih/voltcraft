@@ -23,11 +23,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase A island-topology tests. Drives {@link GridManager} purely through its
+ * Island-topology adapter tests. Drives {@link GridManager} purely through its
  * world-free index methods with the real {@link BlockPos} class; no server,
  * no world, no ticks against live chunks.
  */
-class PhaseAIslandTest {
+class AdapterTopologyTest {
 
     /** Stateless linear resistor, 2 terminals. */
     static final class ResistorElement implements ElectricalElement {
@@ -106,7 +106,7 @@ class PhaseAIslandTest {
 
         @Override
         public void tickElectrical(ServerWorld world) {
-            // No-op in Phase A.
+            // No-op double: this suite covers topology only, no electrical ticking.
         }
 
         @Override

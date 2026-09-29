@@ -25,7 +25,7 @@ public final class Stamps {
     }
 
     /**
-     * Fallback-region tracking flag (Phase 2 escalation-resolution amendment).
+     * Fallback-region tracking flag (set while a stamp takes its numerical-stability fallback path).
      *
      * <p>Set when a stamp takes its numerical-stability fallback path instead of
      * its physical linearization (see the per-method fallback conditions below).

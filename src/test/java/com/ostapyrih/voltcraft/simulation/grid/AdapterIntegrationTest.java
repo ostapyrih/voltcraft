@@ -29,11 +29,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase E regression: the kernel island subsystem end to end, after deletion of the
+ * Adapter integration tests: the kernel island subsystem end to end, after deletion of the
  * legacy dual-grid stack ({@code ElectricalGrid}, MNA/AC solvers, {@code api/energy}).
  *
  * <p>Pure Java + kernel + production adapter elements, no server, no registries. The same
- * hard environment constraint as Phases B–D applies: {@code BlockEntity.&lt;clinit&gt;}
+ * hard environment constraint as in the switchgear/source/converter suites applies:
+ * {@code BlockEntity.&lt;clinit&gt;}
  * touches {@code Registries}, so no test loads an outer {@code BlockEntity} subclass.
  * Production static nested elements ({@code BatteryElement}, {@code SolarElement},
  * {@code ConverterElement}, {@code CreativeGeneratorElement},
@@ -47,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * EMF, coupled across islands only through the discrete
  * {@code stageDemandWatts}/{@code stageEmf} helpers — never a shared solve.</p>
  */
-class PhaseERegressionTest {
+class AdapterIntegrationTest {
 
     // ---- local fixtures ----
 
@@ -259,7 +260,7 @@ class PhaseERegressionTest {
         ElectricalKernel dc = new ElectricalKernel();
         dc.setNodeCount(4);
         dc.setOmega(0.0);
-        // Polarity: solar + sits at node 1 (Phase-C), so the controller input pair is
+        // Polarity: solar + sits at node 1 (west-positive source convention), so the controller input pair is
         // wired (1,0) with in+ on the high side; output +/battery + share node 2.
         dc.setElements(
             List.of(solar, chargeController, battery, new TestResistor(10.0),

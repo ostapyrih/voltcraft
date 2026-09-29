@@ -69,7 +69,7 @@ public abstract class AbstractGridBlock extends Block implements IElectricalConn
             GridManager.get((ServerWorld) world).onConductorPlaced(
                 (ServerWorld) world, pos, getPlacementConductorType());
         }
-        // Phase E item 1: seed kernel-attached block entities (batteries, panels,
+        // Item 1: seed kernel-attached block entities (batteries, panels,
         // generators, switchgear, converters) into the island discovery index.
         // Runs for every grid block regardless of shouldSeedNode: open switches and
         // blown fuses hold no cable node but their BE (if any) still registers.
@@ -86,7 +86,7 @@ public abstract class AbstractGridBlock extends Block implements IElectricalConn
         if (!state.isOf(world.getBlockState(pos).getBlock()) && shouldSeedNode(state)) {
             GridManager.get(world).onConductorRemoved(world, pos);
         }
-        // Phase E item 1: unconditional detach; safe no-op when no BE was registered.
+        // Item 1: unconditional detach; safe no-op when no BE was registered.
         GridManager.get(world).removeAttachedBlock(pos);
         super.onStateReplaced(state, world, pos, moved);
     }

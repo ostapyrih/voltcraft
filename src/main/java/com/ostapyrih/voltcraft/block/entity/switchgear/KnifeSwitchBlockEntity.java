@@ -36,7 +36,7 @@ import java.util.function.BooleanSupplier;
  *       when open, no stamp (open circuit). Single element instance per BE.</li>
  *   <li>{@link #tickElectrical(ServerWorld)} performs no automatic logic (item 10):
  *       the blade moves via player block-use. The BE exposes the {@link #setClosed}
- *       stub plus {@code markDirty()}; Block-use wiring is out of Phase B scope.</li>
+ *       stub plus {@code markDirty()}; Block-use wiring is not yet connected.</li>
  * </ul>
  *
  * <p>Defaults: {@code DEFAULT_CLOSED = true} (conducting). Note this differs from
@@ -139,7 +139,7 @@ public class KnifeSwitchBlockEntity extends BlockEntity implements KernelAttache
     }
 
     /**
-     * Player-toggle stub (Block-use wiring is out of Phase B scope).
+     * Player-toggle stub (Block-use wiring is not yet connected).
      */
     public void setClosed(boolean closed) {
         this.closed = closed;

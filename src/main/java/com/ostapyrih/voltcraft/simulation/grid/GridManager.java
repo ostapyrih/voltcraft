@@ -111,7 +111,7 @@ public class GridManager extends PersistentState {
     }
 
     // ---------------------------------------------------------------------
-    // Island topology index (kernel-owned; the only subsystem since Phase E)
+    // Island topology index (kernel-owned; the only subsystem)
     // ---------------------------------------------------------------------
 
     private final Set<ChunkKey> loadedChunks = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -192,7 +192,7 @@ public class GridManager extends PersistentState {
     }
 
     public static void initialize() {
-        // Register server tick event: centralized tick execution (legacy grids + Phase A islands)
+        // Register server tick event: centralized kernel-island tick execution
         ServerTickEvents.END_WORLD_TICK.register(world -> get(world).tick(world));
 
         // Track chunk loaded/unloaded boundaries for both the legacy gate and the island gate
@@ -201,7 +201,7 @@ public class GridManager extends PersistentState {
     }
 
     public void tick(ServerWorld world) {
-        // Phase E island path. Tick order: rebuild if dirty -> per-island kernel.tick() ->
+        // Kernel island path. Tick order: rebuild if dirty -> per-island kernel.tick() ->
         // fallback branch stub -> melted scan -> queue break + dirty. Mutations queued
         // during island ticks apply at the next rebuild boundary only.
         if (!seeded) {
@@ -221,14 +221,14 @@ public class GridManager extends PersistentState {
     }
 
     private void tickIsland(IslandContext island, ServerWorld world) {
-        // Block pre-tick seam; no-op in Phase A (no production implementors yet).
+        // Block pre-tick seam: each attached block runs its discrete phase (staging, trips, bookkeeping).
         for (KernelAttachedBlock block : island.blocks()) {
             block.tickElectrical(world);
         }
         // Exactly one kernel solve+integrate per island per tick.
         island.kernel().tick();
         // Observation solve: exposes the fallback/convergence flags without integrating
-        // again (solve() never integrates). Phase B should thread the tick result through
+        // again (solve() never integrates). A later change should thread the tick result through
         // the kernel API instead of re-solving here.
         ElectricalKernel.KernelSolveResult observed = island.kernel().solve();
         island.setFallbackActive(observed.fallbackActive());
@@ -259,7 +259,7 @@ public class GridManager extends PersistentState {
     }
 
     // ---------------------------------------------------------------------
-    // Phase A discovery index
+    // Island discovery index
     // ---------------------------------------------------------------------
 
     /**
@@ -355,7 +355,7 @@ public class GridManager extends PersistentState {
     }
 
     /**
-     * Phase E item 1: production seed path for {@link KernelAttachedBlock}
+     * Item 1: production seed path for {@link KernelAttachedBlock}
      * block entities. Walks only chunks already in the loaded set (never touches
      * unloaded chunks) and registers every attached BE found via
      * {@code WorldChunk.getBlockEntities()}. Null/world-safe: a null world, an
@@ -466,7 +466,7 @@ public class GridManager extends PersistentState {
     }
 
     // ---------------------------------------------------------------------
-    // Phase A island rebuild (BFS-equivalent connectivity via union-find)
+    // Island rebuild (BFS-equivalent connectivity via union-find)
     // ---------------------------------------------------------------------
 
     /**
@@ -512,7 +512,7 @@ public class GridManager extends PersistentState {
             union(parent, nodeIndex.get(branch.a()), nodeIndex.get(branch.b()));
         }
         // Same-block terminal ownership: every terminal of one block shares an island.
-        // Phase E item 2: only fully-loaded blocks union. A block with any terminal
+        // Item 2: only fully-loaded blocks union. A block with any terminal
         // missing from the node index (null, unloaded chunk, undiscovered) is
         // deferred entirely until its chunks load, keeping the union symmetric with
         // the buildIsland candidacy filter below.
@@ -645,7 +645,7 @@ public class GridManager extends PersistentState {
         }
 
         // Blocks whose terminals touch this island, ordered by block position.
-        // Phase E item 2 (partial-terminal NPE guard): a block participates in an
+        // Item 2 (partial-terminal NPE guard): a block participates in an
         // island IFF its BE is loaded AND every declared terminal is present in
         // this island's group set. The group set holds only loaded terminals, so
         // the contains check covers both chunk-loaded and indexed. Blocks with a
@@ -715,7 +715,7 @@ public class GridManager extends PersistentState {
         kernel.setConductors(conductors);
         kernel.setOmega(omega);
         // Sync stub: restore kernel-owned state slots from block snapshots so a
-        // rebuild does not silently zero stateful elements (none exist in Phase A).
+        // rebuild does not silently zero stateful elements (state slots restore from BE snapshots above).
         for (int i = 0; i < islandBlocks.size(); i++) {
             double[] snapshot = islandBlocks.get(i).getStateArray();
             int expected = elements.get(i).stateCount();

@@ -21,7 +21,7 @@ import net.minecraft.util.math.Direction;
  * Limits load to what is available from upstream solar generation to prevent solar voltage drop.
  * Synchronizes with 12V, 24V, and 48V battery banks with active mismatch protection.
  *
- * <p>Phase E: reuses the shared converter 4-terminal kernel pattern inherited from
+ * <p>Reuses the shared converter 4-terminal kernel pattern inherited from
  * {@link AbstractPowerConverterBlockEntity} (input pair east/west, output pair
  * north/south; tripped plus demand/EMF staging via the parent statics). Legacy
  * grid-graph queries (old-grid source scans) are replaced
@@ -146,7 +146,7 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
     }
 
     /**
-     * Phase E replacement for the legacy output-grid storage scan: storage presence is
+     * Kernel-side replacement for the legacy output-grid storage scan: storage presence is
      * observed via the directly attached output-port block entity when the world is
      * available, else via a live previous-tick output rail (telemetry, one-tick delay).
      */
@@ -166,7 +166,7 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
     }
 
     /**
-     * Phase E replacement for the legacy output-grid nominal scan: checks the directly
+     * Kernel-side replacement for the legacy output-grid nominal scan: checks the directly
      * attached output-port battery's pack nominal against the bank rating. Rack and
      * telemetry-only rails fall through to the live-voltage sanity check in
      * {@link #isBatteryVoltageMismatch(double)}.
@@ -219,7 +219,7 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
     /**
      * Queries upstream generation capacity from connected solar panels.
      *
-     * <p>Phase E: the legacy input-grid source scan is replaced by direct neighbor
+     * <p>Kernel-side: the legacy input-grid source scan is replaced by direct neighbor
      * block-entity inspection (input port, then all 6 neighbors of the input position
      * to tolerate panel replacement without cable reconnect), with a fallback to
      * whatever this converter demonstrably drew last tick (telemetry, one-tick delay).</p>

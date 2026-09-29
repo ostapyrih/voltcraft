@@ -32,7 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase B static-block tests: earth + switchgear kernel adapters.
+ * Static-block adapter tests: earth + switchgear kernel adapters (knife switch,
+ * contactor relay, busbar, junction splice, circuit breaker, fuse).
  *
  * <p>Pure Java + kernel + adapter logic, no server, no registries. A hard
  * environment constraint shapes this suite: {@code BlockEntity.&lt;clinit&gt;}
@@ -42,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * applies). Hence no test here may load/initialize a {@code BlockEntity} subclass
  * — the same reason the entire existing suite is registry-free.</p>
  *
- * <p>Consequently every branch of Phase B logic (stamps, derivatives, discrete
+ * <p>Consequently every branch of switchgear adapter logic (stamps, derivatives, discrete
  * transitions, state validation/copy, NBT bodies, terminal offsets, defaults) lives
  * in the static nested adapter classes
  * ({@code EarthElement}, {@code SwitchElement}, {@code ContactorElement},
@@ -59,9 +60,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * all-parallel network cannot demonstrate isolation (the load stays fed by the source
  * regardless of the switch), so the series loop is the deliberate interpretation.</p>
  */
-class PhaseBStaticTest {
+class AdapterSwitchgearTest {
 
-    // ---- local fixtures (mirrors Phase1LinearTest; sources/loads are out of Phase B scope) ----
+    // ---- local fixtures (mirrors LinearCircuitTest; sources/loads are out of switchgear scope) ----
 
     static final class TestThevenin implements ElectricalElement {
         private final Complex g;
@@ -124,7 +125,7 @@ class PhaseBStaticTest {
     // ---- Proxy NBT fakes (cover production writeNbt/readNbt bodies) ----
 
     private static WriteView writeFake(Map<String, Object> store) {
-        return (WriteView) Proxy.newProxyInstance(PhaseBStaticTest.class.getClassLoader(),
+        return (WriteView) Proxy.newProxyInstance(AdapterSwitchgearTest.class.getClassLoader(),
             new Class<?>[]{WriteView.class}, (proxy, method, args) -> {
                 String name = method.getName();
                 if (name.equals("isEmpty")) {
@@ -143,7 +144,7 @@ class PhaseBStaticTest {
     }
 
     private static ReadView readFake(Map<String, Object> store) {
-        return (ReadView) Proxy.newProxyInstance(PhaseBStaticTest.class.getClassLoader(),
+        return (ReadView) Proxy.newProxyInstance(AdapterSwitchgearTest.class.getClassLoader(),
             new Class<?>[]{ReadView.class}, (proxy, method, args) -> {
                 String name = method.getName();
                 if (name.equals("getRegistries")) {
@@ -702,7 +703,7 @@ class PhaseBStaticTest {
         };
         for (int[][] offsets : twoTerminal) {
             assertEquals(2, offsets.length);
-            // East / west convention shared by all two-terminal Phase B adapters.
+            // East / west convention shared by all two-terminal switchgear adapters.
             assertArrayEquals(new int[]{1, 0, 0}, offsets[0]);
             assertArrayEquals(new int[]{-1, 0, 0}, offsets[1]);
             for (int[] o : offsets) {

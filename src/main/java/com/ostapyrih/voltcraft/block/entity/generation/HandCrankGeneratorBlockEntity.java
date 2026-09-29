@@ -32,7 +32,7 @@ import java.util.Objects;
  * {@code getFrequency() == 0.0}; this adapter keeps DC per spec.)</p>
  *
  * <ul>
- *   <li>Terminals (item 4): two adjacent positions, east/west. Phase-C source polarity
+ *   <li>Terminals (item 4): two adjacent positions, east/west. West-positive source polarity
  *       convention: {@code terminals[1]} (west) is positive, so {@code It[0]} is
  *       positive while the dynamo delivers.</li>
  *   <li>States (item 7): exactly 2 kernel-owned reals, {@code [flywheelSpeed,
@@ -143,7 +143,7 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements Kernel
             if (!(speed > 0.0)) {
                 return;
             }
-            // Phase-C polarity: terminals[1] (west) is positive.
+            // West-positive source polarity: terminals[1] (west) is positive.
             Stamps.thevenin(y, in, terminals[1], terminals[0],
                 new Complex(1.0 / WINDING_RESISTANCE_OHM, 0.0),
                 new Complex(emfForSpeed(speed), 0.0));

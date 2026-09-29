@@ -21,16 +21,20 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Phase 4 verification + documentation tests (tests 26-33).
+ * Kernel robustness and contract tests (tests 26-33): long-run stability,
+ * large-network diagnostics, seeded convergence robustness, sign-convention
+ * audit, linear fast-path convergence, DC-only regression, the singular
+ * invariant, and warm-start override clearing.
  *
- * <p>Fixtures are local static nested classes mirroring the Phase 1/2/3
- * patterns; no other test or main file is touched. {@code setOmega(0)} is
- * used wherever a nonlinear (DC-only) stamp is involved; purely linear
- * tests are omega-agnostic and leave the default omega untouched.</p>
+ * <p>Fixtures are local static nested classes mirroring the
+ * linear/nonlinear/integration patterns; no other test or main file is
+ * touched. {@code setOmega(0)} is used wherever a nonlinear (DC-only) stamp
+ * is involved; purely linear tests are omega-agnostic and leave the default
+ * omega untouched.</p>
  */
-class Phase4VerificationTest {
+class KernelRobustnessTest {
 
-    // ---- Test fixtures (static nested classes, Phase 1/2/3 patterns) ----
+    // ---- Test fixtures (static nested classes, linear/nonlinear/integration patterns) ----
 
     /** Linear resistor between two terminals. */
     static final class TestResistor implements ElectricalElement {
@@ -324,7 +328,7 @@ class Phase4VerificationTest {
         assertTrue(Double.isFinite(c.temperature()),
                 "conductor temperature must be finite: " + c.temperature());
         KernelSolveResult r = k.solve();
-        System.out.println("Phase4 test26 ticks=" + ticks + " residual=" + r.residual()
+        System.out.println("test26 ticks=" + ticks + " residual=" + r.residual()
                 + " converged=" + r.converged() + " singular=" + r.singular()
                 + " iterations=" + r.newtonIterations()
                 + " decayState=" + k.getElementState(3)[0]
@@ -362,7 +366,7 @@ class Phase4VerificationTest {
         k.tick();
         long t1 = System.nanoTime();
         double ms = (t1 - t0) / 1e6;
-        System.out.println("Phase4 test27 nodes=" + nodes + " elements=" + elements.size()
+        System.out.println("test27 nodes=" + nodes + " elements=" + elements.size()
                 + " conductors=" + conductors.size() + " tickMs=" + ms);
         for (Complex v : k.getLastSolution()) {
             assertTrue(v.isFinite(), "voltage must be finite: " + v);
@@ -456,7 +460,7 @@ class Phase4VerificationTest {
             } else if (failPrinted < 5) {
                 failPrinted++;
                 StringBuilder sb = new StringBuilder();
-                sb.append("Phase4 test28 MISS trial=").append(t).append(" n=").append(n)
+                sb.append("test28 MISS trial=").append(t).append(" n=").append(n)
                         .append(" vs=").append(vs).append(" rint=").append(rint)
                         .append(" rLoad=").append(rLoad).append(" useCP=").append(useCP)
                         .append(" p=").append(p).append(" converged=").append(r.converged())
@@ -471,7 +475,7 @@ class Phase4VerificationTest {
             }
         }
         double pct = 100.0 * ok / trials;
-        System.out.println("Phase4 test28 seed=0x5EED(24205) trials=" + trials
+        System.out.println("test28 seed=0x5EED(24205) trials=" + trials
                 + " regime: Vs in [1,48], Rint in [0.01,5], Rload in [1,1000],"
                 + " P in [1,200] with P<=0.8*Vs^2/(4*Rint), vMin=0.1,"
                 + " conductor R in [1e-4,1] linear-uniform, random tree 3-10 nodes,"
@@ -507,7 +511,7 @@ class Phase4VerificationTest {
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
         Complex[] itSrc = k.terminalCurrents(0);
         Complex[] itLoad = k.terminalCurrents(1);
-        System.out.println("Phase4 test29 srcIt0=" + itSrc[0] + " srcIt1=" + itSrc[1]
+        System.out.println("test29 srcIt0=" + itSrc[0] + " srcIt1=" + itSrc[1]
                 + " loadIt0=" + itLoad[0] + " loadIt1=" + itLoad[1]);
         assertTrue(itSrc[0].re < 0.0, "source must deliver (It[0] < 0), got " + itSrc[0]);
         assertTrue(itLoad[0].re > 0.0, "load must consume (It[0] > 0), got " + itLoad[0]);
@@ -529,7 +533,7 @@ class Phase4VerificationTest {
         k.setConductors(new ArrayList<>(List.of(
                 new TestConductor(0, 1, 0.05), new TestConductor(1, 2, 0.05))));
         KernelSolveResult r = k.solve();
-        System.out.println("Phase4 test30 iterations=" + r.newtonIterations()
+        System.out.println("test30 iterations=" + r.newtonIterations()
                 + " residual=" + r.residual() + " converged=" + r.converged()
                 + " singular=" + r.singular());
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
@@ -542,7 +546,7 @@ class Phase4VerificationTest {
     @Test
     void test31NonlinearDcOnlyRegression() {
         // All three nonlinear primitives reject any nonzero omega (AC).
-        // Duplicates Phase 2 test 17 at kernel-docs level; kept as the
+        // Duplicates the nonlinear DC-only enforcement test at kernel-docs level; kept as the
         // doc-level regression for DC-only enforcement.
         double ac = 314.159;
         Complex[][] y = ComplexNodalSolver.zeroMatrix(2);
@@ -562,7 +566,7 @@ class Phase4VerificationTest {
         // and the returned voltage carries no NaN/Inf.
         SolveResult r = ComplexNodalSolver.solve(
                 ComplexNodalSolver.zeroMatrix(3), ComplexNodalSolver.zeroVector(3));
-        System.out.println("Phase4 test32 singular=" + r.singular()
+        System.out.println("test32 singular=" + r.singular()
                 + " converged=" + r.converged() + " residual=" + r.residual());
         assertTrue(r.singular(), "zero system must be singular");
         assertFalse(r.converged(), "singular system must not converge");
@@ -601,7 +605,7 @@ class Phase4VerificationTest {
         assertTrue(spy.stampCalls > 0, "spy must observe at least one stamp call");
         double err = spy.firstSeen.sub(last[0]).magnitude();
         double distToOverride = spy.firstSeen.sub(new Complex(100.0, 0.0)).magnitude();
-        System.out.println("Phase4 test33 last0=" + last[0] + " firstSeen=" + spy.firstSeen
+        System.out.println("test33 last0=" + last[0] + " firstSeen=" + spy.firstSeen
                 + " err=" + err + " distToOverride=" + distToOverride);
         assertTrue(err < 1e-12,
                 "warm start must equal lastSolution after null-clear, err=" + err);

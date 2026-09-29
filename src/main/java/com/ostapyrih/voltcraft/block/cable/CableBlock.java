@@ -198,7 +198,7 @@ public class CableBlock extends AbstractGridBlock implements Waterloggable {
         }
 
         ServerWorld serverWorld = (ServerWorld) world;
-        // Phase E: node voltage comes from the kernel-owned island (last solved operating
+        // Node voltage comes from the kernel-owned island (last solved operating
         // point, magnitude form) instead of the deleted legacy grid.
         double voltage = 0.0;
         IslandContext island = GridManager.get(serverWorld).getIslandAt(pos);
