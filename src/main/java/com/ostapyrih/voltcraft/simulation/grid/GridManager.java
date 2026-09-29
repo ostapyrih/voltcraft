@@ -2,6 +2,7 @@ package com.ostapyrih.voltcraft.simulation.grid;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.electrical.Conductor;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
 import com.ostapyrih.voltcraft.api.electrical.GridConstants;
@@ -225,16 +226,9 @@ public class GridManager extends PersistentState {
         for (KernelAttachedBlock block : island.blocks()) {
             block.tickElectrical(world);
         }
-        // Exactly one kernel solve+integrate per island per tick.
-        island.kernel().tick();
-        // Observation solve: exposes the fallback/convergence flags without integrating
-        // again (solve() never integrates). A later change should thread the tick result through
-        // the kernel API instead of re-solving here.
-        ElectricalKernel.KernelSolveResult observed = island.kernel().solve();
+        ElectricalKernel.KernelSolveResult observed = island.kernel().tick();
         island.setFallbackActive(observed.fallbackActive());
         if (observed.converged() && !observed.singular()) {
-            // Commit branch stub: with no stateful block entities there is nothing to
-            // discard; kernel states are written back to their owners.
             syncKernelStatesToBlocks(island);
         }
         // Else discard branch stub: kernel.tick() already gates integration on
@@ -475,6 +469,17 @@ public class GridManager extends PersistentState {
      * Clears the dirty flag on completion (tick relies on this).
      */
     public void rebuildIslands() {
+        Map<BlockPos, Complex> voltageSnapshot = new HashMap<>();
+        for (IslandContext oldIsland : islands) {
+            Complex[] lastV = oldIsland.kernel().getLastSolution();
+            if (lastV == null) continue;
+            for (Map.Entry<BlockPos, Integer> e : oldIsland.nodeIndex().entrySet()) {
+                int idx = e.getValue();
+                if (idx >= 0 && idx < lastV.length && lastV[idx] != null && lastV[idx].isFinite()) {
+                    voltageSnapshot.put(e.getKey(), lastV[idx]);
+                }
+            }
+        }
         Map<BlockPos, ConductorType> cables = activeCables();
         Map<BlockPos, KernelAttachedBlock> blocks = activeBlocks();
 
@@ -560,6 +565,28 @@ public class GridManager extends PersistentState {
         }
         islands.clear();
         islands.addAll(rebuilt);
+        for (IslandContext island : islands) {
+            Map<BlockPos, Integer> islandNodes = island.nodeIndex();
+            Complex[] initial = new Complex[islandNodes.size()];
+            int knownCount = 0;
+            double sumRe = 0.0;
+            for (Map.Entry<BlockPos, Integer> e : islandNodes.entrySet()) {
+                Complex v = voltageSnapshot.get(e.getKey());
+                if (v != null) {
+                    initial[e.getValue()] = v;
+                    sumRe += v.real();
+                    knownCount++;
+                }
+            }
+            if (knownCount == 0) continue;
+            double avgRe = sumRe / knownCount;
+            for (int i = 0; i < initial.length; i++) {
+                if (initial[i] == null) {
+                    initial[i] = new Complex(avgRe, 0.0);
+                }
+            }
+            island.kernel().setInitialVoltage(initial);
+        }
         topologyDirty = false;
     }
 
