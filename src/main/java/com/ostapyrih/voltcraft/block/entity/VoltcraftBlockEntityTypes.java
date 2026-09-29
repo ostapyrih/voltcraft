@@ -171,10 +171,9 @@ public class VoltcraftBlockEntityTypes {
     public static final BlockEntityType<EarthBlockEntity> EARTH_BLOCK_ENTITY = Registry.register(
         Registries.BLOCK_ENTITY_TYPE,
         Identifier.of(Voltcraft.MOD_ID, "earth_block_entity"),
-        // No host block exists yet (Block classes frozen): empty block set.
-        // Vanilla supports() rejects every state until a future EarthRod block is associated.
         FabricBlockEntityTypeBuilder.create(
-            EarthBlockEntity::new
+            EarthBlockEntity::new,
+            VoltcraftBlocks.EARTH_ROD
         ).build()
     );
 

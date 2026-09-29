@@ -57,6 +57,7 @@ public class VoltcraftItems {
     public static final Item CIRCUIT_BREAKER = registerBlockItem("circuit_breaker", VoltcraftBlocks.CIRCUIT_BREAKER);
     public static final Item FUSE_BOX = registerBlockItem("fuse_box", VoltcraftBlocks.FUSE_BOX);
     public static final Item CONTACTOR_RELAY = registerBlockItem("contactor_relay", VoltcraftBlocks.CONTACTOR_RELAY);
+    public static final Item EARTH_ROD = registerBlockItem("earth_rod", VoltcraftBlocks.EARTH_ROD);
 
     // --- Stationary Energy Storage (BESS) ---
     public static final Item BATTERY_BLOCK_LIFEPO4 = registerBlockItem("battery_block_lifepo4", VoltcraftBlocks.BATTERY_BLOCK_LIFEPO4);

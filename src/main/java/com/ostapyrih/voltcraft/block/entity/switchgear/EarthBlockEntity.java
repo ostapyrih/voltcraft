@@ -46,11 +46,6 @@ import java.util.Objects;
  *
  * <p>NBT keys (all new; no predecessor BE exists for earth):
  * {@code "stateArray"} ({@code Codec.DOUBLE.listOf()}, always empty here).</p>
- *
- * <p>Registration note: no Earth host block exists yet (Block classes are frozen),
- * so the BE type is registered with an empty block set. Vanilla
- * {@code supports()} therefore rejects every state until a future EarthRod block
- * is added and associated; kernel/tests use the static adapter directly.</p>
  */
 public class EarthBlockEntity extends BlockEntity implements KernelAttachedBlock {
 
