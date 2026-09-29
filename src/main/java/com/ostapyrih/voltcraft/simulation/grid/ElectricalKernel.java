@@ -279,14 +279,15 @@ public final class ElectricalKernel {
      * terminal voltages/currents, conductor resistances, and resistive
      * power are identical in both stages (items 15, 20).</p>
      */
-    public void tick() {
+    public KernelSolveResult tick() {
         KernelSolveResult result = solve();
         if (!result.converged() || result.singular()) {
-            return;
+            return result;
         }
         Complex[] V = result.voltage();
         integrateElements(V, GridConstants.DT);
         integrateConductors(V, GridConstants.DT);
+        return result;
     }
 
     /**
