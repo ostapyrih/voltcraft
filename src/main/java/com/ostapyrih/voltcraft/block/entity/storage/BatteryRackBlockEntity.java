@@ -40,7 +40,7 @@ public class BatteryRackBlockEntity extends BlockEntity implements KernelAttache
     private final DefaultedList<ItemStack> inventory = DefaultedList.ofSize(INVENTORY_SIZE, ItemStack.EMPTY);
 
     private final double[] stateArray = RackElement.newStateArray();
-    private final double[] telemetryCell = new double[2];
+    private final double[] telemetryCell = new double[]{Double.NaN, Double.NaN};
     private boolean bmsOpen;
     private RackWiringMode wiringMode = RackWiringMode.SERIES;
 
@@ -81,11 +81,13 @@ public class BatteryRackBlockEntity extends BlockEntity implements KernelAttache
     }
 
     public double getLastTerminalVoltage() {
-        return telemetryCell[BatteryElement.TELE_V];
+        double v = telemetryCell[BatteryElement.TELE_V];
+        return Double.isFinite(v) ? v : 0.0;
     }
 
     public double getLastCurrentAmps() {
-        return telemetryCell[BatteryElement.TELE_I];
+        double v = telemetryCell[BatteryElement.TELE_I];
+        return Double.isFinite(v) ? v : 0.0;
     }
 
     public double getAverageTemperatureCelsius() {
@@ -94,7 +96,6 @@ public class BatteryRackBlockEntity extends BlockEntity implements KernelAttache
         for (ItemStack stack : inventory) {
             if (!stack.isEmpty() && stack.getItem() instanceof BatteryCellItem) {
                 totalTemp += BatteryCellItem.getTemperature(stack);
-                count++;
             }
         }
         return count > 0 ? (totalTemp / count) : 20.0;
@@ -208,6 +209,10 @@ public class BatteryRackBlockEntity extends BlockEntity implements KernelAttache
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        // No solve has run yet; telemetry is not a measurement.
+        if (!Double.isFinite(telemetryCell[BatteryElement.TELE_V])) {
+            return;
+        }
         RackElement self = (RackElement) element;
         boolean next = BatteryElement.bmsNext(bmsOpen,
             telemetryCell[BatteryElement.TELE_V],

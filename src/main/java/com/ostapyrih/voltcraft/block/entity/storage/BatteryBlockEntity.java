@@ -30,7 +30,7 @@ public class BatteryBlockEntity extends BlockEntity implements KernelAttachedBlo
     private final int parallelCount;
 
     private final double[] stateArray = BatteryElement.newStateArray();
-    private final double[] telemetryCell = new double[2];
+    private final double[] telemetryCell = new double[]{Double.NaN, Double.NaN};
     private boolean bmsOpen;
 
     private final ElectricalElement element;
@@ -87,11 +87,13 @@ public class BatteryBlockEntity extends BlockEntity implements KernelAttachedBlo
     }
 
     public double getLastTerminalVoltage() {
-        return telemetryCell[BatteryElement.TELE_V];
+         double v = telemetryCell[BatteryElement.TELE_V];
+        return Double.isFinite(v) ? v : 0.0;
     }
 
     public double getLastCurrentAmps() {
-        return telemetryCell[BatteryElement.TELE_I];
+        double v = telemetryCell[BatteryElement.TELE_I];
+        return Double.isFinite(v) ? v : 0.0;
     }
 
     // Plain display accessors for Block use; grid math reads BE-owned state only.
@@ -153,6 +155,10 @@ public class BatteryBlockEntity extends BlockEntity implements KernelAttachedBlo
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        // No solve has run yet; telemetry is not a measurement.
+        if (!Double.isFinite(telemetryCell[BatteryElement.TELE_V])) {
+            return; 
+        }
         boolean next = BatteryElement.bmsNext(bmsOpen, telemetryCell[BatteryElement.TELE_V],
             stateArray[BatteryElement.STATE_TEMP], BatteryElement.packMinVoltage(chemistry, seriesCount), seriesCount);
         if (next != bmsOpen) {
