@@ -445,8 +445,14 @@ discrete decisions consume previous-tick values only.
   rebuild boundary, never mid-tick.
 - NBT keys are preserved per family (`stateArray` slices plus legacy mirrors
   such as `state_of_charge`, `target_voltage`, `tripped`/`blown`/`bmsOpen`).
-- Known Phase E limitations: attached-block discovery has no production caller
-  yet (`putAttachedBlock` is driven by tests; the chunk seed scan covers cables
-  only), and a block straddling a loaded/unloaded chunk boundary with a partial
-  terminal set is not guarded at rebuild (chunk tests unload all involved
-  chunks together).
+- Phase E conditional resolutions (verified by PhaseEConditionTest): attached-block discovery is production-wired (AbstractGridBlock.onBlockAdded/onStateReplaced → putAttachedBlock/removeAttachedBlock, plus seedAttachedBlocks chunk scan); partial-terminal blocks are deferred until all terminal chunks load (ALL-terminals-in-groupSet guard, no NPE); melt re-conduct = reroute-correct (see Melt re-conduct policy below).
+
+### Melt re-conduct policy (Phase E conditional verdict)
+
+- (a) Reroute through surviving topology after a melt break is CORRECT: the
+  rebuild re-conducts only branches whose cable index entry still exists.
+- (b) A melt break that leaves the removed path conducting is a BUG (stale
+  conductor reference). Evidence: parallel-lane reroute keeps load current
+  positive-but-redistributed while sole-feed melt drives it to ~0
+  (`PhaseEConditionTest`: `meltReroutesThroughRemainingPath`,
+  `meltOfSoleFeedOpensCircuit`).

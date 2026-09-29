@@ -11,6 +11,7 @@ import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.datafixer.DataFixTypes;
+import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkPos;
@@ -332,10 +333,9 @@ public class GridManager extends PersistentState {
     }
 
     /**
-     * Seeds the cable index from a full scan of the currently loaded chunks.
-     * Runs at most once per manager lifetime (first tick); block-entity scanning
-     * is intentionally skipped in Phase A since no production block implements
-     * {@link KernelAttachedBlock} yet.
+     * Seeds the cable index from a full scan of the currently loaded chunks,
+     * then seeds kernel-attached block entities from the same chunks.
+     * Runs at most once per manager lifetime (first tick).
      */
     public void seedFromLoadedChunks(ServerWorld world) {
         if (world == null || loadedChunks.isEmpty()) {
@@ -348,6 +348,51 @@ public class GridManager extends PersistentState {
         for (Map.Entry<BlockPos, ConductorType> entry : found.entrySet()) {
             if (entry.getKey() != null) {
                 putCableRaw(entry.getKey().toImmutable(), entry.getValue());
+            }
+        }
+        seedAttachedBlocks(world);
+        markTopologyDirty();
+    }
+
+    /**
+     * Phase E item 1: production seed path for {@link KernelAttachedBlock}
+     * block entities. Walks only chunks already in the loaded set (never touches
+     * unloaded chunks) and registers every attached BE found via
+     * {@code WorldChunk.getBlockEntities()}. Null/world-safe: a null world, an
+     * empty loaded set, or an unloadable chunk simply seeds nothing.
+     * {@link #putAttachedBlock} re-marks each BE's chunk loaded, so the set only
+     * grows by chunks that genuinely hold attached blocks.
+     */
+    public void seedAttachedBlocks(ServerWorld world) {
+        if (world == null || loadedChunks.isEmpty()) {
+            return;
+        }
+        for (ChunkKey chunk : new HashSet<>(loadedChunks)) {
+            if (chunk == null) {
+                continue;
+            }
+            WorldChunk worldChunk;
+            try {
+                worldChunk = world.getChunk(chunk.x(), chunk.z());
+            } catch (Exception e) {
+                continue;
+            }
+            if (worldChunk == null) {
+                continue;
+            }
+            Map<BlockPos, BlockEntity> entities;
+            try {
+                entities = worldChunk.getBlockEntities();
+            } catch (Exception e) {
+                continue;
+            }
+            if (entities == null) {
+                continue;
+            }
+            for (BlockEntity be : new ArrayList<>(entities.values())) {
+                if (be instanceof KernelAttachedBlock kab) {
+                    putAttachedBlock(kab);
+                }
             }
         }
         markTopologyDirty();
@@ -467,16 +512,27 @@ public class GridManager extends PersistentState {
             union(parent, nodeIndex.get(branch.a()), nodeIndex.get(branch.b()));
         }
         // Same-block terminal ownership: every terminal of one block shares an island.
+        // Phase E item 2: only fully-loaded blocks union. A block with any terminal
+        // missing from the node index (null, unloaded chunk, undiscovered) is
+        // deferred entirely until its chunks load, keeping the union symmetric with
+        // the buildIsland candidacy filter below.
         for (KernelAttachedBlock block : blocks.values()) {
             BlockPos[] terminals = block.getTerminalPositions();
             if (terminals == null || terminals.length < 2) {
                 continue;
             }
+            boolean fullyIndexed = true;
+            for (BlockPos terminal : terminals) {
+                if (terminal == null || !nodeIndex.containsKey(terminal.toImmutable())) {
+                    fullyIndexed = false;
+                    break;
+                }
+            }
+            if (!fullyIndexed) {
+                continue;
+            }
             Integer first = null;
             for (BlockPos terminal : terminals) {
-                if (terminal == null) {
-                    continue;
-                }
                 Integer idx = nodeIndex.get(terminal.toImmutable());
                 if (idx == null) {
                     continue;
@@ -589,18 +645,35 @@ public class GridManager extends PersistentState {
         }
 
         // Blocks whose terminals touch this island, ordered by block position.
+        // Phase E item 2 (partial-terminal NPE guard): a block participates in an
+        // island IFF its BE is loaded AND every declared terminal is present in
+        // this island's group set. The group set holds only loaded terminals, so
+        // the contains check covers both chunk-loaded and indexed. Blocks with a
+        // terminal in an unloaded chunk are excluded from ALL islands this rebuild
+        // (deferred until their chunks load) instead of auto-unboxing a missing
+        // node index to an NPE. Null terminal sets are skipped; 0-terminal
+        // elements form no nodes and are island-agnostic, joining every island.
         List<KernelAttachedBlock> islandBlocks = new ArrayList<>();
         for (KernelAttachedBlock block : blocks.values()) {
             BlockPos[] terminals = block.getTerminalPositions();
             if (terminals == null) {
                 continue;
             }
+            if (terminals.length == 0) {
+                islandBlocks.add(block);
+                continue;
+            }
+            boolean allPresent = true;
             for (BlockPos terminal : terminals) {
-                if (terminal != null && groupSet.contains(terminal.toImmutable())) {
-                    islandBlocks.add(block);
+                if (terminal == null || !groupSet.contains(terminal.toImmutable())) {
+                    allPresent = false;
                     break;
                 }
             }
+            if (!allPresent) {
+                continue;
+            }
+            islandBlocks.add(block);
         }
         islandBlocks.sort(Comparator.comparing(KernelAttachedBlock::getPos, POS_ORDER));
 
