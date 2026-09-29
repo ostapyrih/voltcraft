@@ -5,6 +5,7 @@ import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.simulation.conversion.TransformerType;
 import net.minecraft.block.BlockState;
 import net.minecraft.util.math.BlockPos;
+import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
 
 /**
  * Block entity for laminated-core AC transformers (Step-Down, Step-Up).

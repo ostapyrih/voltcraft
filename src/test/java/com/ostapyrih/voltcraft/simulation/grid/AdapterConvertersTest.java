@@ -4,8 +4,7 @@ import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
 import com.ostapyrih.voltcraft.api.electrical.GridConstants;
 import com.ostapyrih.voltcraft.api.electrical.Stamps;
-import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity.ConverterElement;
-import com.ostapyrih.voltcraft.block.entity.switchgear.EarthBlockEntity;
+import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalKernel.KernelSolveResult;
 import com.ostapyrih.voltcraft.simulation.solver.ComplexNodalSolver;
 import net.minecraft.storage.ReadView;
@@ -24,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.ostapyrih.voltcraft.simulation.electrical.EarthElement;
 
 /**
  * Converter adapter tests: 4-terminal converter kernel adapters.
@@ -504,7 +504,7 @@ class AdapterConvertersTest {
         islandA.setOmega(0.0);
         islandA.setElements(
             List.of(new TestThevenin(48.0, 0.05), conv.element(), new TestResistor(12.0),
-                new EarthBlockEntity.EarthElement()),
+                new EarthElement()),
             List.of(new int[]{0, 1}, new int[]{0, 1, 2, 3}, new int[]{2, 3}, new int[]{3}));
         islandA.setConductors(List.of());
 
@@ -524,7 +524,7 @@ class AdapterConvertersTest {
         islandB.setOmega(GridConstants.AC_OMEGA_RAD_PER_S);
         islandB.setElements(
             List.of(new TestThevenin(24.0, 0.1), new TestResistor(6.0),
-                new EarthBlockEntity.EarthElement()),
+                new EarthElement()),
             List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
         islandB.setConductors(List.of());
 
@@ -565,7 +565,7 @@ class AdapterConvertersTest {
         k.setOmega(0.0);
         k.setElements(
             List.of(new TestThevenin(48.0, 0.05), conv.element(), new TestResistor(12.0),
-                new EarthBlockEntity.EarthElement()),
+                new EarthElement()),
             List.of(new int[]{0, 1}, new int[]{0, 1, 2, 3}, new int[]{2, 3}, new int[]{3}));
         k.setConductors(List.of());
         k.tick();

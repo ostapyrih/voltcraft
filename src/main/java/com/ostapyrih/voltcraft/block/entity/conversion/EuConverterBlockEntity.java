@@ -6,6 +6,7 @@ import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.conversion.EuConverterBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.EuConverterScreenHandler;
+import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
 import com.ostapyrih.voltcraft.simulation.conversion.EuConverterLogic;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
@@ -27,19 +28,9 @@ import team.reborn.energy.api.EnergyStorageUtil;
 import team.reborn.energy.api.base.SimpleEnergyStorage;
 
 /**
- * Block entity for the 230V AC to E Rotary Energy Bridge.
- * Acts as an input consumer strictly accepting 230V AC (207V-253V, >=40Hz),
- * converting 25 Watts continuous power into 1 E/t of standard Fabric energy.
- * Exposes a TeamReborn EnergyStorage capability (1 E bridged 1:1 with FE by interop mods)
- * for any energy consumer, and actively pushes E to adjacent energy receivers.
- *
- * <p>Converter kernel adapter: this BE implements {@link KernelAttachedBlock} through the shared
- * {@link AbstractPowerConverterBlockEntity.ConverterElement} 4-terminal pattern. The input pair
- * (BACK in+, LEFT in−, FACING-relative) stamps the staged grid-side demand; the output pair is
- * reserved open (staged EMF identically zero) because converted energy leaves through the
- * TeamReborn storage API, never the grid. Like the other converters the element holds no kernel
- * state (temperature/conversion advance stay BE-side); {@link #tickElectrical} only stages the
- * input demand from the logic's current nominal need and mirrors the logic trip flag.</p>
+ * 230 V AC to E rotary energy bridge (25 W continuous to 1 E/t).
+ * Grid-side input draws staged demand; the output pair stays reserved open because
+ * energy leaves through the TeamReborn storage API. Reuses the shared converter element.
  */
 public class EuConverterBlockEntity extends BlockEntity implements KernelAttachedBlock, ExtendedScreenHandlerFactory<BlockPos> {
 
@@ -116,7 +107,7 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
 
     @Nullable
     public EnergyStorage getEnergyStorage(@Nullable Direction side) {
-        // Rear side is reserved for 230V AC input. All other sides expose E storage.
+        // Rear side is the 230V AC input; all other sides expose E storage.
         if (side != null && side == getInputPortDirection()) {
             return null;
         }
@@ -140,27 +131,16 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
         return logic.getElectricalState();
     }
 
-    // ==================== KernelAttachedBlock (grid discovery) ====================
-    // The rotary bridge is a single-port input device on the VoltCraft grid side:
-    // its rear terminal draws 230V AC, and energy leaves via the TeamReborn API.
-    // Kernel-side this is the shared 4-terminal converter pattern with the output pair
-    // reserved open (see the class javadoc).
-
-    // --- Kernel path: BE-owned adapter state ---
     private final double[] kernelState =
-        AbstractPowerConverterBlockEntity.ConverterElement.newStateArray();
+        ConverterElement.newStateArray();
     private final double[] telemetryCell =
-        new double[AbstractPowerConverterBlockEntity.ConverterElement.TELE_LEN];
-    /** Staged grid-side input demand in watts (Item-10 discrete field; stamp reads it). */
+        new double[ConverterElement.TELE_LEN];
     private double stagedInputDemandWatts = 0.0;
     private final ElectricalElement element =
-        new AbstractPowerConverterBlockEntity.ConverterElement(
+        new ConverterElement(
             this::isTripped, this::getStagedInputDemandWatts, () -> 0.0,
             () -> NOMINAL_VOLTAGE, telemetryCell);
 
-    /**
-     * Staged grid-side input demand in watts from the last {@link #tickElectrical} pass.
-     */
     private double getStagedInputDemandWatts() {
         return stagedInputDemandWatts;
     }
@@ -172,15 +152,10 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
 
     @Override
     public BlockPos[] getTerminalPositions() {
-        return AbstractPowerConverterBlockEntity.ConverterElement
+        return ConverterElement
             .resolveConverterTerminals(pos, readFacing());
     }
 
-    /**
-     * Reads {@code FACING} from the cached state with a {@link Direction#NORTH}
-     * fallback (null-world / test-double / wrong-block safe: only {@code pos} plus
-     * the cached state are read, never the world).
-     */
     private Direction readFacing() {
         try {
             BlockState cached = getCachedState();
@@ -198,12 +173,12 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
 
     @Override
     public double[] getStateArray() {
-        return AbstractPowerConverterBlockEntity.ConverterElement.snapshotState(kernelState);
+        return ConverterElement.snapshotState(kernelState);
     }
 
     @Override
     public void setStateArray(double[] state) {
-        AbstractPowerConverterBlockEntity.ConverterElement.assignState(kernelState, state);
+        ConverterElement.assignState(kernelState, state);
     }
 
     @Override
@@ -215,30 +190,22 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
     @Override
     public boolean isACSource() {
         // No grid output waveform: the output pair is reserved open.
-        return AbstractPowerConverterBlockEntity.ConverterElement.isACOutput(getTypeKind());
+        return ConverterElement.isACOutput(getTypeKind());
     }
 
-    /**
-     * Converter type kind for the {@code isACOutput} table (EU bridge: DC-equivalent).
-     */
     public int getTypeKind() {
-        return AbstractPowerConverterBlockEntity.ConverterElement.TYPE_KIND_EU;
+        return ConverterElement.TYPE_KIND_EU;
     }
 
     @Override
     public void tickElectrical(ServerWorld world) {
-        // Discrete phase only (Item 10): stages the grid-side input demand from the conversion
-        // logic's current nominal need. The output EMF stays identically zero (reserved open).
-        // Never mutates kernel state, never touches the kernel; the world argument is never
-        // dereferenced (null-safe by construction). Energy pushes and the logic
-        // thermal/conversion advance stay in the legacy tick() path (kernel migration pending).
-        double teleVIn = telemetryCell[AbstractPowerConverterBlockEntity.ConverterElement.TELE_V_IN];
+        double teleVIn = telemetryCell[ConverterElement.TELE_V_IN];
         double base = logic.getNominalPowerDemand();
         if (!Double.isFinite(base) || base < 0.0) {
             base = 0.0;
         }
         this.stagedInputDemandWatts = (logic.isTripped()
-            || !(teleVIn > AbstractPowerConverterBlockEntity.ConverterElement.DEAD_RAIL_VOLTS))
+            || !(teleVIn > ConverterElement.DEAD_RAIL_VOLTS))
             ? 0.0 : base;
     }
 
@@ -310,15 +277,9 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
         return this.pos;
     }
 
-    /**
-     * Executes once per tick from server block entity ticker. Island attachment is
-     * handled centrally by {@link com.ostapyrih.voltcraft.simulation.grid.GridManager} —
-     * this tick only moves stored E out and advances the conversion logic.
-     */
     public void tick(ServerWorld world) {
         Direction inDir = getInputPortDirection();
 
-        // Push available E to neighboring energy blocks / cables (except input side)
         long movedThisTick = 0;
         for (Direction dir : Direction.values()) {
             if (dir == inDir) continue;
@@ -330,7 +291,6 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
             }
         }
 
-        // Update logic simulation
         logic.setStoredEu(this.energyStorage.amount);
         logic.updatePowerDemand(movedThisTick);
         logic.updateThermal(0.05);
@@ -350,8 +310,8 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
         this.logic.setTotalEuGenerated(view.getLong("total_eu", 0L));
         this.logic.setTemperatureCelsius(view.getDouble("temperature", 20.0));
         this.logic.setTripped(view.getBoolean("tripped", false));
-        AbstractPowerConverterBlockEntity.ConverterElement.assignState(
-            kernelState, AbstractPowerConverterBlockEntity.ConverterElement.readNbtState(view));
+        ConverterElement.assignState(
+            kernelState, ConverterElement.readNbtState(view));
     }
 
     @Override
@@ -361,6 +321,6 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
         view.putLong("total_eu", this.logic.getTotalEuGenerated());
         view.putDouble("temperature", this.logic.getTemperatureCelsius());
         view.putBoolean("tripped", this.logic.isTripped());
-        AbstractPowerConverterBlockEntity.ConverterElement.writeNbt(view, logic.isTripped());
+        ConverterElement.writeNbt(view, logic.isTripped());
     }
 }

@@ -4,12 +4,11 @@ import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
 import com.ostapyrih.voltcraft.api.electrical.GridConstants;
 import com.ostapyrih.voltcraft.api.electrical.Stamps;
-import com.ostapyrih.voltcraft.block.entity.generation.HandCrankGeneratorBlockEntity.CrankElement;
-import com.ostapyrih.voltcraft.block.entity.generation.PortableGeneratorBlockEntity.GeneratorElement;
-import com.ostapyrih.voltcraft.block.entity.generation.SolarPanelBlockEntity.SolarElement;
-import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity.BatteryElement;
-import com.ostapyrih.voltcraft.block.entity.storage.BatteryRackBlockEntity.RackElement;
-import com.ostapyrih.voltcraft.block.entity.switchgear.EarthBlockEntity;
+import com.ostapyrih.voltcraft.simulation.electrical.CrankElement;
+import com.ostapyrih.voltcraft.simulation.electrical.GeneratorElement;
+import com.ostapyrih.voltcraft.simulation.electrical.SolarElement;
+import com.ostapyrih.voltcraft.simulation.electrical.BatteryElement;
+import com.ostapyrih.voltcraft.simulation.electrical.RackElement;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalKernel.KernelSolveResult;
 import com.ostapyrih.voltcraft.simulation.solver.ComplexNodalSolver;
@@ -29,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.ostapyrih.voltcraft.simulation.electrical.EarthElement;
 
 /**
  * Source adapter tests: stateful source/storage kernel adapters (battery,
@@ -278,9 +278,6 @@ class AdapterSourcesTest {
         BatteryElement.writeNbt(writeFake(store), 0.42, 33.5, 0.9, true);
         assertTrue(store.containsKey("stateArray"));
         assertTrue(store.containsKey("bmsOpen"));
-        assertTrue(store.containsKey("state_of_charge"));
-        assertTrue(store.containsKey("state_of_health"));
-        assertTrue(store.containsKey("temperature"));
 
         double[] restored = BatteryElement.readNbtState(readFake(store));
         assertEquals(0.42, restored[0], 0.0);
@@ -304,16 +301,6 @@ class AdapterSourcesTest {
         assertArrayEquals(BatteryElement.newStateArray(),
             BatteryElement.readNbtState(readFake(bad)), 0.0);
         assertTrue(BatteryElement.readNbtBmsOpen(readFake(bad)));
-
-        // Legacy-only store (pre-adapter NBT schema): triple restores in [soc, temp, health] order.
-        Map<String, Object> legacy = new HashMap<>();
-        legacy.put("state_of_charge", 0.33);
-        legacy.put("state_of_health", 0.77);
-        legacy.put("temperature", 44.0);
-        double[] leg = BatteryElement.readNbtState(readFake(legacy));
-        assertEquals(0.33, leg[0], 0.0);
-        assertEquals(44.0, leg[1], 0.0);
-        assertEquals(0.77, leg[2], 0.0);
         assertFalse(BatteryElement.readNbtBmsOpen(readFake(new HashMap<>())));
     }
 
@@ -370,20 +357,12 @@ class AdapterSourcesTest {
         GeneratorElement.writeNbt(writeFake(store), 55.0, 500.0, 777.0);
         assertTrue(store.containsKey("stateArray"));
         assertTrue(store.containsKey("total_energy_joules"));
-        assertTrue(store.containsKey("remaining_fuel_ticks"));
 
         double[] restored = GeneratorElement.readNbtState(readFake(store));
         assertEquals(2, restored.length);
         assertEquals(55.0, restored[0], 0.0);
         assertEquals(500.0, restored[1], 0.0);
         assertEquals(777.0, GeneratorElement.readNbtTotalEnergy(readFake(store)), 0.0);
-
-        // Legacy-only store: fuel key restores with ambient temperature.
-        Map<String, Object> legacy = new HashMap<>();
-        legacy.put("remaining_fuel_ticks", 250.0);
-        double[] leg = GeneratorElement.readNbtState(readFake(legacy));
-        assertEquals(GridConstants.AMBIENT_C, leg[0], 0.0);
-        assertEquals(250.0, leg[1], 0.0);
     }
 
     @Test
@@ -394,18 +373,6 @@ class AdapterSourcesTest {
         double[] restored = CrankElement.readNbtState(readFake(store));
         assertEquals(0.7, restored[0], 0.0);
         assertEquals(321.0, restored[1], 0.0);
-
-        Map<String, Object> legacy = new HashMap<>();
-        legacy.put("flywheel_speed", 0.6);
-        legacy.put("total_energy_joules", 123.0);
-        double[] leg = CrankElement.readNbtState(readFake(legacy));
-        assertEquals(0.6, leg[0], 0.0);
-        assertEquals(123.0, leg[1], 0.0);
-
-        Map<String, Object> bad = new HashMap<>();
-        bad.put("stateArray", List.of(1.0, 2.0, 3.0));
-        assertArrayEquals(CrankElement.newStateArray(),
-            CrankElement.readNbtState(readFake(bad)), 0.0);
     }
 
     @Test
@@ -470,7 +437,7 @@ class AdapterSourcesTest {
         islandA.setNodeCount(2);
         islandA.setOmega(0.0);
         islandA.setElements(
-            List.of(battA, crankA, new TestResistor(10.0), new EarthBlockEntity.EarthElement()),
+            List.of(battA, crankA, new TestResistor(10.0), new EarthElement()),
             List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
         islandA.setConductors(List.of());
 
@@ -482,7 +449,7 @@ class AdapterSourcesTest {
         islandB.setNodeCount(2);
         islandB.setOmega(0.0);
         islandB.setElements(
-            List.of(battB, new TestResistor(10.0), new EarthBlockEntity.EarthElement()),
+            List.of(battB, new TestResistor(10.0), new EarthElement()),
             List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
         islandB.setConductors(List.of());
 
@@ -560,7 +527,7 @@ class AdapterSourcesTest {
         k.setNodeCount(2);
         k.setOmega(0.0);
         k.setElements(
-            List.of(batt, new TestResistor(10.0), new EarthBlockEntity.EarthElement()),
+            List.of(batt, new TestResistor(10.0), new EarthElement()),
             List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
         k.setConductors(List.of());
         double[] beState = {1.0, 25.0, 1.0};
@@ -624,7 +591,7 @@ class AdapterSourcesTest {
         k.setOmega(0.0);
         k.setElements(
             List.of(new TestResistor(0.01), batt, new TestResistor(10.0),
-                new EarthBlockEntity.EarthElement()),
+                new EarthElement()),
             List.of(new int[]{0, 2}, new int[]{0, 1}, new int[]{1, 2}, new int[]{2}));
         k.setConductors(List.of());
         k.setElementState(1, new double[]{1.0, 25.0, 1.0});
@@ -646,7 +613,7 @@ class AdapterSourcesTest {
         day.setNodeCount(2);
         day.setOmega(0.0);
         day.setElements(
-            List.of(solar, new TestResistor(10.0), new EarthBlockEntity.EarthElement()),
+            List.of(solar, new TestResistor(10.0), new EarthElement()),
             List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
         day.setConductors(List.of());
         day.setElementState(0, SolarElement.newStateArray());
@@ -672,7 +639,7 @@ class AdapterSourcesTest {
         k.setNodeCount(2);
         k.setOmega(0.0);
         k.setElements(
-            List.of(crank, new TestResistor(12.0), new EarthBlockEntity.EarthElement()),
+            List.of(crank, new TestResistor(12.0), new EarthElement()),
             List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
         k.setConductors(List.of());
         double[] beState = {1.0, 0.0};

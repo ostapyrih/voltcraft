@@ -1,7 +1,7 @@
 package com.ostapyrih.voltcraft.simulation.grid;
 
-import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity.ConverterElement;
-import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity.BatteryElement;
+import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
+import com.ostapyrih.voltcraft.simulation.electrical.BatteryElement;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import org.junit.jupiter.api.Test;

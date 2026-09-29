@@ -16,18 +16,9 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
 /**
- * Block entity for the MPPT Solar Charge Controller.
- * Executes Maximum Power Point Tracking (Perturb &amp; Observe) and multi-stage battery charging.
- * Limits load to what is available from upstream solar generation to prevent solar voltage drop.
- * Synchronizes with 12V, 24V, and 48V battery banks with active mismatch protection.
- *
- * <p>Reuses the shared converter 4-terminal kernel pattern inherited from
- * {@link AbstractPowerConverterBlockEntity} (input pair east/west, output pair
- * north/south; tripped plus demand/EMF staging via the parent statics). Legacy
- * grid-graph queries (old-grid source scans) are replaced
- * by previous-tick kernel telemetry (one-tick delay, item 12) plus direct neighbor
- * block-entity inspection when a world is available. {@link #computeOutputVoltage}
- * keeps the MPPT/bank staging; the legacy-only demand/current overrides are deleted.</p>
+ * MPPT solar charge controller (Perturb &amp; Observe) with multi-stage battery charging.
+ * Snaps to 12/24/48 V banks with mismatch protection; load is limited to upstream
+ * solar availability. Reuses the shared converter 4-terminal kernel pattern.
  */
 public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEntity {
 
@@ -132,7 +123,6 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
         markDirty();
     }
 
-    /** Snaps a raw requested voltage to the nearest supported nominal bank: 12V, 24V, or 48V. */
     private static double classifyBank(double target) {
         if (target <= BANK_12V_MAX) return 12.0;
         if (target <= BANK_24V_MAX) return 24.0;
@@ -143,11 +133,6 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
         return pos.offset(getOutputPortDirection());
     }
 
-    /**
-     * Kernel-side replacement for the legacy output-grid storage scan: storage presence is
-     * observed via the directly attached output-port block entity when the world is
-     * available, else via a live previous-tick output rail (telemetry, one-tick delay).
-     */
     public boolean hasDownstreamStorage() {
         BlockEntity out = world instanceof ServerWorld sw ? sw.getBlockEntity(getOutputPos()) : null;
         if (out instanceof BatteryBlockEntity || out instanceof BatteryRackBlockEntity) {
@@ -156,19 +141,10 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
         return getDownstreamRailVoltage() > DEAD_RAIL_VOLTAGE;
     }
 
-    /**
-     * Previous-tick output-rail voltage from kernel telemetry (one-tick delay, item 12).
-     */
     public double getDownstreamRailVoltage() {
         return actualOutputVoltage;
     }
 
-    /**
-     * Kernel-side replacement for the legacy output-grid nominal scan: checks the directly
-     * attached output-port battery's pack nominal against the bank rating. Rack and
-     * telemetry-only rails fall through to the live-voltage sanity check in
-     * {@link #isBatteryVoltageMismatch(double)}.
-     */
     public boolean isBatteryStorageMismatch() {
         BlockEntity out = world instanceof ServerWorld sw ? sw.getBlockEntity(getOutputPos()) : null;
         if (out instanceof BatteryBlockEntity battery) {
@@ -179,7 +155,6 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
         return false;
     }
 
-    /** Checks a connected battery's nominal voltage rating against the standard bank rating. */
     private boolean isNominalVoltageMismatched(double nom) {
         double bank = targetOutputVoltage;
         if (bank <= BANK_12V_MAX) {
@@ -214,14 +189,6 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
             && getUpstreamAvailableSolarWatts() > 0.0;
     }
 
-    /**
-     * Queries upstream generation capacity from connected solar panels.
-     *
-     * <p>Kernel-side: the legacy input-grid source scan is replaced by direct neighbor
-     * block-entity inspection (input port, then all 6 neighbors of the input position
-     * to tolerate panel replacement without cable reconnect), with a fallback to
-     * whatever this converter demonstrably drew last tick (telemetry, one-tick delay).</p>
-     */
     public double getUpstreamAvailableSolarWatts() {
         if (world instanceof ServerWorld sw) {
             Direction inDir = getInputPortDirection();
@@ -281,9 +248,6 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
 
     @Override
     public void tickElectrical(ServerWorld world) {
-        // Kernel discrete phase: demand/EMF staging plus the bank-mismatch protection trip.
-        // The world argument is never dereferenced here (neighbor sensing runs inside the
-        // null-safe helpers above): null-safe by construction.
         super.tickElectrical(world);
         if (hasDownstreamStorage() && isBatteryStorageMismatch()) {
             if (tripGraceTicks == 0) {

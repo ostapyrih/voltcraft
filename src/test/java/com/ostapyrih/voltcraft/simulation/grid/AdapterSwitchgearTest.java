@@ -4,13 +4,6 @@ import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
 import com.ostapyrih.voltcraft.api.electrical.GridConstants;
 import com.ostapyrih.voltcraft.api.electrical.Stamps;
-import com.ostapyrih.voltcraft.block.entity.switchgear.CircuitBreakerBlockEntity;
-import com.ostapyrih.voltcraft.block.entity.switchgear.ContactorRelayBlockEntity;
-import com.ostapyrih.voltcraft.block.entity.switchgear.CopperBusbarBlockEntity;
-import com.ostapyrih.voltcraft.block.entity.switchgear.EarthBlockEntity;
-import com.ostapyrih.voltcraft.block.entity.switchgear.FuseBoxBlockEntity;
-import com.ostapyrih.voltcraft.block.entity.switchgear.JunctionBoxBlockEntity;
-import com.ostapyrih.voltcraft.block.entity.switchgear.KnifeSwitchBlockEntity;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalKernel.KernelSolveResult;
 import com.ostapyrih.voltcraft.simulation.solver.ComplexNodalSolver;
 import net.minecraft.storage.ReadView;
@@ -30,6 +23,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import com.ostapyrih.voltcraft.simulation.electrical.BreakerElement;
+import com.ostapyrih.voltcraft.simulation.electrical.BusbarElement;
+import com.ostapyrih.voltcraft.simulation.electrical.ContactorElement;
+import com.ostapyrih.voltcraft.simulation.electrical.EarthElement;
+import com.ostapyrih.voltcraft.simulation.electrical.FuseElement;
+import com.ostapyrih.voltcraft.simulation.electrical.SpliceElement;
+import com.ostapyrih.voltcraft.simulation.electrical.SwitchElement;
 
 /**
  * Static-block adapter tests: earth + switchgear kernel adapters (knife switch,
@@ -179,7 +179,7 @@ class AdapterSwitchgearTest {
         k.setOmega(0.0);
         k.setElements(
             List.of(new TestThevenin(SOURCE_V, SOURCE_R), device, new TestResistor(loadR),
-                new EarthBlockEntity.EarthElement()),
+                new EarthElement()),
             List.of(new int[]{0, 2}, new int[]{0, 1}, new int[]{1, 2}, new int[]{2}));
         k.setConductors(List.of());
         return k;
@@ -196,14 +196,14 @@ class AdapterSwitchgearTest {
 
     @Test
     void earthStampAddsShuntConductance() {
-        EarthBlockEntity.EarthElement earth = new EarthBlockEntity.EarthElement();
+        EarthElement earth = new EarthElement();
         assertEquals(1, earth.terminalCount());
         assertEquals(0, earth.stateCount());
 
         Complex[][] y = ComplexNodalSolver.zeroMatrix(1);
         Complex[] inj = ComplexNodalSolver.zeroVector(1);
         earth.stamp(y, inj, new int[]{0}, ComplexNodalSolver.zeroVector(1), new double[0], 0.0);
-        assertEquals(EarthBlockEntity.G_EARTH_S, y[0][0].re, 1e-12);
+        assertEquals(EarthElement.G_EARTH_S, y[0][0].re, 1e-12);
         assertEquals(0.0, y[0][0].im, 1e-12);
         assertEquals(0.0, inj[0].magnitude(), 0.0);
 
@@ -221,12 +221,12 @@ class AdapterSwitchgearTest {
     @Test
     void closedKnifeStampsSeriesAdmittance() {
         boolean[] closed = {true};
-        KnifeSwitchBlockEntity.SwitchElement sw =
-            new KnifeSwitchBlockEntity.SwitchElement(() -> closed[0]);
+        SwitchElement sw =
+            new SwitchElement(() -> closed[0]);
         Complex[][] y = ComplexNodalSolver.zeroMatrix(2);
         sw.stamp(y, ComplexNodalSolver.zeroVector(2), new int[]{0, 1},
             ComplexNodalSolver.zeroVector(2), new double[0], 0.0);
-        double g = 1.0 / KnifeSwitchBlockEntity.R_CLOSED_OHM;
+        double g = 1.0 / SwitchElement.R_CLOSED_OHM;
         assertEquals(g, y[0][0].re, 1e-9);
         assertEquals(g, y[1][1].re, 1e-9);
         assertEquals(-g, y[0][1].re, 1e-9);
@@ -236,8 +236,8 @@ class AdapterSwitchgearTest {
     @Test
     void openKnifeStampsNothing() {
         boolean[] closed = {false};
-        KnifeSwitchBlockEntity.SwitchElement sw =
-            new KnifeSwitchBlockEntity.SwitchElement(() -> closed[0]);
+        SwitchElement sw =
+            new SwitchElement(() -> closed[0]);
         Complex[][] y = ComplexNodalSolver.zeroMatrix(2);
         sw.stamp(y, ComplexNodalSolver.zeroVector(2), new int[]{0, 1},
             ComplexNodalSolver.zeroVector(2), new double[0], 0.0);
@@ -250,10 +250,10 @@ class AdapterSwitchgearTest {
 
     @Test
     void contactorDefaultOpenClosedStamps() {
-        assertFalse(ContactorRelayBlockEntity.ContactorElement.DEFAULT_CLOSED);
-        boolean[] closed = {ContactorRelayBlockEntity.ContactorElement.DEFAULT_CLOSED};
-        ContactorRelayBlockEntity.ContactorElement relay =
-            new ContactorRelayBlockEntity.ContactorElement(() -> closed[0]);
+        assertFalse(ContactorElement.DEFAULT_CLOSED);
+        boolean[] closed = {ContactorElement.DEFAULT_CLOSED};
+        ContactorElement relay =
+            new ContactorElement(() -> closed[0]);
         Complex[][] y = ComplexNodalSolver.zeroMatrix(2);
         relay.stamp(y, ComplexNodalSolver.zeroVector(2), new int[]{0, 1},
             ComplexNodalSolver.zeroVector(2), new double[0], 0.0);
@@ -263,38 +263,38 @@ class AdapterSwitchgearTest {
         Complex[][] y2 = ComplexNodalSolver.zeroMatrix(2);
         relay.stamp(y2, ComplexNodalSolver.zeroVector(2), new int[]{0, 1},
             ComplexNodalSolver.zeroVector(2), new double[0], 0.0);
-        double g = 1.0 / ContactorRelayBlockEntity.R_CLOSED_OHM;
+        double g = 1.0 / ContactorElement.R_CLOSED_OHM;
         assertEquals(g, y2[0][0].re, 1e-9);
         assertEquals(-g, y2[0][1].re, 1e-9);
     }
 
     @Test
     void busbarAndJunctionAlwaysStampLowResistance() {
-        CopperBusbarBlockEntity.BusbarElement bb = new CopperBusbarBlockEntity.BusbarElement();
-        JunctionBoxBlockEntity.SpliceElement jb = new JunctionBoxBlockEntity.SpliceElement();
+        BusbarElement bb = new BusbarElement();
+        SpliceElement jb = new SpliceElement();
         Complex[][] yb = ComplexNodalSolver.zeroMatrix(2);
         bb.stamp(yb, ComplexNodalSolver.zeroVector(2), new int[]{0, 1},
             ComplexNodalSolver.zeroVector(2), new double[0], 0.0);
-        assertEquals(1.0 / CopperBusbarBlockEntity.R_BUSBAR_OHM, yb[0][0].re, 1e-9);
-        assertEquals(-1.0 / CopperBusbarBlockEntity.R_BUSBAR_OHM, yb[0][1].re, 1e-9);
+        assertEquals(1.0 / BusbarElement.R_BUSBAR_OHM, yb[0][0].re, 1e-9);
+        assertEquals(-1.0 / BusbarElement.R_BUSBAR_OHM, yb[0][1].re, 1e-9);
 
         Complex[][] yj = ComplexNodalSolver.zeroMatrix(2);
         jb.stamp(yj, ComplexNodalSolver.zeroVector(2), new int[]{0, 1},
             ComplexNodalSolver.zeroVector(2), new double[0], 0.0);
-        assertEquals(1.0 / JunctionBoxBlockEntity.R_SPLICE_OHM, yj[0][0].re, 1e-9);
-        assertEquals(-1.0 / JunctionBoxBlockEntity.R_SPLICE_OHM, yj[0][1].re, 1e-9);
+        assertEquals(1.0 / SpliceElement.R_SPLICE_OHM, yj[0][0].re, 1e-9);
+        assertEquals(-1.0 / SpliceElement.R_SPLICE_OHM, yj[0][1].re, 1e-9);
     }
 
     @Test
     void breakerUntrippedStampsTrippedIsOpen() {
-        assertFalse(CircuitBreakerBlockEntity.BreakerElement.DEFAULT_TRIPPED);
+        assertFalse(BreakerElement.DEFAULT_TRIPPED);
         boolean[] tripped = {false};
-        CircuitBreakerBlockEntity.BreakerElement cb =
-            new CircuitBreakerBlockEntity.BreakerElement(() -> tripped[0]);
+        BreakerElement cb =
+            new BreakerElement(() -> tripped[0]);
         Complex[][] y = ComplexNodalSolver.zeroMatrix(2);
         cb.stamp(y, ComplexNodalSolver.zeroVector(2), new int[]{0, 1},
             ComplexNodalSolver.zeroVector(2), new double[0], 0.0);
-        assertEquals(1.0 / CircuitBreakerBlockEntity.R_CLOSED_OHM, y[0][0].re, 1e-9);
+        assertEquals(1.0 / BreakerElement.R_CLOSED_OHM, y[0][0].re, 1e-9);
 
         tripped[0] = true;
         Complex[][] y2 = ComplexNodalSolver.zeroMatrix(2);
@@ -308,16 +308,16 @@ class AdapterSwitchgearTest {
     void fuseIntactStampsBlownIsOpen() {
         boolean[] blown = {false};
         double[] tele = new double[1];
-        FuseBoxBlockEntity.FuseElement fuse =
-            new FuseBoxBlockEntity.FuseElement(() -> blown[0], tele);
+        FuseElement fuse =
+            new FuseElement(() -> blown[0], tele);
         assertEquals(2, fuse.stateCount());
         Complex[][] y = ComplexNodalSolver.zeroMatrix(2);
         fuse.stamp(y, ComplexNodalSolver.zeroVector(2), new int[]{0, 1},
             ComplexNodalSolver.zeroVector(2),
-            FuseBoxBlockEntity.FuseElement.newStateArray(), 0.0);
-        assertEquals(1.0 / FuseBoxBlockEntity.R_FUSE_OHM, y[0][0].re, 1e-9);
+            FuseElement.newStateArray(), 0.0);
+        assertEquals(1.0 / FuseElement.R_FUSE_OHM, y[0][0].re, 1e-9);
 
-        blown[0] = FuseBoxBlockEntity.FuseElement.blowCheck(0.0, blown[0]);
+        blown[0] = FuseElement.blowCheck(0.0, blown[0]);
         assertTrue(blown[0]);
         Complex[][] y2 = ComplexNodalSolver.zeroMatrix(2);
         fuse.stamp(y2, ComplexNodalSolver.zeroVector(2), new int[]{0, 1},
@@ -328,23 +328,23 @@ class AdapterSwitchgearTest {
 
     @Test
     void blowCheckTruthTable() {
-        assertFalse(FuseBoxBlockEntity.FuseElement.blowCheck(1.0, false));
-        assertFalse(FuseBoxBlockEntity.FuseElement.blowCheck(0.5, false));
-        assertTrue(FuseBoxBlockEntity.FuseElement.blowCheck(0.0, false));
-        assertTrue(FuseBoxBlockEntity.FuseElement.blowCheck(-0.5, false));
-        assertTrue(FuseBoxBlockEntity.FuseElement.blowCheck(1.0, true), "blow latches");
+        assertFalse(FuseElement.blowCheck(1.0, false));
+        assertFalse(FuseElement.blowCheck(0.5, false));
+        assertTrue(FuseElement.blowCheck(0.0, false));
+        assertTrue(FuseElement.blowCheck(-0.5, false));
+        assertTrue(FuseElement.blowCheck(1.0, true), "blow latches");
     }
 
     @Test
     void zeroStateDerivativesAreNoOp() {
         boolean[] flag = {true};
         List<ElectricalElement> statics = List.of(
-            new EarthBlockEntity.EarthElement(),
-            new KnifeSwitchBlockEntity.SwitchElement(() -> flag[0]),
-            new ContactorRelayBlockEntity.ContactorElement(() -> flag[0]),
-            new CopperBusbarBlockEntity.BusbarElement(),
-            new JunctionBoxBlockEntity.SpliceElement(),
-            new CircuitBreakerBlockEntity.BreakerElement(() -> !flag[0]));
+            new EarthElement(),
+            new SwitchElement(() -> flag[0]),
+            new ContactorElement(() -> flag[0]),
+            new BusbarElement(),
+            new SpliceElement(),
+            new BreakerElement(() -> !flag[0]));
         for (ElectricalElement el : statics) {
             assertEquals(0, el.stateCount());
             // Must not throw on empty slices.
@@ -356,23 +356,23 @@ class AdapterSwitchgearTest {
     void fuseDerivativesNoDecayAtOrBelowRated() {
         boolean[] blown = {false};
         double[] tele = new double[1];
-        FuseBoxBlockEntity.FuseElement fuse =
-            new FuseBoxBlockEntity.FuseElement(() -> blown[0], tele);
+        FuseElement fuse =
+            new FuseElement(() -> blown[0], tele);
         double[] state = {GridConstants.AMBIENT_C, 1.0};
         Complex[] vt = {new Complex(0.15, 0.0), new Complex(0.0, 0.0)};
 
         double[] dx = new double[2];
         fuse.derivatives(dx, state, vt,
-            new Complex[]{new Complex(FuseBoxBlockEntity.RATED_CURRENT_A, 0.0), new Complex(0.0, 0.0)});
-        assertEquals(0.0, dx[FuseBoxBlockEntity.STATE_INTEGRITY], 0.0);
+            new Complex[]{new Complex(FuseElement.RATED_CURRENT_A, 0.0), new Complex(0.0, 0.0)});
+        assertEquals(0.0, dx[FuseElement.STATE_INTEGRITY], 0.0);
 
         double[] dx2 = new double[2];
         fuse.derivatives(dx2, state, vt,
             new Complex[]{new Complex(10.0, 0.0), new Complex(0.0, 0.0)});
-        assertEquals(0.0, dx2[FuseBoxBlockEntity.STATE_INTEGRITY], 0.0);
-        double expectedHeat = (10.0 * 10.0 * FuseBoxBlockEntity.R_FUSE_OHM)
-            / FuseBoxBlockEntity.THERMAL_CAPACITY_J_PER_K;
-        assertEquals(expectedHeat, dx2[FuseBoxBlockEntity.STATE_TEMP], 1e-12);
+        assertEquals(0.0, dx2[FuseElement.STATE_INTEGRITY], 0.0);
+        double expectedHeat = (10.0 * 10.0 * FuseElement.R_FUSE_OHM)
+            / FuseElement.THERMAL_CAPACITY_J_PER_K;
+        assertEquals(expectedHeat, dx2[FuseElement.STATE_TEMP], 1e-12);
         assertEquals(10.0, tele[0], 1e-12);
     }
 
@@ -380,20 +380,20 @@ class AdapterSwitchgearTest {
     void fuseDerivativesDecayOnOverload() {
         boolean[] blown = {false};
         double[] tele = new double[1];
-        FuseBoxBlockEntity.FuseElement fuse =
-            new FuseBoxBlockEntity.FuseElement(() -> blown[0], tele);
+        FuseElement fuse =
+            new FuseElement(() -> blown[0], tele);
         double[] state = {GridConstants.AMBIENT_C, 1.0};
         Complex[] vt = {new Complex(0.3, 0.0), new Complex(0.0, 0.0)};
         double[] dx = new double[2];
         fuse.derivatives(dx, state, vt,
             new Complex[]{new Complex(60.0, 0.0), new Complex(0.0, 0.0)});
-        double overload = 60.0 - FuseBoxBlockEntity.RATED_CURRENT_A;
-        assertEquals(-overload * overload * FuseBoxBlockEntity.INTEGRITY_DECAY_K,
-            dx[FuseBoxBlockEntity.STATE_INTEGRITY], 1e-15);
-        assertTrue(dx[FuseBoxBlockEntity.STATE_INTEGRITY] < 0.0);
-        double expectedHeat = (60.0 * 60.0 * FuseBoxBlockEntity.R_FUSE_OHM)
-            / FuseBoxBlockEntity.THERMAL_CAPACITY_J_PER_K;
-        assertEquals(expectedHeat, dx[FuseBoxBlockEntity.STATE_TEMP], 1e-12);
+        double overload = 60.0 - FuseElement.RATED_CURRENT_A;
+        assertEquals(-overload * overload * FuseElement.INTEGRITY_DECAY_K,
+            dx[FuseElement.STATE_INTEGRITY], 1e-15);
+        assertTrue(dx[FuseElement.STATE_INTEGRITY] < 0.0);
+        double expectedHeat = (60.0 * 60.0 * FuseElement.R_FUSE_OHM)
+            / FuseElement.THERMAL_CAPACITY_J_PER_K;
+        assertEquals(expectedHeat, dx[FuseElement.STATE_TEMP], 1e-12);
         assertEquals(60.0, tele[0], 1e-12);
     }
 
@@ -401,8 +401,8 @@ class AdapterSwitchgearTest {
     void fuseDerivativesPureExceptTelemetryCache() {
         boolean[] blown = {false};
         double[] tele = new double[1];
-        FuseBoxBlockEntity.FuseElement fuse =
-            new FuseBoxBlockEntity.FuseElement(() -> blown[0], tele);
+        FuseElement fuse =
+            new FuseElement(() -> blown[0], tele);
         double[] state = {50.0, 0.75};
         Complex[] vt = {new Complex(1.0, 0.0), new Complex(0.0, 0.0)};
         Complex[] it = {new Complex(500.0, 0.0), new Complex(-500.0, 0.0)};
@@ -423,12 +423,12 @@ class AdapterSwitchgearTest {
     @Test
     void knifeOpenCloseChangesCurrentFlow() {
         boolean[] closed = {true};
-        KnifeSwitchBlockEntity.SwitchElement sw =
-            new KnifeSwitchBlockEntity.SwitchElement(() -> closed[0]);
+        SwitchElement sw =
+            new SwitchElement(() -> closed[0]);
         ElectricalKernel k = seriesKernel(sw, LOAD_R);
 
         double closedI = loadCurrent(k, 2);
-        assertEquals(SOURCE_V / (SOURCE_R + KnifeSwitchBlockEntity.R_CLOSED_OHM + LOAD_R), closedI, 1e-4);
+        assertEquals(SOURCE_V / (SOURCE_R + SwitchElement.R_CLOSED_OHM + LOAD_R), closedI, 1e-4);
 
         closed[0] = false;
         double openI = loadCurrent(k, 2);
@@ -441,23 +441,23 @@ class AdapterSwitchgearTest {
     @Test
     void contactorClosedConductsOpenIsolates() {
         boolean[] closed = {false};
-        ContactorRelayBlockEntity.ContactorElement relay =
-            new ContactorRelayBlockEntity.ContactorElement(() -> closed[0]);
+        ContactorElement relay =
+            new ContactorElement(() -> closed[0]);
         ElectricalKernel k = seriesKernel(relay, LOAD_R);
         assertTrue(loadCurrent(k, 2) < 1e-6, "default-open contactor isolates");
 
         closed[0] = true;
-        assertEquals(SOURCE_V / (SOURCE_R + ContactorRelayBlockEntity.R_CLOSED_OHM + LOAD_R),
+        assertEquals(SOURCE_V / (SOURCE_R + ContactorElement.R_CLOSED_OHM + LOAD_R),
             loadCurrent(k, 2), 1e-4);
     }
 
     @Test
     void breakerUntrippedConductsTrippedIsolates() {
         boolean[] tripped = {false};
-        CircuitBreakerBlockEntity.BreakerElement cb =
-            new CircuitBreakerBlockEntity.BreakerElement(() -> tripped[0]);
+        BreakerElement cb =
+            new BreakerElement(() -> tripped[0]);
         ElectricalKernel k = seriesKernel(cb, LOAD_R);
-        assertEquals(SOURCE_V / (SOURCE_R + CircuitBreakerBlockEntity.R_CLOSED_OHM + LOAD_R),
+        assertEquals(SOURCE_V / (SOURCE_R + BreakerElement.R_CLOSED_OHM + LOAD_R),
             loadCurrent(k, 2), 1e-4);
 
         tripped[0] = true;
@@ -466,10 +466,10 @@ class AdapterSwitchgearTest {
 
     @Test
     void busbarAndJunctionAlwaysConduct() {
-        assertEquals(SOURCE_V / (SOURCE_R + CopperBusbarBlockEntity.R_BUSBAR_OHM + LOAD_R),
-            loadCurrent(seriesKernel(new CopperBusbarBlockEntity.BusbarElement(), LOAD_R), 2), 1e-4);
-        assertEquals(SOURCE_V / (SOURCE_R + JunctionBoxBlockEntity.R_SPLICE_OHM + LOAD_R),
-            loadCurrent(seriesKernel(new JunctionBoxBlockEntity.SpliceElement(), LOAD_R), 2), 1e-4);
+        assertEquals(SOURCE_V / (SOURCE_R + BusbarElement.R_BUSBAR_OHM + LOAD_R),
+            loadCurrent(seriesKernel(new BusbarElement(), LOAD_R), 2), 1e-4);
+        assertEquals(SOURCE_V / (SOURCE_R + SpliceElement.R_SPLICE_OHM + LOAD_R),
+            loadCurrent(seriesKernel(new SpliceElement(), LOAD_R), 2), 1e-4);
     }
 
     @Test
@@ -479,7 +479,7 @@ class AdapterSwitchgearTest {
         k.setOmega(0.0);
         k.setElements(
             List.of(new TestThevenin(SOURCE_V, SOURCE_R), new TestResistor(LOAD_R),
-                new EarthBlockEntity.EarthElement()),
+                new EarthElement()),
             List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
         k.setConductors(List.of());
         KernelSolveResult r = k.solve();
@@ -494,142 +494,142 @@ class AdapterSwitchgearTest {
     @Test
     void zeroStateCheckAndSnapshot() {
         // checkState accepts exactly empty/non-null; snapshot returns a fresh array per call.
-        EarthBlockEntity.EarthElement.checkState(new double[0]);
-        KnifeSwitchBlockEntity.SwitchElement.checkState(new double[0]);
-        ContactorRelayBlockEntity.ContactorElement.checkState(new double[0]);
-        CopperBusbarBlockEntity.BusbarElement.checkState(new double[0]);
-        JunctionBoxBlockEntity.SpliceElement.checkState(new double[0]);
-        CircuitBreakerBlockEntity.BreakerElement.checkState(new double[0]);
+        EarthElement.checkState(new double[0]);
+        SwitchElement.checkState(new double[0]);
+        ContactorElement.checkState(new double[0]);
+        BusbarElement.checkState(new double[0]);
+        SpliceElement.checkState(new double[0]);
+        BreakerElement.checkState(new double[0]);
 
-        assertThrows(IllegalArgumentException.class, () -> EarthBlockEntity.EarthElement.checkState(null));
+        assertThrows(IllegalArgumentException.class, () -> EarthElement.checkState(null));
         assertThrows(IllegalArgumentException.class,
-            () -> KnifeSwitchBlockEntity.SwitchElement.checkState(new double[]{1.0}));
+            () -> SwitchElement.checkState(new double[]{1.0}));
         assertThrows(IllegalArgumentException.class,
-            () -> ContactorRelayBlockEntity.ContactorElement.checkState(new double[]{1.0, 2.0}));
+            () -> ContactorElement.checkState(new double[]{1.0, 2.0}));
         assertThrows(IllegalArgumentException.class,
-            () -> CopperBusbarBlockEntity.BusbarElement.checkState(null));
+            () -> BusbarElement.checkState(null));
         assertThrows(IllegalArgumentException.class,
-            () -> JunctionBoxBlockEntity.SpliceElement.checkState(new double[]{1.0}));
+            () -> SpliceElement.checkState(new double[]{1.0}));
         assertThrows(IllegalArgumentException.class,
-            () -> CircuitBreakerBlockEntity.BreakerElement.checkState(new double[]{1.0}));
+            () -> BreakerElement.checkState(new double[]{1.0}));
 
-        assertEquals(0, EarthBlockEntity.EarthElement.snapshotState().length);
-        assertNotSame(KnifeSwitchBlockEntity.SwitchElement.snapshotState(),
-            KnifeSwitchBlockEntity.SwitchElement.snapshotState());
+        assertEquals(0, EarthElement.snapshotState().length);
+        assertNotSame(SwitchElement.snapshotState(),
+            SwitchElement.snapshotState());
     }
 
     @Test
     void fuseAssignSnapshotAndValidation() {
-        double[] fresh = FuseBoxBlockEntity.FuseElement.newStateArray();
+        double[] fresh = FuseElement.newStateArray();
         assertEquals(2, fresh.length);
         assertEquals(GridConstants.AMBIENT_C, fresh[0], 0.0);
         assertEquals(1.0, fresh[1], 0.0);
-        assertNotSame(FuseBoxBlockEntity.FuseElement.newStateArray(),
-            FuseBoxBlockEntity.FuseElement.newStateArray());
+        assertNotSame(FuseElement.newStateArray(),
+            FuseElement.newStateArray());
 
         // snapshotState clones: mutating the returned array leaves the live one alone.
         double[] live = {50.0, 0.5};
-        double[] snap = FuseBoxBlockEntity.FuseElement.snapshotState(live);
+        double[] snap = FuseElement.snapshotState(live);
         snap[0] = 999.0;
         assertEquals(50.0, live[0], 0.0);
 
         // assignState copies in: mutating the source afterwards leaves dst alone
         // (never retains the kernel array by reference).
-        double[] dst = FuseBoxBlockEntity.FuseElement.newStateArray();
+        double[] dst = FuseElement.newStateArray();
         double[] src = {60.0, 0.25};
-        FuseBoxBlockEntity.FuseElement.assignState(dst, src);
+        FuseElement.assignState(dst, src);
         src[0] = 999.0;
         assertEquals(60.0, dst[0], 0.0);
         assertEquals(0.25, dst[1], 0.0);
 
         assertThrows(IllegalArgumentException.class,
-            () -> FuseBoxBlockEntity.FuseElement.assignState(null, new double[2]));
+            () -> FuseElement.assignState(null, new double[2]));
         assertThrows(IllegalArgumentException.class,
-            () -> FuseBoxBlockEntity.FuseElement.assignState(new double[2], null));
+            () -> FuseElement.assignState(new double[2], null));
         assertThrows(IllegalArgumentException.class,
-            () -> FuseBoxBlockEntity.FuseElement.assignState(new double[2], new double[1]));
+            () -> FuseElement.assignState(new double[2], new double[1]));
         assertThrows(IllegalArgumentException.class,
-            () -> FuseBoxBlockEntity.FuseElement.assignState(new double[0], new double[2]));
+            () -> FuseElement.assignState(new double[0], new double[2]));
         assertThrows(IllegalArgumentException.class,
-            () -> FuseBoxBlockEntity.FuseElement.assignState(new double[3], new double[3]));
+            () -> FuseElement.assignState(new double[3], new double[3]));
     }
 
     // ---- NBT round-trips (production writeNbt/readNbt bodies) ----
 
     @Test
     void knifeNbtRoundTrip() {
-        assertTrue(KnifeSwitchBlockEntity.SwitchElement.DEFAULT_CLOSED);
+        assertTrue(SwitchElement.DEFAULT_CLOSED);
         Map<String, Object> store = new HashMap<>();
-        KnifeSwitchBlockEntity.SwitchElement.writeNbt(writeFake(store), false);
-        assertTrue(store.containsKey(KnifeSwitchBlockEntity.KEY_STATE_ARRAY));
-        assertEquals(false, KnifeSwitchBlockEntity.SwitchElement.readNbtClosed(readFake(store)));
+        SwitchElement.writeNbt(writeFake(store), false);
+        assertTrue(store.containsKey(SwitchElement.KEY_STATE_ARRAY));
+        assertEquals(false, SwitchElement.readNbtClosed(readFake(store)));
 
         // Absent flag falls back to the documented default.
-        assertEquals(KnifeSwitchBlockEntity.SwitchElement.DEFAULT_CLOSED,
-            KnifeSwitchBlockEntity.SwitchElement.readNbtClosed(readFake(new HashMap<>())));
+        assertEquals(SwitchElement.DEFAULT_CLOSED,
+            SwitchElement.readNbtClosed(readFake(new HashMap<>())));
     }
 
     @Test
     void contactorNbtRoundTrip() {
         Map<String, Object> store = new HashMap<>();
-        ContactorRelayBlockEntity.ContactorElement.writeNbt(writeFake(store), true);
-        assertTrue(ContactorRelayBlockEntity.ContactorElement.readNbtClosed(readFake(store)));
-        assertEquals(ContactorRelayBlockEntity.ContactorElement.DEFAULT_CLOSED,
-            ContactorRelayBlockEntity.ContactorElement.readNbtClosed(readFake(new HashMap<>())));
+        ContactorElement.writeNbt(writeFake(store), true);
+        assertTrue(ContactorElement.readNbtClosed(readFake(store)));
+        assertEquals(ContactorElement.DEFAULT_CLOSED,
+            ContactorElement.readNbtClosed(readFake(new HashMap<>())));
     }
 
     @Test
     void breakerNbtRoundTrip() {
         Map<String, Object> store = new HashMap<>();
-        CircuitBreakerBlockEntity.BreakerElement.writeNbt(writeFake(store), true);
-        assertTrue(CircuitBreakerBlockEntity.BreakerElement.readNbtTripped(readFake(store)));
-        assertEquals(CircuitBreakerBlockEntity.BreakerElement.DEFAULT_TRIPPED,
-            CircuitBreakerBlockEntity.BreakerElement.readNbtTripped(readFake(new HashMap<>())));
+        BreakerElement.writeNbt(writeFake(store), true);
+        assertTrue(BreakerElement.readNbtTripped(readFake(store)));
+        assertEquals(BreakerElement.DEFAULT_TRIPPED,
+            BreakerElement.readNbtTripped(readFake(new HashMap<>())));
     }
 
     @Test
     void fuseNbtRoundTrip() {
         Map<String, Object> store = new HashMap<>();
-        FuseBoxBlockEntity.FuseElement.writeNbt(writeFake(store), 123.5, 0.42, false);
-        double[] restored = FuseBoxBlockEntity.FuseElement.readNbtState(readFake(store));
+        FuseElement.writeNbt(writeFake(store), 123.5, 0.42, false);
+        double[] restored = FuseElement.readNbtState(readFake(store));
         assertEquals(123.5, restored[0], 0.0);
         assertEquals(0.42, restored[1], 0.0);
-        assertFalse(FuseBoxBlockEntity.FuseElement.readNbtBlown(readFake(store)));
+        assertFalse(FuseElement.readNbtBlown(readFake(store)));
 
         Map<String, Object> blownStore = new HashMap<>();
-        FuseBoxBlockEntity.FuseElement.writeNbt(writeFake(blownStore), 90.0, 0.0, true);
-        assertTrue(FuseBoxBlockEntity.FuseElement.readNbtBlown(readFake(blownStore)));
-        assertEquals(0.0, FuseBoxBlockEntity.FuseElement.readNbtState(readFake(blownStore))[1], 0.0);
+        FuseElement.writeNbt(writeFake(blownStore), 90.0, 0.0, true);
+        assertTrue(FuseElement.readNbtBlown(readFake(blownStore)));
+        assertEquals(0.0, FuseElement.readNbtState(readFake(blownStore))[1], 0.0);
     }
 
     @Test
     void staticDevicesNbtRoundTripWithoutThrowing() {
         Map<String, Object> earthStore = new HashMap<>();
-        EarthBlockEntity.EarthElement.writeNbt(writeFake(earthStore));
-        assertTrue(earthStore.containsKey(EarthBlockEntity.KEY_STATE_ARRAY));
-        EarthBlockEntity.EarthElement.readNbt(readFake(earthStore));
+        EarthElement.writeNbt(writeFake(earthStore));
+        assertTrue(earthStore.containsKey(EarthElement.KEY_STATE_ARRAY));
+        EarthElement.readNbt(readFake(earthStore));
 
         Map<String, Object> busStore = new HashMap<>();
-        CopperBusbarBlockEntity.BusbarElement.writeNbt(writeFake(busStore));
-        assertTrue(busStore.containsKey(CopperBusbarBlockEntity.KEY_STATE_ARRAY));
-        CopperBusbarBlockEntity.BusbarElement.readNbt(readFake(busStore));
+        BusbarElement.writeNbt(writeFake(busStore));
+        assertTrue(busStore.containsKey(BusbarElement.KEY_STATE_ARRAY));
+        BusbarElement.readNbt(readFake(busStore));
 
         Map<String, Object> spliceStore = new HashMap<>();
-        JunctionBoxBlockEntity.SpliceElement.writeNbt(writeFake(spliceStore));
-        assertTrue(spliceStore.containsKey(JunctionBoxBlockEntity.KEY_STATE_ARRAY));
-        JunctionBoxBlockEntity.SpliceElement.readNbt(readFake(spliceStore));
+        SpliceElement.writeNbt(writeFake(spliceStore));
+        assertTrue(spliceStore.containsKey(SpliceElement.KEY_STATE_ARRAY));
+        SpliceElement.readNbt(readFake(spliceStore));
     }
 
     @Test
     void fuseNbtIgnoresMalformedStateList() {
         Map<String, Object> store = new HashMap<>();
-        store.put(FuseBoxBlockEntity.KEY_STATE_ARRAY, List.of(1.0));
-        store.put(FuseBoxBlockEntity.KEY_BLOWN, true);
-        double[] restored = FuseBoxBlockEntity.FuseElement.readNbtState(readFake(store));
+        store.put(FuseElement.KEY_STATE_ARRAY, List.of(1.0));
+        store.put(FuseElement.KEY_BLOWN, true);
+        double[] restored = FuseElement.readNbtState(readFake(store));
         // Malformed state keeps fresh-fuse defaults; the discrete flag still restores.
         assertEquals(GridConstants.AMBIENT_C, restored[0], 0.0);
         assertEquals(1.0, restored[1], 0.0);
-        assertTrue(FuseBoxBlockEntity.FuseElement.readNbtBlown(readFake(store)));
+        assertTrue(FuseElement.readNbtBlown(readFake(store)));
     }
 
     // ---- fuse lifecycle end to end ----
@@ -638,12 +638,12 @@ class AdapterSwitchgearTest {
     void blownFuseIsOpenCircuitAtKernelLevel() {
         boolean[] intactBlown = {false};
         double intactI = loadCurrent(
-            seriesKernel(new FuseBoxBlockEntity.FuseElement(() -> intactBlown[0], new double[1]), LOAD_R), 2);
+            seriesKernel(new FuseElement(() -> intactBlown[0], new double[1]), LOAD_R), 2);
         assertTrue(intactI > 1.0, "intact fuse conducts, got " + intactI);
 
-        boolean[] deadBlown = {FuseBoxBlockEntity.FuseElement.blowCheck(0.0, false)};
+        boolean[] deadBlown = {FuseElement.blowCheck(0.0, false)};
         double deadI = loadCurrent(
-            seriesKernel(new FuseBoxBlockEntity.FuseElement(() -> deadBlown[0], new double[1]), LOAD_R), 2);
+            seriesKernel(new FuseElement(() -> deadBlown[0], new double[1]), LOAD_R), 2);
         assertTrue(deadI < 1e-6, "blown fuse isolates, got " + deadI);
     }
 
@@ -651,28 +651,28 @@ class AdapterSwitchgearTest {
     void fuseOverloadBlowsEndToEndWithOneTickDelayTelemetry() {
         boolean[] blown = {false};
         double[] tele = new double[1];
-        FuseBoxBlockEntity.FuseElement fuse =
-            new FuseBoxBlockEntity.FuseElement(() -> blown[0], tele);
+        FuseElement fuse =
+            new FuseElement(() -> blown[0], tele);
         ElectricalKernel k = seriesKernel(fuse, 0.01);
         // Seed kernel state from the BE copy (the topology owner must do this after every
         // setElements: the kernel zero-initializes, which would read as already-blown).
-        k.setElementState(1, FuseBoxBlockEntity.FuseElement.newStateArray());
+        k.setElementState(1, FuseElement.newStateArray());
 
         // BE-owned state copy in the test (production BE field); per-tick kernel->BE sync
         // followed by the discrete blow phase, exactly the GridManager protocol.
-        double[] beState = FuseBoxBlockEntity.FuseElement.newStateArray();
+        double[] beState = FuseElement.newStateArray();
         int ticksToBlow = -1;
         for (int t = 0; t < 2000 && !blown[0]; t++) {
             k.tick();
-            FuseBoxBlockEntity.FuseElement.assignState(beState, k.getElementState(1));
-            blown[0] = FuseBoxBlockEntity.FuseElement.blowCheck(
-                beState[FuseBoxBlockEntity.STATE_INTEGRITY], blown[0]);
+            FuseElement.assignState(beState, k.getElementState(1));
+            blown[0] = FuseElement.blowCheck(
+                beState[FuseElement.STATE_INTEGRITY], blown[0]);
             ticksToBlow = t + 1;
         }
         assertTrue(blown[0], "16x overload must eventually blow the fuse");
         assertTrue(ticksToBlow > 10, "must not blow instantly (seeding contract), took " + ticksToBlow);
         assertTrue(ticksToBlow < 500, "expected ~99 ticks at 480 A, took " + ticksToBlow);
-        assertTrue(beState[FuseBoxBlockEntity.STATE_TEMP] > GridConstants.AMBIENT_C,
+        assertTrue(beState[FuseElement.STATE_TEMP] > GridConstants.AMBIENT_C,
             "fuse heated while overloaded");
         assertTrue(tele[0] > 400.0, "telemetry observed the overload, got " + tele[0]);
 
@@ -681,7 +681,7 @@ class AdapterSwitchgearTest {
 
         // One more tick lets derivatives observe the open circuit: telemetry follows with delay.
         k.tick();
-        FuseBoxBlockEntity.FuseElement.assignState(beState, k.getElementState(1));
+        FuseElement.assignState(beState, k.getElementState(1));
         assertTrue(tele[0] < 1e-6, "telemetry current=" + tele[0]);
     }
 
@@ -690,16 +690,16 @@ class AdapterSwitchgearTest {
     @Test
     void terminalOffsetsAreAdjacentWorldPositions() {
         BlockPos p = new BlockPos(60, 64, 0);
-        assertArrayEquals(new int[][]{{0, -1, 0}}, EarthBlockEntity.EarthElement.TERMINAL_OFFSETS);
+        assertArrayEquals(new int[][]{{0, -1, 0}}, EarthElement.TERMINAL_OFFSETS);
         assertEquals(p.down(), p.add(0, -1, 0));
 
         int[][][] twoTerminal = {
-            KnifeSwitchBlockEntity.SwitchElement.TERMINAL_OFFSETS,
-            ContactorRelayBlockEntity.ContactorElement.TERMINAL_OFFSETS,
-            CopperBusbarBlockEntity.BusbarElement.TERMINAL_OFFSETS,
-            JunctionBoxBlockEntity.SpliceElement.TERMINAL_OFFSETS,
-            CircuitBreakerBlockEntity.BreakerElement.TERMINAL_OFFSETS,
-            FuseBoxBlockEntity.FuseElement.TERMINAL_OFFSETS,
+            SwitchElement.TERMINAL_OFFSETS,
+            ContactorElement.TERMINAL_OFFSETS,
+            BusbarElement.TERMINAL_OFFSETS,
+            SpliceElement.TERMINAL_OFFSETS,
+            BreakerElement.TERMINAL_OFFSETS,
+            FuseElement.TERMINAL_OFFSETS,
         };
         for (int[][] offsets : twoTerminal) {
             assertEquals(2, offsets.length);
