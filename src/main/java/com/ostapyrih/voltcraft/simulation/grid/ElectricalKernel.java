@@ -603,8 +603,10 @@ public final class ElectricalKernel {
 
     private void sanitizeTerminalVoltages(int[] terms, Complex[] vt, int k, int elemIdx) {
         if (k >= 4 && terms.length >= 4) {
-            if (!hasReturnPath(terms[0], terms[1], elemIdx, 0)
-                    || (lastNodeComponents != null && lastNodeComponents[terms[0]] != lastNodeComponents[terms[1]])) {
+            boolean ret = hasReturnPath(terms[0], terms[1], elemIdx, 0);
+            int c0 = lastNodeComponents != null ? lastNodeComponents[terms[0]] : -1;
+            int c1 = lastNodeComponents != null ? lastNodeComponents[terms[1]] : -1;
+            if (!ret || (lastNodeComponents != null && c0 != c1)) {
                 vt[0] = Complex.ZERO;
                 vt[1] = Complex.ZERO;
             }
@@ -642,7 +644,101 @@ public final class ElectricalKernel {
         if (lastSolution != null && lastSolution.length == n) {
             return lastSolution.clone();
         }
-        return ComplexNodalSolver.zeroVector(n);
+        return initialBiasPoint(n);
+    }
+
+    private Complex[] initialBiasPoint(int n) {
+        Complex[] zero = ComplexNodalSolver.zeroVector(n);
+        if (conductors.isEmpty() && elements.isEmpty()) {
+            return zero;
+        }
+        Complex[][] y = ComplexNodalSolver.zeroMatrix(n);
+        Complex[] inj = ComplexNodalSolver.zeroVector(n);
+        for (Conductor c : conductors) {
+            double r = Math.max(c.resistance(), MIN_CONDUCTOR_R_OHM);
+            Stamps.admittance(y, c.nodeA(), c.nodeB(), new Complex(1.0 / r, 0.0));
+        }
+        boolean hasSource = false;
+        for (int idx = 0; idx < elements.size(); idx++) {
+            ElectricalElement elem = elements.get(idx);
+            int[] t = elementTerminals.get(idx);
+            int k = elem.terminalCount();
+            Complex[][] yLocal = ComplexNodalSolver.zeroMatrix(k);
+            Complex[] iLocal = ComplexNodalSolver.zeroVector(k);
+            int[] local = new int[k];
+            for (int j = 0; j < k; j++) local[j] = j;
+            elem.stamp(yLocal, iLocal, local, zero, elementStates.get(idx), omega);
+            boolean isSource = false;
+            for (Complex c : iLocal) {
+                if (c != null && (Math.abs(c.re) > 1e-9 || Math.abs(c.im) > 1e-9)) {
+                    isSource = true;
+                    break;
+                }
+            }
+            if (isSource) {
+                hasSource = true;
+                for (int r = 0; r < k; r++) {
+                    int tr = t[r];
+                    inj[tr] = inj[tr].add(iLocal[r]);
+                    for (int c = 0; c < k; c++) {
+                        y[tr][t[c]] = y[tr][t[c]].add(yLocal[r][c]);
+                    }
+                }
+            }
+        }
+        if (!hasSource) {
+            return zero;
+        }
+        int ref = referenceNode;
+        if (ref < 0 || ref >= n) ref = 0;
+        boolean[] visited = new boolean[n];
+        Deque<Integer> stack = new ArrayDeque<>();
+        visited[ref] = true;
+        stack.push(ref);
+        while (!stack.isEmpty()) {
+            int i = stack.pop();
+            for (int j = 0; j < n; j++) {
+                if (j == i || visited[j]) continue;
+                Complex a = y[i][j];
+                Complex b = y[j][i];
+                if ((a.re != 0.0 || a.im != 0.0) || (b.re != 0.0 || b.im != 0.0)) {
+                    visited[j] = true;
+                    stack.push(j);
+                }
+            }
+        }
+        for (int j = 0; j < n; j++) {
+            y[ref][j] = j == ref ? Complex.ONE : Complex.ZERO;
+        }
+        inj[ref] = Complex.ZERO;
+        for (int i = 0; i < n; i++) {
+            if (!visited[i]) {
+                Deque<Integer> comp = new ArrayDeque<>();
+                visited[i] = true;
+                comp.push(i);
+                while (!comp.isEmpty()) {
+                    int a = comp.pop();
+                    for (int j = 0; j < n; j++) {
+                        if (j == a || visited[j]) continue;
+                        Complex u = y[a][j];
+                        Complex w = y[j][a];
+                        if ((u.re != 0.0 || u.im != 0.0) || (w.re != 0.0 || w.im != 0.0)) {
+                            visited[j] = true;
+                            comp.push(j);
+                        }
+                    }
+                }
+                for (int j = 0; j < n; j++) {
+                    y[i][j] = j == i ? Complex.ONE : Complex.ZERO;
+                }
+                inj[i] = Complex.ZERO;
+            }
+        }
+        SolveResult res = ComplexNodalSolver.solve(y, inj);
+        if (res.singular() || !allFinite(res.voltage())) {
+            return zero;
+        }
+        return res.voltage();
     }
 
     private static boolean allFinite(Complex[] v) {

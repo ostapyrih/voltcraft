@@ -16,6 +16,9 @@ import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.util.math.random.Random;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -69,15 +72,32 @@ public abstract class AbstractGridBlock extends Block implements IElectricalConn
             GridManager.get((ServerWorld) world).onConductorPlaced(
                 (ServerWorld) world, pos, getPlacementConductorType());
         }
-        // Item 1: seed kernel-attached block entities (batteries, panels,
-        // generators, switchgear, converters) into the island discovery index.
-        // Runs for every grid block regardless of shouldSeedNode: open switches and
-        // blown fuses hold no cable node but their BE (if any) still registers.
-        if (!world.isClient()) {
-            BlockEntity be = ((ServerWorld) world).getBlockEntity(pos);
+        if (!world.isClient() && world instanceof ServerWorld sw) {
+            sw.scheduleBlockTick(pos, this, 1);
+            BlockEntity be = sw.getBlockEntity(pos);
             if (be instanceof KernelAttachedBlock kab) {
-                GridManager.get((ServerWorld) world).putAttachedBlock(kab);
+                GridManager.get(sw).putAttachedBlock(kab);
             }
+        }
+    }
+
+    @Override
+    public void onPlaced(World world, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack itemStack) {
+        super.onPlaced(world, pos, state, placer, itemStack);
+        if (!world.isClient() && world instanceof ServerWorld sw) {
+            BlockEntity be = sw.getBlockEntity(pos);
+            if (be instanceof KernelAttachedBlock kab) {
+                GridManager.get(sw).putAttachedBlock(kab);
+            }
+        }
+    }
+
+    @Override
+    protected void scheduledTick(BlockState state, ServerWorld world, BlockPos pos, Random random) {
+        super.scheduledTick(state, world, pos, random);
+        BlockEntity be = world.getBlockEntity(pos);
+        if (be instanceof KernelAttachedBlock kab) {
+            GridManager.get(world).putAttachedBlock(kab);
         }
     }
 

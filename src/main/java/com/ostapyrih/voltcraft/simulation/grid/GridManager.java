@@ -843,6 +843,12 @@ public class GridManager extends PersistentState {
     public void onConductorPlaced(ServerWorld world, BlockPos pos, ConductorType type) {
         if (world != null && world.getBlockState(pos).getBlock() instanceof CableBlock) {
             putCable(pos, type); // marks topology + persistence dirty
+            for (Direction dir : Direction.values()) {
+                BlockEntity be = world.getBlockEntity(pos.offset(dir));
+                if (be instanceof KernelAttachedBlock kab) {
+                    putAttachedBlock(kab);
+                }
+            }
         }
     }
 
