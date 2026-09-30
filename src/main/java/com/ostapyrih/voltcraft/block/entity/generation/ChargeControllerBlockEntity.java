@@ -5,8 +5,12 @@ import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.storage.BatteryRackBlockEntity;
+import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.screen.handler.ConverterScreenHandler;
+import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
 import com.ostapyrih.voltcraft.simulation.generation.MPPTLogic;
+import com.ostapyrih.voltcraft.simulation.grid.GridManager;
+import com.ostapyrih.voltcraft.simulation.grid.IslandContext;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -191,6 +195,20 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
 
     public double getUpstreamAvailableSolarWatts() {
         if (world instanceof ServerWorld sw) {
+            GridManager gm = GridManager.get(sw);
+            IslandContext island = gm.getIslandAt(pos);
+            if (island != null) {
+                double total = 0.0;
+                for (KernelAttachedBlock kab : island.blocks()) {
+                    if (kab instanceof SolarPanelBlockEntity sp) {
+                        total += sp.getPeakPowerAvailable();
+                    }
+                }
+                if (total > 0.0) {
+                    return total;
+                }
+            }
+
             Direction inDir = getInputPortDirection();
             BlockPos inPos = pos.offset(inDir);
 
@@ -232,17 +250,33 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
                 mpptLogic.getTargetInputVoltage(), calculateInputPowerDemand(), lastDemandWatts);
         mpptLogic.step(inputVoltage, inputCurrentAmps, battV, settled);
 
+        double targetV;
         if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK
                 || mpptLogic.getStage() == MPPTLogic.ChargeStage.ABSORPTION) {
-            return mpptLogic.getAbsorptionVoltage();
+            targetV = mpptLogic.getAbsorptionVoltage();
         } else {
-            return mpptLogic.getFloatVoltage();
+            targetV = mpptLogic.getFloatVoltage();
         }
+
+        // Limit output EMF according to available upstream solar power to prevent overloading solar panels
+        double availSolar = getUpstreamAvailableSolarWatts();
+        if (availSolar > 0.0 && actualOutputVoltage > DEAD_RAIL_VOLTAGE) {
+            double pOutMax = availSolar * getEfficiency();
+            double iMax = Math.min(MAX_OUTPUT_CURRENT_A, pOutMax / Math.max(1.0, actualOutputVoltage));
+            double vMaxFoldback = actualOutputVoltage + iMax * ConverterElement.SOURCE_R_OHM;
+            targetV = Math.min(targetV, vMaxFoldback);
+        }
+
+        return targetV;
     }
 
     @Override
     public void tickElectrical(ServerWorld world) {
         super.tickElectrical(world);
+        double availSolar = getUpstreamAvailableSolarWatts();
+        if (availSolar > 0.0) {
+            this.stagedInputDemandWatts = Math.min(this.stagedInputDemandWatts, availSolar);
+        }
         if (hasDownstreamStorage() && isBatteryVoltageMismatch(actualOutputVoltage)) {
             if (tripGraceTicks == 0) {
                 this.tripped = true;

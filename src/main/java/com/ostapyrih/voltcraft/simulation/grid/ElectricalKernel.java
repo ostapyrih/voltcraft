@@ -279,7 +279,16 @@ public final class ElectricalKernel {
             Stamps.admittance(y, c.nodeA(), c.nodeB(), new Complex(1.0 / r, 0.0));
         }
         for (int idx = 0; idx < elements.size(); idx++) {
-            elements.get(idx).stamp(y, inj, elementTerminals.get(idx), v, elementStates.get(idx), omega);
+            int[] t = elementTerminals.get(idx);
+            int[] active = t;
+            if (t.length == 4) {
+                boolean port0Open = !hasReturnPath(t[0], t[1], idx, 0);
+                if (port0Open) {
+                    active = t.clone();
+                    active[0] = active[1] = t[0];
+                }
+            }
+            elements.get(idx).stamp(y, inj, active, v, elementStates.get(idx), omega);
         }
         if (nodeCount <= 0) {
             return;
@@ -411,7 +420,7 @@ public final class ElectricalKernel {
             for (int j = 0; j < k; j++) {
                 vt[j] = v[terms[j]];
             }
-            sanitizeTerminalVoltages(terms, vt, k);
+            sanitizeTerminalVoltages(terms, vt, k, idx);
             Complex[] it = terminalCurrents(idx, v);
             double[] k1 = new double[state.length];
             element.derivatives(k1, state, vt.clone(), it.clone());
@@ -516,7 +525,7 @@ public final class ElectricalKernel {
             }
             vt[j] = Objects.requireNonNull(v[t], "v[" + t + "]");
         }
-        sanitizeTerminalVoltages(terms, vt, k);
+        sanitizeTerminalVoltages(terms, vt, k, elementIndex);
         Complex[][] yl = ComplexNodalSolver.zeroMatrix(k);
         Complex[] il = ComplexNodalSolver.zeroVector(k);
         int[] local = new int[k];
@@ -527,7 +536,13 @@ public final class ElectricalKernel {
         element.stamp(yl, il, local, vt, elementStates.get(elementIndex), omega);
         Stamps.clearFallbackFlag();
         Complex[] it = new Complex[k];
+        boolean port0Open = k >= 4 && !hasReturnPath(terms[0], terms[1], elementIndex, 0);
+        boolean port1Open = k >= 4 && !hasReturnPath(terms[2], terms[3], elementIndex, 1);
         for (int j = 0; j < k; j++) {
+            if ((j < 2 && port0Open) || (j >= 2 && port1Open)) {
+                it[j] = Complex.ZERO;
+                continue;
+            }
             Complex acc = Complex.ZERO;
             for (int m = 0; m < k; m++) {
                 acc = acc.add(yl[j][m].mul(vt[m]));
@@ -537,13 +552,61 @@ public final class ElectricalKernel {
         return it;
     }
 
-    private void sanitizeTerminalVoltages(int[] terms, Complex[] vt, int k) {
-        if (lastNodeComponents != null) {
-            if (k >= 2 && terms.length >= 2 && lastNodeComponents[terms[0]] != lastNodeComponents[terms[1]]) {
-                vt[0] = vt[1];
+    boolean hasReturnPath(int termA, int termB, int excludeElementIndex, int excludePort) {
+        if (nodeCount <= 0 || termA < 0 || termA >= nodeCount || termB < 0 || termB >= nodeCount) {
+            return false;
+        }
+        if (termA == termB) {
+            return true;
+        }
+        List<List<Integer>> adj = new ArrayList<>(nodeCount);
+        for (int i = 0; i < nodeCount; i++) {
+            adj.add(new ArrayList<>());
+        }
+        for (Conductor c : conductors) {
+            adj.get(c.nodeA()).add(c.nodeB());
+            adj.get(c.nodeB()).add(c.nodeA());
+        }
+        for (int i = 0; i < elements.size(); i++) {
+            int[] t = elementTerminals.get(i);
+            if (t.length >= 2) {
+                if (i != excludeElementIndex || excludePort != 0) {
+                    adj.get(t[0]).add(t[1]);
+                    adj.get(t[1]).add(t[0]);
+                }
             }
-            if (k >= 4 && terms.length >= 4 && lastNodeComponents[terms[2]] != lastNodeComponents[terms[3]]) {
-                vt[2] = vt[3];
+            if (t.length >= 4) {
+                if (i != excludeElementIndex || excludePort != 1) {
+                    adj.get(t[2]).add(t[3]);
+                    adj.get(t[3]).add(t[2]);
+                }
+            }
+        }
+        boolean[] visited = new boolean[nodeCount];
+        Deque<Integer> queue = new ArrayDeque<>();
+        visited[termA] = true;
+        queue.add(termA);
+        while (!queue.isEmpty()) {
+            int curr = queue.poll();
+            if (curr == termB) {
+                return true;
+            }
+            for (int neighbor : adj.get(curr)) {
+                if (!visited[neighbor]) {
+                    visited[neighbor] = true;
+                    queue.add(neighbor);
+                }
+            }
+        }
+        return false;
+    }
+
+    private void sanitizeTerminalVoltages(int[] terms, Complex[] vt, int k, int elemIdx) {
+        if (k >= 4 && terms.length >= 4) {
+            if (!hasReturnPath(terms[0], terms[1], elemIdx, 0)
+                    || (lastNodeComponents != null && lastNodeComponents[terms[0]] != lastNodeComponents[terms[1]])) {
+                vt[0] = Complex.ZERO;
+                vt[1] = Complex.ZERO;
             }
         }
     }

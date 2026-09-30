@@ -623,4 +623,66 @@ class AdapterConvertersTest {
         assertEquals(0.0, convNeg.tele[ConverterElement.TELE_V_IN], 1e-9,
             "Connecting only negative wire must also measure 0.0V");
     }
+
+    @Test
+    void testMPPTOutputFoldbackUnderHeavyParallelLoad() {
+        // Battery at 12.0V nominal, 2500W load in parallel, 400W solar panel upstream.
+        // Converter output must fold back EMF so output power does not exceed solar capacity (380W).
+        double vBus = 12.0;
+        double availSolar = 400.0;
+        double eff = 0.95;
+        double pOutMax = availSolar * eff; // 380W
+        double iMax = pOutMax / vBus; // 31.67 A
+        double vMaxFoldback = vBus + iMax * ConverterElement.SOURCE_R_OHM; // 12.0 + 31.67 * 0.05 = 13.58V
+
+        Staged conv = new Staged();
+        conv.demand[0] = Math.min(availSolar, pOutMax / eff); // 380W / 0.95 = 400W
+        conv.emf[0] = vMaxFoldback;
+        conv.vnom[0] = 48.0;
+
+        ElectricalKernel k = new ElectricalKernel();
+        // Node 0, 1: Solar input
+        // Node 2, 3: Battery + 2500W load + MPPT output rail
+        k.setNodeCount(4);
+        k.setOmega(0.0);
+        // Heavy load: 2500W at ~12V is R ≈ 144 / 2500 ≈ 0.0576 Ohm
+        double rLoad = (vBus * vBus) / 2500.0;
+        k.setElements(
+            List.of(
+                new TestThevenin(48.0, 0.05), // Solar
+                conv.element(),
+                new TestThevenin(12.0, 0.01), // Battery
+                new TestResistor(rLoad)        // 2500W Load
+            ),
+            List.of(
+                new int[]{0, 1},
+                new int[]{0, 1, 2, 3},
+                new int[]{2, 3},
+                new int[]{2, 3}
+            )
+        );
+        k.setConductors(List.of());
+        k.setInitialVoltage(new Complex[]{
+            new Complex(48.0, 0.0), Complex.ZERO,
+            new Complex(12.0, 0.0), Complex.ZERO
+        });
+        k.tick();
+
+        // MPPT discrete control loop senses the loaded/sagged rail voltage (teleVOut)
+        // and settles within a few ticks to the solar capability.
+        for (int tick = 0; tick < 5; tick++) {
+            double saggedRailV = conv.tele[ConverterElement.TELE_V_OUT];
+            assertTrue(saggedRailV < vBus, "Rail should sag under 2500W load");
+            double iMaxAdapted = pOutMax / Math.max(1.0, saggedRailV);
+            conv.emf[0] = saggedRailV + iMaxAdapted * ConverterElement.SOURCE_R_OHM;
+            conv.demand[0] = Math.min(availSolar, pOutMax / eff);
+            k.tick();
+        }
+
+        double pOutDelivered = conv.tele[ConverterElement.TELE_P_OUT];
+        assertTrue(pOutDelivered <= pOutMax + 5.0,
+            "Converter output power (" + pOutDelivered + "W) must settle near solar limit (" + pOutMax + "W)");
+        assertTrue(pOutDelivered > 350.0,
+            "Converter should still supply significant solar power (" + pOutDelivered + "W)");
+    }
 }

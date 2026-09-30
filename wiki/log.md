@@ -1,15 +1,22 @@
-## [2026-09-30] fix | MPPT floating node phantom input, 13.6V float lock, converter port orientations and textures
+## [2026-09-30] fix | MPPT power output foldback, Newton solver convergence lockup, and single-wire return path verification
 
 * **User Directive:**
-  1. Fix MPPT Solar Charge Controller not charging connected battery and outputting 13.6V instead of ~14.4V.
-  2. Fix phantom single-wire reading: connecting only solar panel minus (`-`) without plus (`+`) to MPPT immediately showed input voltage on MPPT, whereas plus (`+`) alone showed 0V.
+  1. Fix MPPT output showing >400W (e.g. 500W–600W+) on a 400W solar panel when connected to a 12V battery and a parallel 2500W load.
+  2. Fix circuit lockup/freeze: turning off the 2500W load dropped telemetry to 30W, but turning it back on caused it not to draw any load (0W) until the MPPT was disconnected.
+  3. Fix MPPT operating when only the solar panel positive wire (`+`) or negative wire (`-`) was connected without a return wire.
 * **Root Causes & Physics Solved:**
-  1. **Floating Node Component Grounding in Solver:** Disconnected nodes in the MNA admittance matrix $Y$ each had an arbitrary reference node set to $0.0\,\text{V}$. When only one solar terminal was connected to MPPT, the unconnected floating terminals both received $0.0\,\text{V}$ reference values, synthesizing a phantom circuit return through the mathematical ground reference. Fixed in `ElectricalKernel.java` by tracking connected components (`lastNodeComponents`) and sanitizing terminal voltage differentials (`sanitizeTerminalVoltages`) to $0.0\,\text{V}$ whenever terminals belong to disconnected subgraphs.
-  2. **MPPT Premature Transition to Float (13.6V) & Multi-Bank Scaling (12V/24V/48V):** When unloaded, the open-circuit output voltage ($14.4\,\text{V}$ / $28.8\,\text{V}$ / $57.6\,\text{V}$) was read as battery voltage reaching absorption threshold, jumping from `BULK` to `ABSORPTION`. Because input current was zero ($<0.2\,\text{A}$), it immediately fell to `FLOAT` ($13.6\,\text{V}$ / $27.2\,\text{V}$ / $54.4\,\text{V}$) on the next tick. Fixed in `MPPTLogic.java` so transitioning to `ABSORPTION` requires active charging current ($\ge 0.2\,\text{A}$), keeping unloaded or early-stage battery output at the full absorption EMF. All absorption, float, hysteresis drop limits, and margin thresholds scale proportionally across 12V, 24V, and 48V battery bank presets.
-  3. **Converter Port Connections & Textures:** `AbstractPowerConverterBlock` previously restricted `canConnect` only to front and back, preventing cables from connecting to left and right faces. Corrected to `side.getAxis().isHorizontal()`. Updated `AbstractGridBlock.shouldSeedNode` default to `false` for multi-terminal attached blocks. Flipped 15 top textures (`*_top.png`) so top edge is Green (Output +) and bottom is Blue (Input +), matching 3D face terminal alignments.
+  1. **MPPT Power Overdemand & Output Foldback:**
+     - In `ConverterElement.stamp`, MPPT output was stamped as an unconstrained Thevenin source ($R=0.05\,\Omega, V_{\text{emf}}=14.4\,\text{V}$). Under heavy parallel load on a 12V bus, current soared to $>50\,\text{A}$ ($>600\,\text{W}$). `AbstractPowerConverterBlockEntity.tickElectrical` previously staged upstream demand as $P_{\text{out}} / \eta + 2.0\,\text{W}$ without capping to available solar generation ($P_{\text{solar}}$), demanding impossible power from a 400W panel.
+     - Demanding a 600W constant-power load on a 400W source has no real mathematical solution. Newton-Raphson in `ElectricalKernel.solve()` diverged (`converged = false`), which caused `ElectricalKernel.tick()` to skip element state/telemetry integration, freezing the 2500W load telemetry at 0W until the MPPT was detached.
+     - Fixed in [`ChargeControllerBlockEntity.java`](file:///home/ostapyrih/Projects/voltcraft/src/main/java/com/ostapyrih/voltcraft/block/entity/generation/ChargeControllerBlockEntity.java):
+       - Dynamically fold back output EMF: $P_{\text{out,max}} = P_{\text{solar}} \times \eta$, $I_{\text{max}} = \min(60\,\text{A}, P_{\text{out,max}} / V_{\text{bus}})$, $V_{\text{target}} = \min(V_{\text{absorption}}, V_{\text{bus}} + I_{\text{max}} \cdot R_{\text{source}})$. Heavy parallel loads now draw extra current from the battery instead of collapsing the solar panel.
+       - Clamped `stagedInputDemandWatts` to `availSolar`.
+  2. **Topological Return Path Verification (Single-Wire Phantom Current):**
+     - When only one wire was connected between a solar panel and MPPT, the internal admittances formed an open chain. In MNA, grounding an arbitrary node in that component destroyed current conservation on Norton injections, driving phantom current through the ground reference.
+     - Added `hasReturnPath(termA, termB, excludeElementIndex, excludePort)` in [`ElectricalKernel.java`](file:///home/ostapyrih/Projects/voltcraft/src/main/java/com/ostapyrih/voltcraft/simulation/grid/ElectricalKernel.java) to verify topological return circuits. If a 4-terminal converter's input port has no closed return path, Port 0 degenerates its stamp and clamps input voltages and currents to 0.0, strictly enforcing cut-set laws.
 * **Tests & Verification:**
-  * Added `singleWireInputProducesZeroVoltsTelemetry` in `AdapterConvertersTest`, `testMPPTUnloadedOutputStaysBulk` and `testMPPTBankModes12V24V48V` in `SolarAndGenerationPhysicsTest`.
-  * All unit test suites pass (`./gradlew test`).
+  * Added `testMPPTOutputFoldbackUnderHeavyParallelLoad` in [`AdapterConvertersTest.java`](file:///home/ostapyrih/Projects/voltcraft/src/test/java/com/ostapyrih/voltcraft/simulation/grid/AdapterConvertersTest.java).
+  * Full test suite green (162/162 tests pass cleanly).
 
 ## [2026-09-27] refactor | EU converter rebranded to standard E energy bridge
 
