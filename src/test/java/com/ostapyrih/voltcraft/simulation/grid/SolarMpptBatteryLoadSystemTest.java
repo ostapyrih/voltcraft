@@ -128,8 +128,6 @@ public class SolarMpptBatteryLoadSystemTest {
         // Reference to solar panels in the grid
         final List<SolarPanelModel> solarPanels = new ArrayList<>();
 
-        int underVoltageTicks = 0;
-
         MPPTModel(BlockPos pos, Direction facing) {
             this.pos = pos;
             this.facing = facing;
@@ -228,15 +226,20 @@ public class SolarMpptBatteryLoadSystemTest {
             }
             this.lastDemandWatts = stagedInputDemandWatts;
 
-            // UVLO and overload trip logic: exactly matching AbstractPowerConverterBlockEntity.java:345-360
-            boolean uvloCond = teleVIn > 1.0 && teleVIn < 15.0 * ConverterElement.UVLO_TRIP_MARGIN;
-            underVoltageTicks = ConverterElement.advanceCounter(underVoltageTicks, uvloCond);
-            if (teleVIn >= 15.0) {
-                underVoltageTicks = 0;
+            // Output current foldback (hiccup, non-latching), mirroring
+            // AbstractPowerConverterBlockEntity: sag EMF to current-limit instead
+            // of latching a trip; recovers automatically once overload clears.
+            // UVLO is a non-latching brownout (output gates on minVin via
+            // stageEmf), so the rail recovers by itself.
+            double maxOut = 30.0;
+            if (!tripped && teleIOut > maxOut) {
+                double currentLimitEmf = Math.max(0.0, teleVOut)
+                    + maxOut * ConverterElement.SOURCE_R_OHM;
+                if (stagedOutputEmf > currentLimitEmf) {
+                    stagedOutputEmf = currentLimitEmf;
+                }
             }
-            boolean uvloNow = underVoltageTicks >= ConverterElement.UVLO_TRIP_TICKS;
-            boolean overloadNow = teleIOut > 30.0;
-            boolean next = ConverterElement.tripNext(tripped, 25.0, overloadNow, false, uvloNow);
+            boolean next = ConverterElement.tripNext(tripped, 25.0, false, false, false);
             if (next != tripped) {
                 tripped = next;
             }

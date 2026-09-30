@@ -74,12 +74,8 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
     protected double temperatureCelsius = DEFAULT_TEMPERATURE_C;
     protected boolean tripped = false;
     protected int antiIslandingTicks = 0;
-    protected int underVoltageTicks = 0;
-    protected int tripCooldownTicks = 0;
     protected int tripGraceTicks = 0;
 
-    protected double inputCurrentCap = 0.0;
-    protected boolean outputHungry = false;
     protected double lastDemandWatts = UNINITIALIZED_DEMAND_WATTS;
 
     protected ElectricalState reportedState = ElectricalState.OFF;
@@ -185,7 +181,6 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     public void setNominalInputVoltage(double voltage) {
         this.tripGraceTicks = DEFAULT_TRIP_GRACE_TICKS;
-        this.underVoltageTicks = 0;
     }
 
     public double getOutputFrequency() {
@@ -343,19 +338,27 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         }
         boolean grace = tripGraceTicks > 0;
         double maxOut = Math.max(0.0, getMaxOutputCurrent());
-        boolean overloadNow = !grace && maxOut > 0.0 && teleIOut > maxOut;
+        // Output current foldback (hiccup, non-latching): when the previous-tick
+        // output current exceeds the rating, sag the staged EMF so the next solve
+        // is current-limited instead of latching a permanent trip. Recovers
+        // automatically once the overload clears (cable churn, hot-swap, inrush).
+        if (!tripped && maxOut > 0.0 && teleIOut > maxOut) {
+            double currentLimitEmf = Math.max(0.0, teleVOut)
+                + maxOut * ConverterElement.SOURCE_R_OHM;
+            if (stagedOutputEmf > currentLimitEmf) {
+                stagedOutputEmf = currentLimitEmf;
+                outputVoltageEmf = stagedOutputEmf;
+            }
+        }
         boolean islandCond = !grace && isGridTie() && teleVOut < ConverterElement.ANTI_ISLAND_MIN_VOLTS;
         antiIslandingTicks = ConverterElement.advanceCounter(antiIslandingTicks, islandCond);
         boolean islandNow = antiIslandingTicks >= ConverterElement.ANTI_ISLAND_TRIP_TICKS;
-        boolean uvloCond = !grace && teleVIn > ConverterElement.DEAD_RAIL_VOLTS
-            && teleVIn < minVin * ConverterElement.UVLO_TRIP_MARGIN;
-        underVoltageTicks = ConverterElement.advanceCounter(underVoltageTicks, uvloCond);
-        if (teleVIn >= minVin) {
-            underVoltageTicks = 0;
-        }
-        boolean uvloNow = underVoltageTicks >= ConverterElement.UVLO_TRIP_TICKS;
+        // UVLO is a non-latching brownout: output staging already gates on the
+        // input rail (stageEmf/computeOutputVoltage return 0 below minVin) and the
+        // reported state drops to BROWNOUT/OFF, so the rail recovers by itself.
+        // Only overtemperature and grid-tie anti-islanding latch a trip.
         boolean next = ConverterElement.tripNext(tripped, temperatureCelsius,
-            overloadNow, islandNow, uvloNow);
+            false, islandNow, false);
         if (next != tripped) {
             tripped = next;
             markDirty();
@@ -462,12 +465,8 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     public void resetTrip() {
         this.tripped = false;
-        this.tripCooldownTicks = 0;
-        this.underVoltageTicks = 0;
         this.antiIslandingTicks = 0;
         this.tripGraceTicks = DEFAULT_TRIP_GRACE_TICKS;
-        this.inputCurrentCap = 0.0;
-        this.outputHungry = false;
         this.lastDemandWatts = UNINITIALIZED_DEMAND_WATTS;
         markDirty();
     }
@@ -527,8 +526,6 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         this.temperatureCelsius = view.getDouble("temperature", DEFAULT_TEMPERATURE_C);
         this.tripped = view.getBoolean("tripped", false);
         this.tripGraceTicks = DEFAULT_TRIP_GRACE_TICKS;
-        this.inputCurrentCap = 0.0;
-        this.outputHungry = false;
         this.lastDemandWatts = UNINITIALIZED_DEMAND_WATTS;
         this.reportedState = ElectricalState.OFF;
         readStateData(view);
