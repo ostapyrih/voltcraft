@@ -2,7 +2,6 @@ package com.ostapyrih.voltcraft.simulation.grid;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
-import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.electrical.Conductor;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
 import com.ostapyrih.voltcraft.api.electrical.GridConstants;

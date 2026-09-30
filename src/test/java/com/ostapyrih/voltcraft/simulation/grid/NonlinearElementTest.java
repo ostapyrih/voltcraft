@@ -3,7 +3,6 @@ package com.ostapyrih.voltcraft.simulation.grid;
 import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.electrical.Conductor;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
-import com.ostapyrih.voltcraft.api.electrical.GridConstants;
 import com.ostapyrih.voltcraft.api.electrical.Stamps;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalKernel.KernelSolveResult;
 import com.ostapyrih.voltcraft.simulation.solver.ComplexNodalSolver;
