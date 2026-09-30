@@ -52,20 +52,25 @@ import java.util.concurrent.ConcurrentHashMap;
  * cable-to-cable and cable-to-terminal use {@code cableR} (per-type base
  * resistance, averaged for mixed gauges, else
  * {@link CableConductorAdapter#DEFAULT_CABLE_R_OHM}); terminal-to-terminal uses
- * {@link CableConductorAdapter#TERMINAL_LINK_R_OHM}.</p>
+ * {@link CableConductorAdapter#TERMINAL_LINK_R_OHM}. If either endpoint of a pair
+ * is a cable node (including a node that is both cable and terminal), the pair is
+ * a cable conductor; the terminal link applies only to pure terminal-to-terminal pairs.</p>
  *
  * <p>Island connectivity = topology conductors OR same-block terminal
  * ownership: all terminals of one block land in the same island even with no
  * cable between them. Implemented with union-find (BFS-equivalent) over the
  * sorted node set; islands are ordered by their minimum node position, node
  * indices follow the sorted node order, and element indices follow the sorted
- * block-entity positions — all deterministic regardless of discovery order.</p>
+ * block-entity positions — all deterministic regardless of discovery order.
+ * Zero-terminal elements are island-agnostic and are hosted by exactly one island
+ * (the first in order) so they tick once per server tick.</p>
  *
  * <p>Index lifecycle: entries arrive via place/break hooks and chunk-load scans
- * (which imply a loaded chunk, so they mark it loaded); chunk unload only
- * clears the loaded flag while the index entry is retained for persistence.
- * Rebuilds include only positions whose own chunk is currently loaded, so
- * unloaded chunks contribute nothing. No full scan runs per tick. Melts and
+ * (which imply a loaded chunk, so they mark it loaded); chunk unload clears the
+ * loaded flag and drops attached-block references of that chunk (block entities are
+ * re-registered by the next chunk-load scan), while cable entries are retained for
+ * persistence. Rebuilds include only positions whose own chunk is currently loaded,
+ * so unloaded chunks contribute nothing. No full scan runs per tick. Melts and
  * topology mutations are queued ({@code pendingBreaks}, dirty flag) and applied
  * at the next rebuild boundary only, never mid-tick.</p>
  */
@@ -120,7 +125,7 @@ public class GridManager extends PersistentState {
     private final Map<BlockPos, KernelAttachedBlock> attachedBlocks = new ConcurrentHashMap<>();
     private final List<IslandContext> islands = new ArrayList<>();
     private final Set<BlockPos> pendingBreaks = new LinkedHashSet<>();
-    private boolean topologyDirty = true;
+    private volatile boolean topologyDirty = true;
     private boolean seeded = false;
     private CableScanner cableScanner = GridManager::defaultScan;
 
@@ -196,19 +201,24 @@ public class GridManager extends PersistentState {
         // Register server tick event: centralized kernel-island tick execution
         ServerTickEvents.END_WORLD_TICK.register(world -> get(world).tick(world));
 
-        // Track chunk loaded/unloaded boundaries for both the legacy gate and the island gate
-        ServerChunkEvents.CHUNK_LOAD.register((world, chunk) -> get(world).onChunkLoad(chunk.getPos()));
+        // Chunk boundaries: load scans the chunk for cables and attached block entities,
+        // unload drops the chunk's attached-block references.
+        ServerChunkEvents.CHUNK_LOAD.register((world, chunk) -> get(world).onChunkLoad(world, chunk));
         ServerChunkEvents.CHUNK_UNLOAD.register((world, chunk) -> get(world).onChunkUnload(chunk.getPos()));
     }
 
     public void tick(ServerWorld world) {
         // Kernel island path. Tick order: rebuild if dirty -> per-island kernel.tick() ->
-        // fallback branch stub -> melted scan -> queue break + dirty. Mutations queued
-        // during island ticks apply at the next rebuild boundary only.
-        if (!seeded) {
-            if (world != null) {
+        // fallback branch stub -> melted scan (converged solutions only) -> queue break + dirty.
+        // Mutations queued during island ticks apply at the next rebuild boundary only.
+        if (!seeded && world != null) {
+            // Seed only once there is something to seed from; an empty loaded set
+            // would otherwise consume the one-shot seed for nothing.
+            if (!loadedChunks.isEmpty()) {
                 seedFromLoadedChunks(world);
+                seeded = true;
             }
+        } else if (!seeded) {
             seeded = true;
         }
         if (topologyDirty) {
@@ -230,16 +240,18 @@ public class GridManager extends PersistentState {
         island.setFallbackActive(observed.fallbackActive());
         if (observed.converged() && !observed.singular()) {
             syncKernelStatesToBlocks(island);
+            // Melt detection only on a valid operating point: a diverged or singular
+            // solve produces meaningless currents and must not destroy cables.
+            for (Conductor conductor : island.kernel().findMeltedConductors()) {
+                if (conductor instanceof CableConductorAdapter adapter
+                    && !adapter.isTerminalLink()
+                    && adapter.breakCandidate() != null) {
+                    pendingBreaks.add(adapter.breakCandidate());
+                }
+            }
         }
         // Else discard branch stub: kernel.tick() already gates integration on
         // converged && !singular, so failed operating points change no state.
-        for (Conductor conductor : island.kernel().findMeltedConductors()) {
-            if (conductor instanceof CableConductorAdapter adapter
-                && !adapter.isTerminalLink()
-                && adapter.breakCandidate() != null) {
-                pendingBreaks.add(adapter.breakCandidate());
-            }
-        }
         if (!pendingBreaks.isEmpty()) {
             markTopologyDirty();
         }
@@ -257,14 +269,15 @@ public class GridManager extends PersistentState {
     // ---------------------------------------------------------------------
 
     /**
-     * Records a cable observation; implies its chunk is loaded. Marks dirty.
-     * World-free so tests can drive the index directly.
+     * Records a cable observation; implies its chunk is loaded. Marks dirty
+     * (topology and persistence). World-free so tests can drive the index directly.
      */
     public void putCable(BlockPos pos, ConductorType type) {
         BlockPos imm = pos.toImmutable();
         knownCables.put(imm, type != null ? type : ConductorType.INSULATED_COPPER);
         loadedChunks.add(ChunkKey.of(imm));
         markTopologyDirty();
+        markDirty();
     }
 
     /** Records a cable without touching chunk state (used when restoring persisted data). */
@@ -276,6 +289,7 @@ public class GridManager extends PersistentState {
     public void removeCable(BlockPos pos) {
         knownCables.remove(pos);
         markTopologyDirty();
+        markDirty();
     }
 
     /** Records a kernel-attached block; implies its chunk and its terminals' chunks are loaded. Marks dirty. */
@@ -302,11 +316,53 @@ public class GridManager extends PersistentState {
         markTopologyDirty();
     }
 
+    /**
+     * Production chunk-load hook: marks the chunk loaded, then scans it for cables and
+     * kernel-attached block entities so chunks that were not part of the initial seed
+     * are discovered.
+     */
+    public void onChunkLoad(ServerWorld world, WorldChunk chunk) {
+        if (chunk == null) {
+            return;
+        }
+        ChunkPos cp = chunk.getPos();
+        loadedChunks.add(new ChunkKey(cp.x, cp.z));
+        Map<BlockPos, ConductorType> found = new HashMap<>();
+        try {
+            scanChunkInto(chunk, found);
+        } catch (Exception ignored) {
+            // A chunk that cannot be scanned contributes nothing this time.
+        }
+        for (Map.Entry<BlockPos, ConductorType> entry : found.entrySet()) {
+            putCableRaw(entry.getKey(), entry.getValue());
+        }
+        try {
+            Map<BlockPos, BlockEntity> entities = chunk.getBlockEntities();
+            if (entities != null) {
+                for (BlockEntity be : new ArrayList<>(entities.values())) {
+                    if (be instanceof KernelAttachedBlock kab) {
+                        putAttachedBlock(kab);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // See above.
+        }
+        markTopologyDirty();
+    }
+
     public void onChunkLoad(ChunkPos chunkPos) {
         onChunkLoad(chunkPos.x, chunkPos.z);
     }
 
+    /**
+     * Production chunk-unload hook: drops attached-block references that belong to the
+     * chunk (stale block entities are re-registered on the next load scan), then clears
+     * the loaded flag. Cable entries are retained for persistence.
+     */
     public void onChunkUnload(ChunkPos chunkPos) {
+        ChunkKey key = new ChunkKey(chunkPos.x, chunkPos.z);
+        attachedBlocks.keySet().removeIf(pos -> ChunkKey.of(pos).equals(key));
         onChunkUnload(chunkPos.x, chunkPos.z);
     }
 
@@ -329,7 +385,7 @@ public class GridManager extends PersistentState {
     /**
      * Seeds the cable index from a full scan of the currently loaded chunks,
      * then seeds kernel-attached block entities from the same chunks.
-     * Runs at most once per manager lifetime (first tick).
+     * Runs at most once per manager lifetime (first tick with a non-empty loaded set).
      */
     public void seedFromLoadedChunks(ServerWorld world) {
         if (world == null || loadedChunks.isEmpty()) {
@@ -346,14 +402,14 @@ public class GridManager extends PersistentState {
         }
         seedAttachedBlocks(world);
         markTopologyDirty();
+        markDirty();
     }
 
     /**
-     * Item 1: production seed path for {@link KernelAttachedBlock}
-     * block entities. Walks only chunks already in the loaded set (never touches
-     * unloaded chunks) and registers every attached BE found via
-     * {@code WorldChunk.getBlockEntities()}. Null/world-safe: a null world, an
-     * empty loaded set, or an unloadable chunk simply seeds nothing.
+     * Production seed path for {@link KernelAttachedBlock} block entities. Walks only
+     * chunks already in the loaded set (never touches unloaded chunks) and registers
+     * every attached BE found via {@code WorldChunk.getBlockEntities()}. Null/world-safe:
+     * a null world, an empty loaded set, or an unloadable chunk simply seeds nothing.
      * {@link #putAttachedBlock} re-marks each BE's chunk loaded, so the set only
      * grows by chunks that genuinely hold attached blocks.
      */
@@ -395,29 +451,33 @@ public class GridManager extends PersistentState {
     private static Map<BlockPos, ConductorType> defaultScan(ServerWorld world, Set<ChunkKey> chunks) {
         Map<BlockPos, ConductorType> found = new HashMap<>();
         for (ChunkKey chunk : chunks) {
-            WorldChunk worldChunk = world.getChunk(chunk.x(), chunk.z());
-            // Section walk skips empty sections; far cheaper than a full height-column scan.
-            net.minecraft.world.chunk.ChunkSection[] sections = worldChunk.getSectionArray();
-            int bottomCoord = worldChunk.getBottomSectionCoord();
-            for (int s = 0; s < sections.length; s++) {
-                net.minecraft.world.chunk.ChunkSection section = sections[s];
-                if (section.isEmpty()) {
-                    continue;
-                }
-                int baseY = (bottomCoord + s) * 16;
-                for (int x = 0; x < 16; x++) {
-                    for (int y = 0; y < 16; y++) {
-                        for (int z = 0; z < 16; z++) {
-                            if (section.getBlockState(x, y, z).getBlock() instanceof CableBlock cable) {
-                                found.put(new BlockPos(chunk.x() * 16 + x, baseY + y,
-                                    chunk.z() * 16 + z).toImmutable(), cable.getConductorType());
-                            }
+            scanChunkInto(world.getChunk(chunk.x(), chunk.z()), found);
+        }
+        return found;
+    }
+
+    /** Section walk skips empty sections; far cheaper than a full height-column scan. */
+    private static void scanChunkInto(WorldChunk worldChunk, Map<BlockPos, ConductorType> found) {
+        ChunkPos cp = worldChunk.getPos();
+        net.minecraft.world.chunk.ChunkSection[] sections = worldChunk.getSectionArray();
+        int bottomCoord = worldChunk.getBottomSectionCoord();
+        for (int s = 0; s < sections.length; s++) {
+            net.minecraft.world.chunk.ChunkSection section = sections[s];
+            if (section.isEmpty()) {
+                continue;
+            }
+            int baseY = (bottomCoord + s) * 16;
+            for (int x = 0; x < 16; x++) {
+                for (int y = 0; y < 16; y++) {
+                    for (int z = 0; z < 16; z++) {
+                        if (section.getBlockState(x, y, z).getBlock() instanceof CableBlock cable) {
+                            found.put(new BlockPos(cp.x * 16 + x, baseY + y,
+                                cp.z * 16 + z).toImmutable(), cable.getConductorType());
                         }
                     }
                 }
             }
         }
-        return found;
     }
 
     public boolean isTopologyDirty() {
@@ -517,10 +577,10 @@ public class GridManager extends PersistentState {
             union(parent, nodeIndex.get(branch.a()), nodeIndex.get(branch.b()));
         }
         // Same-block terminal ownership: every terminal of one block shares an island.
-        // Item 2: only fully-loaded blocks union. A block with any terminal
-        // missing from the node index (null, unloaded chunk, undiscovered) is
-        // deferred entirely until its chunks load, keeping the union symmetric with
-        // the buildIsland candidacy filter below.
+        // Only fully-loaded blocks union. A block with any terminal missing from the
+        // node index (null, unloaded chunk, undiscovered) is deferred entirely until
+        // its chunks load, keeping the union symmetric with the buildIsland candidacy
+        // filter below.
         for (KernelAttachedBlock block : blocks.values()) {
             BlockPos[] terminals = block.getTerminalPositions();
             if (terminals == null || terminals.length < 2) {
@@ -560,8 +620,10 @@ public class GridManager extends PersistentState {
         orderedGroups.sort((a, b) -> POS_ORDER.compare(a.get(0), b.get(0)));
 
         List<IslandContext> rebuilt = new ArrayList<>();
-        for (List<BlockPos> group : orderedGroups) {
-            rebuilt.add(buildIsland(group, branches, blocks));
+        for (int g = 0; g < orderedGroups.size(); g++) {
+            // Zero-terminal elements are island-agnostic: host them in exactly one island
+            // (the first) so each ticks once and its state is not overwritten by copies.
+            rebuilt.add(buildIsland(orderedGroups.get(g), branches, blocks, g == 0));
         }
         islands.clear();
         islands.addAll(rebuilt);
@@ -627,16 +689,11 @@ public class GridManager extends PersistentState {
                 if (!nodeIndex.containsKey(neighbor)) {
                     continue;
                 }
-                boolean posTerminal = terminalOwners.containsKey(pos);
-                boolean neighborTerminal = terminalOwners.containsKey(neighbor);
-                boolean posCable = cables.containsKey(pos);
-                boolean neighborCable = cables.containsKey(neighbor);
-                if (posTerminal && neighborTerminal) {
-                    branches.add(new Branch(pos, neighbor,
-                        CableConductorAdapter.TERMINAL_LINK_R_OHM, null, true, null));
-                } else if (posCable || neighborCable) {
-                    ConductorType posType = cables.get(pos);
-                    ConductorType neighborType = cables.get(neighbor);
+                ConductorType posType = cables.get(pos);
+                ConductorType neighborType = cables.get(neighbor);
+                if (posType != null || neighborType != null) {
+                    // Any pair with a cable endpoint (even one that is also a terminal)
+                    // is a cable conductor: it carries cable resistance and can melt.
                     double resistance;
                     ConductorType hint;
                     if (posType != null && neighborType != null) {
@@ -645,15 +702,16 @@ public class GridManager extends PersistentState {
                     } else if (posType != null) {
                         resistance = posType.getBaseResistance();
                         hint = posType;
-                    } else if (neighborType != null) {
+                    } else {
                         resistance = neighborType.getBaseResistance();
                         hint = neighborType;
-                    } else {
-                        resistance = CableConductorAdapter.DEFAULT_CABLE_R_OHM;
-                        hint = null;
                     }
                     branches.add(new Branch(pos, neighbor, resistance, hint, false,
-                        posCable ? pos : neighbor));
+                        posType != null ? pos : neighbor));
+                } else if (terminalOwners.containsKey(pos) && terminalOwners.containsKey(neighbor)) {
+                    // Pure terminal-to-terminal pair (neither endpoint is a cable).
+                    branches.add(new Branch(pos, neighbor,
+                        CableConductorAdapter.TERMINAL_LINK_R_OHM, null, true, null));
                 }
             }
         }
@@ -663,7 +721,8 @@ public class GridManager extends PersistentState {
     private IslandContext buildIsland(
         List<BlockPos> groupNodes,
         List<Branch> branches,
-        Map<BlockPos, KernelAttachedBlock> blocks
+        Map<BlockPos, KernelAttachedBlock> blocks,
+        boolean hostsZeroTerminalElements
     ) {
         Set<BlockPos> groupSet = new HashSet<>(groupNodes);
         Map<BlockPos, Integer> localNodeIndex = new HashMap<>();
@@ -672,14 +731,14 @@ public class GridManager extends PersistentState {
         }
 
         // Blocks whose terminals touch this island, ordered by block position.
-        // Item 2 (partial-terminal NPE guard): a block participates in an
-        // island IFF its BE is loaded AND every declared terminal is present in
-        // this island's group set. The group set holds only loaded terminals, so
-        // the contains check covers both chunk-loaded and indexed. Blocks with a
-        // terminal in an unloaded chunk are excluded from ALL islands this rebuild
-        // (deferred until their chunks load) instead of auto-unboxing a missing
-        // node index to an NPE. Null terminal sets are skipped; 0-terminal
-        // elements form no nodes and are island-agnostic, joining every island.
+        // Partial-terminal NPE guard: a block participates in an island IFF its BE is
+        // loaded AND every declared terminal is present in this island's group set.
+        // The group set holds only loaded terminals, so the contains check covers both
+        // chunk-loaded and indexed. Blocks with a terminal in an unloaded chunk are
+        // excluded from ALL islands this rebuild (deferred until their chunks load)
+        // instead of auto-unboxing a missing node index to an NPE. Null terminal sets
+        // are skipped; 0-terminal elements form no nodes and are island-agnostic, so
+        // only the hosting island (the first) takes them.
         List<KernelAttachedBlock> islandBlocks = new ArrayList<>();
         for (KernelAttachedBlock block : blocks.values()) {
             BlockPos[] terminals = block.getTerminalPositions();
@@ -687,7 +746,9 @@ public class GridManager extends PersistentState {
                 continue;
             }
             if (terminals.length == 0) {
-                islandBlocks.add(block);
+                if (hostsZeroTerminalElements) {
+                    islandBlocks.add(block);
+                }
                 continue;
             }
             boolean allPresent = true;
@@ -796,11 +857,16 @@ public class GridManager extends PersistentState {
         }
         for (BlockPos pos : new ArrayList<>(pendingBreaks)) {
             knownCables.remove(pos);
-            if (world != null && world.getBlockState(pos).getBlock() instanceof CableBlock) {
+            // Never force-load a chunk just to break a block in it.
+            if (world != null
+                && world.isChunkLoaded(pos)
+                && world.getBlockState(pos).getBlock() instanceof CableBlock) {
                 world.breakBlock(pos, false);
             }
         }
         pendingBreaks.clear();
+        // Melted cables were removed from the persisted index.
+        markDirty();
     }
 
     public Set<ChunkKey> getLoadedChunks() {
@@ -823,9 +889,8 @@ public class GridManager extends PersistentState {
      */
     public void onConductorPlaced(ServerWorld world, BlockPos pos, ConductorType type) {
         if (world != null && world.getBlockState(pos).getBlock() instanceof CableBlock) {
-            putCable(pos, type);
+            putCable(pos, type); // marks topology + persistence dirty
         }
-        markDirty();
     }
 
     /**
@@ -833,7 +898,6 @@ public class GridManager extends PersistentState {
      * through the normal dirty flag.
      */
     public void onConductorRemoved(ServerWorld world, BlockPos pos) {
-        removeCable(pos);
-        markDirty();
+        removeCable(pos); // marks topology + persistence dirty
     }
 }

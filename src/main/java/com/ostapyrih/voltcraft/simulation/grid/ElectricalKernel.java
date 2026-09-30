@@ -19,10 +19,19 @@ import java.util.Objects;
  *
  * <p>This class is final and not intended for subclassing.</p>
  *
- * <p>Solve scope: {@link #solve()} only. No tick, no state integration, no
- * terminal-current query, no melted-conductor scan.</p>
+ * <p>Scope: {@link #solve()} (Newton solve), {@link #tick()} (one solve plus RK2
+ * integration of element state and conductor temperature, gated on
+ * {@code converged && !singular}), {@link #terminalCurrents(int)} and
+ * {@link #findMeltedConductors()}.</p>
  */
 public final class ElectricalKernel {
+    /**
+     * Lower bound for conductor resistance (ohm) used consistently by the nodal
+     * system and by the conductor heating model, so the power dissipated in a
+     * conductor matches the current the solver actually pushed through it.
+     */
+    static final double MIN_CONDUCTOR_R_OHM = 1e-4;
+
     /**
      * Result of one kernel (Newton) solve.
      *
@@ -250,7 +259,7 @@ public final class ElectricalKernel {
     /** Builds the nodal system for voltage iterate {@code v}. */
     void buildSystem(Complex[][] y, Complex[] inj, Complex[] v) {
         for (Conductor c : conductors) {
-            double r = Math.max(c.resistance(), 1e-4);
+            double r = Math.max(c.resistance(), MIN_CONDUCTOR_R_OHM);
             Stamps.admittance(y, c.nodeA(), c.nodeB(), new Complex(1.0 / r, 0.0));
         }
         for (int idx = 0; idx < elements.size(); idx++) {
@@ -339,7 +348,11 @@ public final class ElectricalKernel {
      *
      * <p>Resistance is read once per tick per conductor and the average
      * resistive power {@code powerLossW = |dV|^2 / R} is identical in both
-     * stages because both use the same {@code v} (item 20). Only the
+     * stages because both use the same {@code v} (item 20). {@code R} is
+     * clamped to {@link #MIN_CONDUCTOR_R_OHM}, exactly as in
+     * {@link #buildSystem}: the solver computed {@code dV} with the clamped
+     * resistance, so dividing by the unclamped one would overstate the
+     * dissipated power and overheat low-resistance conductors. Only the
      * cooling term is re-evaluated at the midpoint temperature.</p>
      *
      * @param v converged operating-point voltages, length = node count
@@ -347,7 +360,7 @@ public final class ElectricalKernel {
      */
     void integrateConductors(Complex[] v, double dt) {
         for (Conductor c : conductors) {
-            double r = c.resistance();
+            double r = Math.max(c.resistance(), MIN_CONDUCTOR_R_OHM);
             Complex dv = v[c.nodeA()].sub(v[c.nodeB()]);
             double powerLossW = dv.magnitudeSquared() / r;
             double t = c.temperature();
