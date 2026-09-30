@@ -530,17 +530,6 @@ public class GridManager extends PersistentState {
      * Clears the dirty flag on completion (tick relies on this).
      */
     public void rebuildIslands() {
-        Map<BlockPos, Complex> voltageSnapshot = new HashMap<>();
-        for (IslandContext oldIsland : islands) {
-            Complex[] lastV = oldIsland.kernel().getLastSolution();
-            if (lastV == null) continue;
-            for (Map.Entry<BlockPos, Integer> e : oldIsland.nodeIndex().entrySet()) {
-                int idx = e.getValue();
-                if (idx >= 0 && idx < lastV.length && lastV[idx] != null && lastV[idx].isFinite()) {
-                    voltageSnapshot.put(e.getKey(), lastV[idx]);
-                }
-            }
-        }
         Map<BlockPos, ConductorType> cables = activeCables();
         Map<BlockPos, KernelAttachedBlock> blocks = activeBlocks();
 
@@ -628,28 +617,6 @@ public class GridManager extends PersistentState {
         }
         islands.clear();
         islands.addAll(rebuilt);
-        for (IslandContext island : islands) {
-            Map<BlockPos, Integer> islandNodes = island.nodeIndex();
-            Complex[] initial = new Complex[islandNodes.size()];
-            int knownCount = 0;
-            double sumRe = 0.0;
-            for (Map.Entry<BlockPos, Integer> e : islandNodes.entrySet()) {
-                Complex v = voltageSnapshot.get(e.getKey());
-                if (v != null) {
-                    initial[e.getValue()] = v;
-                    sumRe += v.real();
-                    knownCount++;
-                }
-            }
-            if (knownCount == 0) continue;
-            double avgRe = sumRe / knownCount;
-            for (int i = 0; i < initial.length; i++) {
-                if (initial[i] == null) {
-                    initial[i] = new Complex(avgRe, 0.0);
-                }
-            }
-            island.kernel().setInitialVoltage(initial);
-        }
         topologyDirty = false;
     }
 
