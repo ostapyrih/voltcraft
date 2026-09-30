@@ -659,23 +659,9 @@ public class GridManager extends PersistentState {
                 }
                 ConductorType posType = cables.get(pos);
                 ConductorType neighborType = cables.get(neighbor);
-                if (posType != null || neighborType != null) {
-                    // Any pair with a cable endpoint (even one that is also a terminal)
-                    // is a cable conductor: it carries cable resistance and can melt.
-                    double resistance;
-                    ConductorType hint;
-                    if (posType != null && neighborType != null) {
-                        resistance = (posType.getBaseResistance() + neighborType.getBaseResistance()) / 2.0;
-                        hint = posType;
-                    } else if (posType != null) {
-                        resistance = posType.getBaseResistance();
-                        hint = posType;
-                    } else {
-                        resistance = neighborType.getBaseResistance();
-                        hint = neighborType;
-                    }
-                    branches.add(new Branch(pos, neighbor, resistance, hint, false,
-                        posType != null ? pos : neighbor));
+                if (posType != null && neighborType != null) {
+                    double resistance = (posType.getBaseResistance() + neighborType.getBaseResistance()) / 2.0;
+                    branches.add(new Branch(pos, neighbor, resistance, posType, false, pos));
                 } else if (terminalOwners.containsKey(pos) && terminalOwners.containsKey(neighbor)) {
                     // Pure terminal-to-terminal pair (neither endpoint is a cable).
                     branches.add(new Branch(pos, neighbor,

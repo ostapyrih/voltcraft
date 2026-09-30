@@ -16,6 +16,8 @@ import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.collection.DefaultedList;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import com.ostapyrih.voltcraft.block.storage.BatteryRackBlock;
 
 import com.ostapyrih.voltcraft.simulation.electrical.BatteryElement;
 import com.ostapyrih.voltcraft.simulation.electrical.RackElement;
@@ -174,12 +176,21 @@ public class BatteryRackBlockEntity extends BlockEntity implements KernelAttache
 
     @Override
     public BlockPos[] getTerminalPositions() {
-        int[][] o = RackElement.TERMINAL_OFFSETS;
-        BlockPos[] out = new BlockPos[o.length];
-        for (int k = 0; k < o.length; k++) {
-            out[k] = pos.add(o[k][0], o[k][1], o[k][2]);
+        return RackElement.resolveTerminals(pos, readFacing());
+    }
+
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(BatteryRackBlock.FACING)) {
+                Direction facing = cached.get(BatteryRackBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
         }
-        return out;
+        return Direction.NORTH;
     }
 
     @Override

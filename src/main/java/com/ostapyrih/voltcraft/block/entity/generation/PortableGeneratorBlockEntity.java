@@ -94,12 +94,21 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements KernelA
 
     @Override
     public BlockPos[] getTerminalPositions() {
-        int[][] o = GeneratorElement.TERMINAL_OFFSETS;
-        BlockPos[] out = new BlockPos[o.length];
-        for (int k = 0; k < o.length; k++) {
-            out[k] = pos.add(o[k][0], o[k][1], o[k][2]);
+        return GeneratorElement.resolveTerminals(pos, readFacing());
+    }
+
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(PortableGeneratorBlock.FACING)) {
+                Direction facing = cached.get(PortableGeneratorBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
         }
-        return out;
+        return Direction.NORTH;
     }
 
     @Override

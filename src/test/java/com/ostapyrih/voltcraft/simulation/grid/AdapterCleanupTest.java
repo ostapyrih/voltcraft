@@ -298,6 +298,8 @@ class AdapterCleanupTest {
             new TestResistor(10.0), false, false, pos(4, 0, 0), pos(0, 0, 4)));
         BlockPos[] laneA = {pos(1, 0, 0), pos(2, 0, 0), pos(3, 0, 0)};
         BlockPos[] laneB = {pos(0, 0, 1), pos(1, 0, 1), pos(2, 0, 1), pos(3, 0, 1), pos(4, 0, 1)};
+        manager.putCable(pos(0, 0, 0), ConductorType.NICHROME_HEATING);
+        manager.putCable(pos(4, 0, 0), ConductorType.NICHROME_HEATING);
         for (BlockPos cable : laneA) {
             manager.putCable(cable, ConductorType.NICHROME_HEATING);
         }
@@ -340,7 +342,9 @@ class AdapterCleanupTest {
             new TestThevenin(12.0, 0.05), true, false, pos(0, 0, 0), pos(0, 0, 2)));
         manager.putAttachedBlock(new AdapterBlock(loadBe,
             new TestResistor(10.0), false, false, pos(2, 0, 0), pos(0, 0, 2)));
+        manager.putCable(pos(0, 0, 0), ConductorType.NICHROME_HEATING);
         manager.putCable(pos(1, 0, 0), ConductorType.NICHROME_HEATING);
+        manager.putCable(pos(2, 0, 0), ConductorType.NICHROME_HEATING);
         manager.rebuildIslands();
 
         assertEquals(1, manager.getIslands().size());
@@ -350,7 +354,7 @@ class AdapterCleanupTest {
         manager.removeCable(pos(1, 0, 0));
         manager.rebuildIslands();
 
-        assertTrue(manager.getKnownCablePositions().isEmpty(), "break must clear the cable");
+        assertFalse(manager.getKnownCablePositions().contains(pos(1, 0, 0)), "break must clear the cable");
         assertEquals(1, manager.getIslands().size(), "shared low return keeps one island");
         IslandContext loadIsland = manager.getIslandAt(pos(2, 0, 0));
         assertNotNull(loadIsland);

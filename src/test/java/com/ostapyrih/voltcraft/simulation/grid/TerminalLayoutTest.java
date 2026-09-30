@@ -2,6 +2,8 @@ package com.ostapyrih.voltcraft.simulation.grid;
 
 import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
 import com.ostapyrih.voltcraft.simulation.electrical.BatteryElement;
+import com.ostapyrih.voltcraft.simulation.electrical.CreativeLoadElement;
+import com.ostapyrih.voltcraft.simulation.electrical.CreativeGeneratorElement;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import org.junit.jupiter.api.Test;
@@ -134,6 +136,44 @@ class TerminalLayoutTest {
         for (BlockPos c : faceNeighbors(p)) {
             assertFalse(touches(c, s) && touches(c, w),
                 "no single cable at " + c + " may bridge both input terminals");
+        }
+    }
+
+    @Test
+    void batteryTerminalsRotateWithFacing() {
+        BlockPos p = pos(10, 64, -3);
+
+        // NORTH facing: FRONT (-) = north, BACK (+) = south
+        BlockPos[] north = BatteryElement.resolveTerminals(p, Direction.NORTH);
+        assertEquals(p.north(), north[0]);
+        assertEquals(p.south(), north[1]);
+
+        // SOUTH facing: FRONT (-) = south, BACK (+) = north
+        BlockPos[] south = BatteryElement.resolveTerminals(p, Direction.SOUTH);
+        assertEquals(p.south(), south[0]);
+        assertEquals(p.north(), south[1]);
+
+        // EAST facing: FRONT (-) = east, BACK (+) = west
+        BlockPos[] east = BatteryElement.resolveTerminals(p, Direction.EAST);
+        assertEquals(p.east(), east[0]);
+        assertEquals(p.west(), east[1]);
+
+        // WEST facing: FRONT (-) = west, BACK (+) = east
+        BlockPos[] west = BatteryElement.resolveTerminals(p, Direction.WEST);
+        assertEquals(p.west(), west[0]);
+        assertEquals(p.east(), west[1]);
+    }
+
+    @Test
+    void allTwoTerminalBlocksShareConsistentLayout() {
+        BlockPos p = pos(5, 64, 5);
+        for (Direction dir : Direction.Type.HORIZONTAL) {
+            BlockPos[] batt = BatteryElement.resolveTerminals(p, dir);
+            BlockPos[] load = CreativeLoadElement.resolveTerminals(p, dir);
+            BlockPos[] gen = CreativeGeneratorElement.resolveTerminals(p, dir);
+
+            assertArrayEquals(batt, load, "CreativeLoad must match Battery terminal layout for facing " + dir);
+            assertArrayEquals(batt, gen, "CreativeGenerator must match Battery terminal layout for facing " + dir);
         }
     }
 }

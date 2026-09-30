@@ -131,7 +131,7 @@ public class VoltcraftModelGenerator extends FabricModelProvider {
                 WeightedVariant variant = BlockStateModelGenerator.createWeightedVariant(modelId);
 
                 blockStateModelGenerator.blockStateCollector.accept(
-                    BlockStateModelGenerator.createSingletonBlockState(block, variant)
+                    VariantsBlockModelDefinitionCreator.of(block, variant).apply(HORIZONTAL_ROTATION_OPERATIONS)
                 );
                 blockStateModelGenerator.itemModelOutput.accept(block.asItem(), ItemModels.basic(modelId));
             } else if (block instanceof BatteryBlock || block instanceof BatteryRackBlock ||
@@ -147,7 +147,7 @@ public class VoltcraftModelGenerator extends FabricModelProvider {
                 WeightedVariant variant = BlockStateModelGenerator.createWeightedVariant(modelId);
 
                 blockStateModelGenerator.blockStateCollector.accept(
-                    BlockStateModelGenerator.createSingletonBlockState(block, variant)
+                    VariantsBlockModelDefinitionCreator.of(block, variant).apply(HORIZONTAL_ROTATION_OPERATIONS)
                 );
                 blockStateModelGenerator.itemModelOutput.accept(block.asItem(), ItemModels.basic(modelId));
             } else {

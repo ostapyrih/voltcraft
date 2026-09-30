@@ -3,6 +3,8 @@ package com.ostapyrih.voltcraft.simulation.electrical;
 import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
 import com.ostapyrih.voltcraft.api.electrical.Stamps;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
@@ -10,6 +12,13 @@ import java.util.function.IntSupplier;
 
 public final class CreativeLoadElement implements ElectricalElement {
     public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
+
+    /** FACING-relative: {@code [FRONT (-), BACK (+)]}; null facing degrades to NORTH. */
+    public static BlockPos[] resolveTerminals(BlockPos pos, Direction facing) {
+        Direction f = facing != null ? facing : Direction.NORTH;
+        return new BlockPos[]{pos.offset(f), pos.offset(f.getOpposite())};
+    }
+
     public static final int MODE_RESISTANCE = 0;
     public static final int MODE_POWER = 1;
     public static final int MODE_CURRENT = 2;
@@ -60,15 +69,15 @@ public final class CreativeLoadElement implements ElectricalElement {
         int mode = modeOrdinal.getAsInt();
         if (mode == MODE_RESISTANCE) {
             double r = Math.max(MIN_RESISTANCE_OHM, target);
-            Stamps.admittance(y, terminals[0], terminals[1], new Complex(1.0 / r, 0.0));
+            Stamps.admittance(y, terminals[1], terminals[0], new Complex(1.0 / r, 0.0));
             return;
         }
         if (omega == 0.0) {
             if (mode == MODE_POWER) {
-                Stamps.constantPower(y, in, terminals[0], terminals[1], v,
+                Stamps.constantPower(y, in, terminals[1], terminals[0], v,
                     target, CP_VMIN_VOLTS, 0.0);
             } else if (mode == MODE_CURRENT) {
-                Stamps.constantCurrent(y, in, terminals[0], terminals[1], v,
+                Stamps.constantCurrent(y, in, terminals[1], terminals[0], v,
                     target, CP_VMIN_VOLTS, 0.0);
             }
             // Unknown modes stamp nothing (open circuit).
@@ -87,7 +96,7 @@ public final class CreativeLoadElement implements ElectricalElement {
                 }
                 if (Double.isFinite(r) && r > 0.0) {
                     r = Math.max(MIN_RESISTANCE_OHM, r);
-                    Stamps.admittance(y, terminals[0], terminals[1], new Complex(1.0 / r, 0.0));
+                    Stamps.admittance(y, terminals[1], terminals[0], new Complex(1.0 / r, 0.0));
                 }
             }
         }
@@ -95,16 +104,18 @@ public final class CreativeLoadElement implements ElectricalElement {
 
     @Override
     public void derivatives(double[] dxdt, double[] state, Complex[] vt, Complex[] it) {
-        double intoT0 = 0.0;
-        if (it.length > 0 && it[0] != null) {
-            intoT0 = it[0].re;
+        double intoPos = 0.0;
+        if (it.length > 1 && it[1] != null) {
+            intoPos = it[1].re;
+        } else if (it.length > 0 && it[0] != null) {
+            intoPos = -it[0].re;
         }
         double terminalV = 0.0;
         if (vt.length > 1 && vt[0] != null && vt[1] != null) {
-            terminalV = vt[0].re - vt[1].re;
+            terminalV = vt[1].re - vt[0].re;
         }
         telemetryCell[TELE_V] = terminalV;
-        telemetryCell[TELE_I] = intoT0;
+        telemetryCell[TELE_I] = intoPos;
     }
 
     public static boolean isActiveSource() {

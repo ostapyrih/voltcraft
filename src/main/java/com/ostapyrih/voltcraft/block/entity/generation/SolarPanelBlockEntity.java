@@ -13,6 +13,7 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 
 import com.ostapyrih.voltcraft.simulation.electrical.SolarElement;
 
@@ -98,12 +99,21 @@ public class SolarPanelBlockEntity extends BlockEntity implements KernelAttached
 
     @Override
     public BlockPos[] getTerminalPositions() {
-        int[][] o = SolarElement.TERMINAL_OFFSETS;
-        BlockPos[] out = new BlockPos[o.length];
-        for (int k = 0; k < o.length; k++) {
-            out[k] = pos.add(o[k][0], o[k][1], o[k][2]);
+        return SolarElement.resolveTerminals(pos, readFacing());
+    }
+
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(SolarPanelBlock.FACING)) {
+                Direction facing = cached.get(SolarPanelBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
         }
-        return out;
+        return Direction.NORTH;
     }
 
     @Override

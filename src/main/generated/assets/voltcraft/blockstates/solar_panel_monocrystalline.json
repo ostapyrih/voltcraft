@@ -1,7 +1,19 @@
 {
   "variants": {
-    "": {
+    "facing=east": {
+      "model": "voltcraft:block/solar_panel_monocrystalline",
+      "y": 90
+    },
+    "facing=north": {
       "model": "voltcraft:block/solar_panel_monocrystalline"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/solar_panel_monocrystalline",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/solar_panel_monocrystalline",
+      "y": 270
     }
   }
 }

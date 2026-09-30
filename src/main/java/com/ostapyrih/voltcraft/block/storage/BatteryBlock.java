@@ -4,9 +4,14 @@ import com.ostapyrih.voltcraft.block.AbstractGridBlock;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.ItemPlacementContext;
+import net.minecraft.state.StateManager;
+import net.minecraft.state.property.EnumProperty;
+import net.minecraft.state.property.Properties;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Formatting;
@@ -23,6 +28,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BatteryBlock extends AbstractGridBlock {
 
+    public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
+
     private final BatteryChemistry chemistry;
     private final int seriesCount;
     private final int parallelCount;
@@ -32,6 +39,17 @@ public class BatteryBlock extends AbstractGridBlock {
         this.chemistry = chemistry;
         this.seriesCount = seriesCount;
         this.parallelCount = parallelCount;
+        setDefaultState(this.stateManager.getDefaultState().with(FACING, Direction.NORTH));
+    }
+
+    @Override
+    protected void appendProperties(StateManager.Builder<Block, BlockState> builder) {
+        builder.add(FACING);
+    }
+
+    @Override
+    public BlockState getPlacementState(ItemPlacementContext ctx) {
+        return getDefaultState().with(FACING, ctx.getHorizontalPlayerFacing().getOpposite());
     }
 
     public BatteryChemistry getChemistry() {

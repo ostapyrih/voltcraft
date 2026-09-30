@@ -9,6 +9,8 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import com.ostapyrih.voltcraft.block.generation.HandCrankGeneratorBlock;
 
 import com.ostapyrih.voltcraft.simulation.electrical.CrankElement;
 
@@ -66,12 +68,21 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements Kernel
 
     @Override
     public BlockPos[] getTerminalPositions() {
-        int[][] o = CrankElement.TERMINAL_OFFSETS;
-        BlockPos[] out = new BlockPos[o.length];
-        for (int k = 0; k < o.length; k++) {
-            out[k] = pos.add(o[k][0], o[k][1], o[k][2]);
+        return CrankElement.resolveTerminals(pos, readFacing());
+    }
+
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(HandCrankGeneratorBlock.FACING)) {
+                Direction facing = cached.get(HandCrankGeneratorBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
         }
-        return out;
+        return Direction.NORTH;
     }
 
     @Override

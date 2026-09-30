@@ -187,6 +187,8 @@ class AdapterTopologyTest {
     void nodeIndicesForChainPlusTerminals() {
         GridManager manager = new GridManager();
         putChain(manager, 0, 4, ConductorType.INSULATED_COPPER);
+        manager.putCable(pos(5, 0, 0), ConductorType.INSULATED_COPPER);
+        manager.putCable(pos(2, 0, 1), ConductorType.INSULATED_COPPER);
         TestBlock block = new TestBlock(pos(2, 0, 5), new ResistorElement(10.0),
             false, false, pos(5, 0, 0), pos(2, 0, 1));
         manager.putAttachedBlock(block);
@@ -223,6 +225,7 @@ class AdapterTopologyTest {
         manager.putCable(pos(1, 0, 0), type);
         manager.putCable(pos(2, 0, 0), type);
         manager.putCable(pos(1, 0, 1), type);
+        manager.putCable(pos(1, 0, -1), type);
         TestBlock block = new TestBlock(pos(7, 0, 7), new ResistorElement(10.0),
             false, false, pos(1, 0, -1), pos(1, 0, -2));
         manager.putAttachedBlock(block);
@@ -230,7 +233,7 @@ class AdapterTopologyTest {
 
         IslandContext island = singleIsland(manager);
         assertEquals(6, island.nodeCount());
-        // 3 cable-cable + 1 cable-terminal + 1 terminal-terminal; no diagonals.
+        // 4 cable-cable + 1 terminal-terminal; no diagonals.
         assertEquals(5, island.conductors().size());
 
         double cableR = type.getBaseResistance();
@@ -256,6 +259,8 @@ class AdapterTopologyTest {
         GridManager first = new GridManager();
         first.putCable(pos(0, 0, 0), ConductorType.INSULATED_COPPER);
         first.putCable(pos(1, 0, 0), ConductorType.INSULATED_COPPER);
+        first.putCable(pos(0, 1, 0), ConductorType.INSULATED_COPPER);
+        first.putCable(pos(1, 1, 0), ConductorType.INSULATED_COPPER);
         first.putAttachedBlock(new TestBlock(pos(0, 5, 0), new ResistorElement(10.0),
             false, false, pos(0, 1, 0), pos(0, 2, 0)));
         first.putAttachedBlock(new TestBlock(pos(9, 5, 9), new ResistorElement(10.0),
@@ -267,6 +272,8 @@ class AdapterTopologyTest {
             false, false, pos(1, 1, 0), pos(1, 2, 0)));
         second.putCable(pos(1, 0, 0), ConductorType.INSULATED_COPPER);
         second.putCable(pos(0, 0, 0), ConductorType.INSULATED_COPPER);
+        second.putCable(pos(1, 1, 0), ConductorType.INSULATED_COPPER);
+        second.putCable(pos(0, 1, 0), ConductorType.INSULATED_COPPER);
         second.putAttachedBlock(new TestBlock(pos(0, 5, 0), new ResistorElement(10.0),
             false, false, pos(0, 1, 0), pos(0, 2, 0)));
         second.rebuildIslands();
@@ -408,5 +415,39 @@ class AdapterTopologyTest {
         List<int[]> terminals = new ArrayList<>(island.terminalIndices());
         assertEquals(1, terminals.size());
         assertEquals(2, terminals.get(0).length);
+    }
+
+    @Test
+    void airGapBetweenCableAndTerminalDoesNotFormConnection() {
+        GridManager manager = new GridManager();
+        // Machine at (0, 0, 0) with terminals at (0, 0, 1) and (0, 0, -1)
+        BlockPos machinePos = pos(0, 0, 0);
+        BlockPos termPos = pos(0, 0, 1);
+        BlockPos termNeg = pos(0, 0, -1);
+        manager.putAttachedBlock(new TestBlock(machinePos, new ResistorElement(10.0),
+            false, false, termPos, termNeg));
+
+        // Cables placed at (0, 0, 2) and (0, 0, 3) - leaving (0, 0, 1) as empty air!
+        manager.putCable(pos(0, 0, 2), ConductorType.INSULATED_COPPER);
+        manager.putCable(pos(0, 0, 3), ConductorType.INSULATED_COPPER);
+        manager.rebuildIslands();
+
+        // The cables at (0, 0, 2) and (0, 0, 3) form an island of 2 nodes.
+        // It must NOT include the machine terminal at (0, 0, 1) through air!
+        IslandContext cableIsland = manager.getIslandAt(pos(0, 0, 2));
+        assertNotNull(cableIsland);
+        assertEquals(2, cableIsland.nodeCount());
+        assertFalse(cableIsland.nodeIndex().containsKey(termPos));
+        assertEquals(0, cableIsland.elements().size());
+
+        // Now place the missing cable at (0, 0, 1) (the terminal pos)
+        manager.putCable(pos(0, 0, 1), ConductorType.INSULATED_COPPER);
+        manager.rebuildIslands();
+
+        // Now the cable island includes (0, 0, 1) and connects to the machine element!
+        cableIsland = manager.getIslandAt(pos(0, 0, 1));
+        assertNotNull(cableIsland);
+        assertTrue(cableIsland.nodeIndex().containsKey(termPos));
+        assertEquals(1, cableIsland.elements().size());
     }
 }

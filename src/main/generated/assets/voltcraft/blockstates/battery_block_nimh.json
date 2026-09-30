@@ -1,7 +1,19 @@
 {
   "variants": {
-    "": {
+    "facing=east": {
+      "model": "voltcraft:block/battery_block_nimh",
+      "y": 90
+    },
+    "facing=north": {
       "model": "voltcraft:block/battery_block_nimh"
+    },
+    "facing=south": {
+      "model": "voltcraft:block/battery_block_nimh",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "voltcraft:block/battery_block_nimh",
+      "y": 270
     }
   }
 }

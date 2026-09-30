@@ -429,6 +429,7 @@ class AdapterIntegrationTest {
 
         manager.putCable(pos(0, 0, 0), ConductorType.INSULATED_COPPER);
         manager.putCable(pos(1, 0, 0), ConductorType.INSULATED_COPPER);
+        manager.putCable(pos(2, 0, 0), ConductorType.INSULATED_COPPER);
         manager.putAttachedBlock(sourceBlock);
         manager.rebuildIslands();
 
@@ -445,7 +446,8 @@ class AdapterIntegrationTest {
             "short circuit must melt a cable within 300 ticks");
         assertTrue(ticks < 300, "melt took " + ticks + " ticks");
         assertTrue(manager.getPendingBreaks().contains(pos(0, 0, 0))
-            || manager.getPendingBreaks().contains(pos(1, 0, 0)),
+            || manager.getPendingBreaks().contains(pos(1, 0, 0))
+            || manager.getPendingBreaks().contains(pos(2, 0, 0)),
             "break candidate must be a fault cable, got " + manager.getPendingBreaks());
 
         // Melt scan fired on the live kernel before the rebuild boundary.
@@ -457,7 +459,7 @@ class AdapterIntegrationTest {
         // every rebuilt island solves (open-circuited stubs converge trivially).
         manager.tick(null);
         assertTrue(manager.getPendingBreaks().isEmpty());
-        assertTrue(manager.getKnownCablePositions().size() < 2,
+        assertTrue(manager.getKnownCablePositions().size() < 3,
             "at least one fault cable must break, left " + manager.getKnownCablePositions());
         assertFalse(manager.getIslands().isEmpty());
         for (IslandContext island : manager.getIslands()) {
@@ -558,6 +560,7 @@ class AdapterIntegrationTest {
 
         manager.putCable(pos(4, 0, 0), ConductorType.NICHROME_HEATING);
         manager.putCable(pos(5, 0, 0), ConductorType.NICHROME_HEATING);
+        manager.putCable(pos(6, 0, 0), ConductorType.NICHROME_HEATING);
         manager.putAttachedBlock(batteryBlock);
         manager.rebuildIslands();
 
@@ -653,24 +656,24 @@ class AdapterIntegrationTest {
         double[] r = stampConductance(load, new int[]{0, 1}, 2);
         assertEquals(0.1, r[0], 1e-12);
 
-        // Constant-power 100 W on DC at 48 V: g == -100/48^2, iEq == 2*100/48 from T0.
+        // Constant-power 100 W on DC at 48 V: g == -100/48^2, iEq == 2*100/48 from T1 (South/+).
         mode[0] = CreativeLoadElement.MODE_POWER;
         target[0] = 100.0;
         Complex[][] y = ComplexNodalSolver.zeroMatrix(2);
         Complex[] inj = ComplexNodalSolver.zeroVector(2);
-        Complex[] v = {new Complex(48.0, 0.0), new Complex(0.0, 0.0)};
+        Complex[] v = {new Complex(0.0, 0.0), new Complex(48.0, 0.0)};
         load.stamp(y, inj, new int[]{0, 1}, v, new double[0], 0.0);
-        assertEquals(-100.0 / (48.0 * 48.0), y[0][0].re, 1e-12);
-        assertEquals(-2.0 * 100.0 / 48.0, inj[0].re, 1e-12);
+        assertEquals(-100.0 / (48.0 * 48.0), y[1][1].re, 1e-12);
+        assertEquals(-2.0 * 100.0 / 48.0, inj[1].re, 1e-12);
 
-        // Constant-current 2 A on DC: nodal [-2, +2].
+        // Constant-current 2 A on DC: nodal [+2, -2] (drawn from T1, returned to T0).
         mode[0] = CreativeLoadElement.MODE_CURRENT;
         target[0] = 2.0;
         Complex[][] y3 = ComplexNodalSolver.zeroMatrix(2);
         Complex[] inj3 = ComplexNodalSolver.zeroVector(2);
         load.stamp(y3, inj3, new int[]{0, 1}, v, new double[0], 0.0);
-        assertEquals(-2.0, inj3[0].re, 1e-12);
-        assertEquals(2.0, inj3[1].re, 1e-12);
+        assertEquals(-2.0, inj3[1].re, 1e-12);
+        assertEquals(2.0, inj3[0].re, 1e-12);
 
         // AC island: power mode falls back to R = Vnom^2/P with no parallel current.
         mode[0] = CreativeLoadElement.MODE_POWER;
@@ -679,8 +682,8 @@ class AdapterIntegrationTest {
         Complex[] inj4 = ComplexNodalSolver.zeroVector(2);
         load.stamp(y4, inj4, new int[]{0, 1}, v, new double[0],
             GridConstants.AC_OMEGA_RAD_PER_S);
-        assertEquals(100.0 / (230.0 * 230.0), y4[0][0].re, 1e-12);
-        assertEquals(0.0, inj4[0].re, 0.0);
+        assertEquals(100.0 / (230.0 * 230.0), y4[1][1].re, 1e-12);
+        assertEquals(0.0, inj4[1].re, 0.0);
 
         // Disabled stamps an open circuit; terminal offsets are adjacent north/south.
         enabled[0] = false;

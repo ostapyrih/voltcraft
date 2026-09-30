@@ -7,6 +7,8 @@ import com.ostapyrih.voltcraft.api.electrical.Stamps;
 import com.mojang.serialization.Codec;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -18,6 +20,12 @@ public final class SolarElement implements ElectricalElement {
         public static final String KEY_STATE_ARRAY = "stateArray";
         public static final String KEY_TOTAL_ENERGY = "total_energy_generated";
     public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
+
+    /** FACING-relative: {@code [FRONT (-), BACK (+)]}; null facing degrades to NORTH. */
+    public static BlockPos[] resolveTerminals(BlockPos pos, Direction facing) {
+        Direction f = facing != null ? facing : Direction.NORTH;
+        return new BlockPos[]{pos.offset(f), pos.offset(f.getOpposite())};
+    }
     public static final double MIN_RESISTANCE_OHM = 0.05;
     public static final double IRRAD_HEAT_W_PER_W_M2 = 0.02;
     public static final double THERMAL_MASS_J_PER_K = 500.0;

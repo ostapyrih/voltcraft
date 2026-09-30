@@ -8,6 +8,8 @@ import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
 import com.mojang.serialization.Codec;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -19,6 +21,12 @@ public final class RackElement implements ElectricalElement {
         public static final String KEY_BMS_OPEN = "bmsOpen";
         public static final String KEY_WIRING_MODE = "wiring_mode";
     public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
+
+    /** FACING-relative: {@code [FRONT (-), BACK (+)]}; null facing degrades to NORTH. */
+    public static BlockPos[] resolveTerminals(BlockPos pos, Direction facing) {
+        Direction f = facing != null ? facing : Direction.NORTH;
+        return new BlockPos[]{pos.offset(f), pos.offset(f.getOpposite())};
+    }
     public static final BatteryChemistry DEFAULT_CHEMISTRY = BatteryChemistry.LI_ION_18650;
     public static final String WIRING_SERIES = "SERIES";
     public static final String WIRING_PARALLEL = "PARALLEL";

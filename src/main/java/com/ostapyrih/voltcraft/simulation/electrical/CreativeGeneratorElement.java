@@ -3,12 +3,21 @@ package com.ostapyrih.voltcraft.simulation.electrical;
 import com.ostapyrih.voltcraft.api.electrical.Complex;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
 import com.ostapyrih.voltcraft.api.electrical.Stamps;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
 public final class CreativeGeneratorElement implements ElectricalElement {
     public static final int[][] TERMINAL_OFFSETS = {{0, 0, -1}, {0, 0, 1}};
+
+    /** FACING-relative: {@code [FRONT (-), BACK (+)]}; null facing degrades to NORTH. */
+    public static BlockPos[] resolveTerminals(BlockPos pos, Direction facing) {
+        Direction f = facing != null ? facing : Direction.NORTH;
+        return new BlockPos[]{pos.offset(f), pos.offset(f.getOpposite())};
+    }
+
     public static final double MIN_RESISTANCE_OHM = 1e-4;
     public static final int TELE_V = 0;
     public static final int TELE_I = 1;
