@@ -71,6 +71,11 @@ public final class BatteryElement implements ElectricalElement {
     public void stamp(Complex[][] y, Complex[] in, int[] terminals, Complex[] v,
                       double[] state, double omega) {
         if (bmsOpen.getAsBoolean()) {
+            double rHi = 1.0e9;
+            double soc = clamp01(state[STATE_SOC]);
+            double emf = packEmf(chemistry, seriesCount, soc);
+            Stamps.thevenin(y, in, terminals[1], terminals[0],
+                new Complex(1.0 / rHi, 0.0), new Complex(emf, 0.0));
             return;
         }
         double soc = clamp01(state[STATE_SOC]);
