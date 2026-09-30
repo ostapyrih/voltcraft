@@ -62,7 +62,6 @@ public class VoltcraftCreativeCommands {
                         )
                     )
                 )
-                .then(VoltcraftSimulationTestCommand.register())
         );
     }
 

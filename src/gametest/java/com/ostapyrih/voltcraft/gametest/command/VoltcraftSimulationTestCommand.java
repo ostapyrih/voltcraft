@@ -1,12 +1,10 @@
-package com.ostapyrih.voltcraft.command;
+package com.ostapyrih.voltcraft.gametest.command;
 
 import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.ostapyrih.voltcraft.block.VoltcraftBlocks;
-import com.ostapyrih.voltcraft.block.cable.CableBlock;
 import com.ostapyrih.voltcraft.block.conversion.AbstractPowerConverterBlock;
 import com.ostapyrih.voltcraft.block.creative.CreativeLoadBlock;
-import com.ostapyrih.voltcraft.block.entity.conversion.AbstractPowerConverterBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.creative.CreativeLoadBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.generation.ChargeControllerBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.generation.SolarPanelBlockEntity;
