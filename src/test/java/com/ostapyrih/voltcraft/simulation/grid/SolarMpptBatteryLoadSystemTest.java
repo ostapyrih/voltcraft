@@ -128,6 +128,8 @@ public class SolarMpptBatteryLoadSystemTest {
         // Reference to solar panels in the grid
         final List<SolarPanelModel> solarPanels = new ArrayList<>();
 
+        int underVoltageTicks = 0;
+
         MPPTModel(BlockPos pos, Direction facing) {
             this.pos = pos;
             this.facing = facing;
@@ -141,15 +143,20 @@ public class SolarMpptBatteryLoadSystemTest {
         }
 
         double getAvailableSolarWatts() {
-            // In a properly connected circuit, returns solar generation if circuit is closed
-            if (inputVoltage < 1.0) {
-                return 0.0;
+            if (!solarPanels.isEmpty()) {
+                double total = 0.0;
+                for (SolarPanelModel sp : solarPanels) {
+                    total += sp.peakPower;
+                }
+                if (total > 0.0) {
+                    return total;
+                }
             }
-            double total = 0.0;
-            for (SolarPanelModel sp : solarPanels) {
-                total += sp.peakPower;
+            // Production fallback from ChargeControllerBlockEntity.java:230-233
+            if (inputVoltage > 1.0 && inputPowerWatts > 0.0) {
+                return inputPowerWatts;
             }
-            return total;
+            return 0.0;
         }
 
         @Override
@@ -201,28 +208,38 @@ public class SolarMpptBatteryLoadSystemTest {
                     rawTarget = mpptLogic.getFloatVoltage();
                 }
 
-                // Solar foldback
+                // Solar foldback: exactly matching ChargeControllerBlockEntity.java:262-270
                 double availSolar = getAvailableSolarWatts();
                 if (availSolar > 0.0 && actualOutputVoltage > 1.0) {
                     double pOutMax = availSolar * 0.95;
-                    double iMax = Math.min(60.0, pOutMax / Math.max(1.0, actualOutputVoltage));
+                    double iMax = Math.min(30.0, pOutMax / Math.max(1.0, actualOutputVoltage));
                     double vMaxFoldback = actualOutputVoltage + iMax * ConverterElement.SOURCE_R_OHM;
                     rawTarget = Math.min(rawTarget, vMaxFoldback);
-                } else if (availSolar <= 0.0) {
-                    rawTarget = 0.0;
                 }
             }
 
             this.stagedOutputEmf = ConverterElement.stageEmf(rawTarget, tripped, teleVIn, 150.0);
             this.stagedInputDemandWatts = ConverterElement.stageDemandWatts(telePOut, 0.95, tripped, teleVIn);
 
+            // Staged demand clamp: exactly matching ChargeControllerBlockEntity.java:276-279
             double availSolar = getAvailableSolarWatts();
             if (availSolar > 0.0) {
                 this.stagedInputDemandWatts = Math.min(this.stagedInputDemandWatts, availSolar);
-            } else {
-                this.stagedInputDemandWatts = 0.0;
             }
             this.lastDemandWatts = stagedInputDemandWatts;
+
+            // UVLO and overload trip logic: exactly matching AbstractPowerConverterBlockEntity.java:345-360
+            boolean uvloCond = teleVIn > 1.0 && teleVIn < 15.0 * ConverterElement.UVLO_TRIP_MARGIN;
+            underVoltageTicks = ConverterElement.advanceCounter(underVoltageTicks, uvloCond);
+            if (teleVIn >= 15.0) {
+                underVoltageTicks = 0;
+            }
+            boolean uvloNow = underVoltageTicks >= ConverterElement.UVLO_TRIP_TICKS;
+            boolean overloadNow = teleIOut > 30.0;
+            boolean next = ConverterElement.tripNext(tripped, 25.0, overloadNow, false, uvloNow);
+            if (next != tripped) {
+                tripped = next;
+            }
         }
 
         @Override
@@ -238,15 +255,25 @@ public class SolarMpptBatteryLoadSystemTest {
     static class BatteryModel implements KernelAttachedBlock {
         final BlockPos pos;
         final Direction facing;
-        final double[] telemetry = new double[2];
+        final double[] telemetry = new double[]{Double.NaN, Double.NaN};
         final double[] stateArray = new double[]{0.8, 25.0, 1.0}; // 80% SoC
         boolean bmsOpen = false;
+        final BatteryChemistry chemistry;
+        final int seriesCount;
+        final int parallelCount;
         final BatteryElement element;
 
-        BatteryModel(BlockPos pos, Direction facing) {
+        BatteryModel(BlockPos pos, Direction facing, BatteryChemistry chemistry, int seriesCount, int parallelCount) {
             this.pos = pos;
             this.facing = facing;
-            this.element = new BatteryElement(BatteryChemistry.LIFEPO4, 4, 1, () -> bmsOpen, telemetry);
+            this.chemistry = chemistry;
+            this.seriesCount = seriesCount;
+            this.parallelCount = parallelCount;
+            this.element = new BatteryElement(chemistry, seriesCount, parallelCount, () -> bmsOpen, telemetry);
+        }
+
+        BatteryModel(BlockPos pos, Direction facing) {
+            this(pos, facing, BatteryChemistry.LIFEPO4, 4, 1);
         }
 
         @Override
@@ -267,7 +294,16 @@ public class SolarMpptBatteryLoadSystemTest {
         public void setStateArray(double[] s) { System.arraycopy(s, 0, stateArray, 0, s.length); }
 
         @Override
-        public void tickElectrical(ServerWorld world) {}
+        public void tickElectrical(ServerWorld world) {
+            if (!Double.isFinite(telemetry[BatteryElement.TELE_V])) {
+                return;
+            }
+            boolean next = BatteryElement.bmsNext(bmsOpen, telemetry[BatteryElement.TELE_V],
+                stateArray[BatteryElement.STATE_TEMP], BatteryElement.packMinVoltage(chemistry, seriesCount), seriesCount);
+            if (next != bmsOpen) {
+                bmsOpen = next;
+            }
+        }
 
         @Override
         public boolean isActiveSource() { return !bmsOpen; }
@@ -641,4 +677,528 @@ public class SolarMpptBatteryLoadSystemTest {
         stepTicks(5);
         assertTrue(mppt.outputPowerWatts > 200.0, "MPPT resumes contributing solar power");
     }
+
+    @Test
+    @DisplayName("7. Test Case: Breaking solar panel block must stop charging completely")
+    void testBreakingSolarPanelStopsCharging() {
+        connectFullCircuit();
+        stepTicks(5);
+        assertTrue(mppt.outputPowerWatts > 50.0, "Initially charging from solar");
+        assertTrue(battery.getTerminalCurrent() < -1.0, "Battery is charging");
+
+        // Player breaks the solar panel block
+        manager.removeAttachedBlock(pos(0, 64, 0));
+        mppt.solarPanels.clear();
+
+        stepTicks(5);
+        System.out.println("SOLAR BROKEN: Vin=" + mppt.inputVoltage + ", Pin=" + mppt.inputPowerWatts
+            + ", Vout=" + mppt.actualOutputVoltage + ", Pout=" + mppt.outputPowerWatts
+            + ", BatI=" + battery.getTerminalCurrent());
+
+        // When solar panel is broken, MPPT must NOT continue charging!
+        assertEquals(0.0, mppt.outputPowerWatts, 0.05,
+            "TEST FAILURE: MPPT continues charging even after solar panel block is destroyed! Output: " + mppt.outputPowerWatts);
+        assertTrue(battery.getTerminalCurrent() >= -0.01,
+            "TEST FAILURE: Battery is still being charged after solar panel was broken! Current: " + battery.getTerminalCurrent());
+    }
+
+    @Test
+    @DisplayName("8. Test Case: 500W load cable disconnect and reconnect must resume load and keep MPPT active")
+    void test500WLoadCableBrokenAndReconnected() {
+        connectFullCircuit();
+        // Step 1: 500W load active
+        load.enabled = true;
+        load.targetWatts = 500.0;
+        stepTicks(5);
+        System.out.println("STEP 1 (500W Active): LoadP=" + load.getPowerDrawn()
+            + ", MPPT Tripped=" + mppt.tripped
+            + ", MPPT Iout=" + mppt.outputCurrentAmps
+            + ", MPPT Pout=" + mppt.outputPowerWatts);
+
+        // Step 2: Break load cable
+        BlockPos loadCable = pos(4, 64, 11);
+        manager.removeCable(loadCable);
+        stepTicks(5);
+        System.out.println("STEP 2 (Cable Broken): LoadP=" + load.getPowerDrawn()
+            + ", MPPT Tripped=" + mppt.tripped
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", BatI=" + battery.getTerminalCurrent());
+
+        // Check stale telemetry when cable is broken
+        boolean staleTelemetry = (load.getPowerDrawn() > 10.0);
+        System.out.println("STALE TELEMETRY CHECK: Load power after breaking cable = " + load.getPowerDrawn()
+            + " (Stale telemetry present=" + staleTelemetry + ", Bat discharge=" + battery.getTerminalCurrent() + " A)");
+
+        // Step 3: Place load cable back
+        manager.putCable(loadCable, ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+
+        System.out.println("LOAD RECONNECTED: LoadP=" + load.getPowerDrawn()
+            + ", MPPT Tripped=" + mppt.tripped
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", BatV=" + battery.getTerminalVoltage());
+
+        assertFalse(mppt.tripped, "TEST FAILURE: MPPT tripped permanently when load cable was broken/reconnected!");
+        assertTrue(load.getPowerDrawn() > 400.0, "TEST FAILURE: Load failed to resume drawing 500W after cable was reconnected! Got: " + load.getPowerDrawn());
+    }
+
+    @Test
+    @DisplayName("9. Test Case: MPPT cable disconnect/reconnect must auto-recover and resume charging")
+    void testMpptCableDisconnectAndReconnect() {
+        connectFullCircuit();
+        stepTicks(5);
+        assertTrue(mppt.outputPowerWatts > 50.0, "Initially charging");
+
+        // Disconnect MPPT input cable for 6 ticks (triggers UVLO counter >= 5 ticks)
+        BlockPos inCable = pos(0, 64, 5);
+        manager.removeCable(inCable);
+        stepTicks(6);
+
+        // Reconnect MPPT input cable
+        manager.putCable(inCable, ConductorType.INSULATED_COPPER);
+        stepTicks(5);
+
+        System.out.println("MPPT RECONNECTED: Tripped=" + mppt.tripped
+            + ", Vin=" + mppt.inputVoltage
+            + ", Pout=" + mppt.outputPowerWatts);
+
+        assertFalse(mppt.tripped, "TEST FAILURE: MPPT latched tripped permanently on temporary input cable loss!");
+        assertTrue(mppt.outputPowerWatts > 50.0, "TEST FAILURE: MPPT did not recover and resume charging after reconnect! Got: " + mppt.outputPowerWatts);
+    }
+
+    @Test
+    @DisplayName("10. Test Case: Hot-swapping Battery block while MPPT and 500W load are running")
+    void testHotSwappingBatteryBlockUnderLoad() {
+        connectFullCircuit();
+        load.enabled = true;
+        load.targetWatts = 500.0;
+        stepTicks(5);
+        assertEquals(500.0, load.getPowerDrawn(), 15.0, "Load is initially 500W");
+
+        // Player breaks the battery block
+        manager.removeAttachedBlock(battery.pos);
+        stepTicks(5);
+        System.out.println("BATTERY REMOVED: LoadP=" + load.getPowerDrawn()
+            + ", MPPT Tripped=" + mppt.tripped
+            + ", MPPT Vout=" + mppt.actualOutputVoltage
+            + ", MPPT Pout=" + mppt.outputPowerWatts);
+
+        // Player places a new battery back in the same slot
+        battery = new BatteryModel(pos(0, 64, 12), Direction.NORTH);
+        manager.putAttachedBlock(battery);
+        stepTicks(5);
+
+        System.out.println("BATTERY REPLACED: LoadP=" + load.getPowerDrawn()
+            + ", MPPT Tripped=" + mppt.tripped
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", BatI=" + battery.getTerminalCurrent());
+
+        assertFalse(mppt.tripped, "BUG DETECTED: MPPT tripped permanently when battery was hot-swapped!");
+        assertTrue(battery.getTerminalVoltage() > 11.0, "Battery terminal voltage must be active (>11V), got: " + battery.getTerminalVoltage());
+        assertTrue(load.getPowerDrawn() > 400.0, "BUG DETECTED: Load failed to resume 500W after battery was replaced! Got: " + load.getPowerDrawn());
+    }
+
+    @Test
+    @DisplayName("11. Test Case: Hot-swapping MPPT block while Solar and Battery are connected")
+    void testHotSwappingMpptBlock() {
+        connectFullCircuit();
+        stepTicks(5);
+        assertTrue(mppt.outputPowerWatts > 50.0, "Initially charging");
+
+        // Player breaks MPPT block
+        manager.removeAttachedBlock(mppt.pos);
+        stepTicks(5);
+
+        // Player places new MPPT block
+        mppt = new MPPTModel(pos(0, 64, 6), Direction.SOUTH);
+        mppt.solarPanels.add(solar);
+        manager.putAttachedBlock(mppt);
+        stepTicks(5);
+
+        System.out.println("MPPT REPLACED: Tripped=" + mppt.tripped
+            + ", Vin=" + mppt.inputVoltage
+            + ", Vout=" + mppt.actualOutputVoltage
+            + ", Pout=" + mppt.outputPowerWatts
+            + ", BatI=" + battery.getTerminalCurrent());
+
+        assertFalse(mppt.tripped, "New MPPT should not be tripped");
+        assertTrue(mppt.outputPowerWatts > 50.0, "BUG DETECTED: Newly placed MPPT failed to start charging battery! Got: " + mppt.outputPowerWatts);
+        assertTrue(battery.getTerminalCurrent() < -1.0, "Battery should be receiving charge from new MPPT");
+    }
+
+    @Test
+    @DisplayName("12. Test Case: Asymmetrical battery terminal disconnect (+ then -) and reconnect under 500W load")
+    void testAsymmetricalSequentialBatteryCableDisconnectReconnectUnderLoad() {
+        connectFullCircuit();
+        load.enabled = true;
+        load.targetWatts = 500.0;
+        stepTicks(5);
+        assertEquals(500.0, load.getPowerDrawn(), 15.0, "Load initially 500W");
+
+        // Step A: Disconnect Battery (+) cable only (leaving Battery (-) cable connected)
+        BlockPos batPlusCable = pos(0, 64, 13);
+        manager.removeCable(batPlusCable);
+        stepTicks(5);
+        System.out.println("STEP A (Bat+ Disconnected): BatI=" + battery.getTerminalCurrent()
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", LoadP=" + load.getPowerDrawn());
+
+        // Step B: Disconnect Battery (-) cable as well
+        BlockPos batMinusCable = pos(0, 64, 11);
+        manager.removeCable(batMinusCable);
+        stepTicks(5);
+        System.out.println("STEP B (Both Bat Disconnected): BatI=" + battery.getTerminalCurrent()
+            + ", LoadP=" + load.getPowerDrawn());
+
+        // Step C: Reconnect Battery (+) cable ONLY (one wire connected, one open)
+        manager.putCable(batPlusCable, ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        System.out.println("STEP C (Only Bat+ Reconnected): BatI=" + battery.getTerminalCurrent()
+            + ", LoadP=" + load.getPowerDrawn());
+
+        // Step D: Reconnect Battery (-) cable (both wires restored)
+        manager.putCable(batMinusCable, ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        System.out.println("STEP D (Both Bat Reconnected): BatI=" + battery.getTerminalCurrent()
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", LoadP=" + load.getPowerDrawn()
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        assertFalse(mppt.tripped, "BUG DETECTED: MPPT tripped permanently during battery cable reconnect!");
+        assertTrue(load.getPowerDrawn() > 400.0, "BUG DETECTED: Load failed to recover 500W after battery reconnect! Got: " + load.getPowerDrawn());
+    }
+
+    @Test
+    @DisplayName("13. Test Case: Hot-swapping Solar Panel block while MPPT and Battery are live")
+    void testHotSwappingSolarPanelBlock() {
+        connectFullCircuit();
+        stepTicks(5);
+        assertTrue(mppt.outputPowerWatts > 50.0, "Initially charging");
+
+        // Player breaks Solar Panel block
+        manager.removeAttachedBlock(solar.pos);
+        mppt.solarPanels.clear();
+        stepTicks(5);
+
+        System.out.println("SOLAR BROKEN: MPPT Vin=" + mppt.inputVoltage
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", BatI=" + battery.getTerminalCurrent());
+
+        // Player places a new Solar Panel at the same position
+        solar = new SolarPanelModel(pos(0, 64, 0), Direction.NORTH);
+        mppt.solarPanels.add(solar);
+        manager.putAttachedBlock(solar);
+        stepTicks(5);
+
+        System.out.println("SOLAR REPLACED: MPPT Vin=" + mppt.inputVoltage
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", BatI=" + battery.getTerminalCurrent());
+
+        assertTrue(mppt.outputPowerWatts > 50.0, "BUG DETECTED: MPPT failed to resume charging after new solar panel placed! Got: " + mppt.outputPowerWatts);
+        assertTrue(battery.getTerminalCurrent() < -1.0, "Battery should be charging from new solar panel");
+    }
+
+    @Test
+    @DisplayName("14. Test Case: Load mode switching (Power <-> Resistance) surviving cable churn")
+    void testLoadModeSwitchingUnderCableChurn() {
+        connectFullCircuit();
+        load.enabled = true;
+        load.targetWatts = 500.0;
+        stepTicks(5);
+        assertEquals(500.0, load.getPowerDrawn(), 15.0, "Constant Power 500W active");
+
+        // Disconnect load cable
+        BlockPos loadCable = pos(4, 64, 11);
+        manager.removeCable(loadCable);
+        stepTicks(5);
+
+        // Reconnect load cable
+        manager.putCable(loadCable, ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        assertTrue(load.getPowerDrawn() > 400.0, "Load resumes 500W after cable reconnect");
+
+        // Switch to 1000W load
+        load.targetWatts = 1000.0;
+        stepTicks(5);
+        System.out.println("LOAD 1000W: LoadP=" + load.getPowerDrawn()
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", BatI=" + battery.getTerminalCurrent()
+            + ", MPPT Pout=" + mppt.outputPowerWatts);
+
+        assertTrue(load.getPowerDrawn() > 900.0, "Load should draw ~1000W: " + load.getPowerDrawn());
+    }
+
+    @Test
+    @DisplayName("15. Test Case: Cold-start 1000W+ load without tripping Battery BMS vs 100W soft-start ramp-up")
+    void testBatteryColdStartHeavyLoadVsSoftStartRampUp() {
+        // --- CASE A: 100W Soft-Start then ramp to 1000W ---
+        GridManager softManager = new GridManager();
+        BatteryModel softBattery = new BatteryModel(pos(0, 64, 12), Direction.NORTH, BatteryChemistry.LEAD_ACID, 6, 1);
+        LoadModel softLoad = new LoadModel(pos(2, 64, 12), Direction.NORTH);
+        softLoad.enabled = true;
+        softLoad.targetWatts = 100.0;
+
+        softManager.putAttachedBlock(softBattery);
+        softManager.putAttachedBlock(softLoad);
+
+        // Battery at (0, 64, 12), Load at (3, 64, 12)
+        // Terminals: Bat(-) at (0, 64, 11), Bat(+) at (0, 64, 13)
+        // Load(-) at (3, 64, 11), Load(+) at (3, 64, 13)
+        for (int x = 0; x <= 3; x++) {
+            softManager.putCable(pos(x, 64, 11), ConductorType.INSULATED_COPPER);
+            softManager.putCable(pos(x, 64, 13), ConductorType.INSULATED_COPPER);
+        }
+
+        for (int i = 0; i < 5; i++) {
+            softManager.tick(null);
+            System.out.println("SOFT TICK " + i + ": Islands=" + softManager.getIslands().size());
+            for (int isl = 0; isl < softManager.getIslands().size(); isl++) {
+                IslandContext c = softManager.getIslands().get(isl);
+                System.out.println("  Island " + isl + ": nodes=" + c.nodeIndex().keySet() + ", blocks=" + c.blocks().size());
+            }
+            System.out.println("  BatV=" + softBattery.getTerminalVoltage()
+                + ", BatI=" + softBattery.getTerminalCurrent()
+                + ", LoadP=" + softLoad.getPowerDrawn()
+                + ", BMS Open=" + softBattery.bmsOpen);
+        }
+
+        assertFalse(softBattery.bmsOpen, "BMS must remain closed at 100W load");
+        assertEquals(100.0, softLoad.getPowerDrawn(), 5.0, "Load draws 100W");
+
+        // Now ramp up load to 1000W in the same running circuit
+        softLoad.targetWatts = 1000.0;
+        for (int i = 0; i < 5; i++) {
+            softManager.tick(null);
+            System.out.println("RAMP 1000W TICK " + i + ": BatV=" + softBattery.getTerminalVoltage()
+                + ", BatI=" + softBattery.getTerminalCurrent()
+                + ", LoadP=" + softLoad.getPowerDrawn()
+                + ", BMS Open=" + softBattery.bmsOpen);
+        }
+
+        assertFalse(softBattery.bmsOpen, "BMS must remain closed when ramped from 100W to 1000W");
+        assertTrue(softLoad.getPowerDrawn() > 900.0, "Load draws ~1000W when ramped");
+
+        // Now ramp further to 1300W
+        softLoad.targetWatts = 1300.0;
+        for (int i = 0; i < 5; i++) {
+            softManager.tick(null);
+            System.out.println("RAMP 1300W TICK " + i + ": BatV=" + softBattery.getTerminalVoltage()
+                + ", BatI=" + softBattery.getTerminalCurrent()
+                + ", LoadP=" + softLoad.getPowerDrawn()
+                + ", BMS Open=" + softBattery.bmsOpen);
+        }
+
+        // --- CASE B: Cold Start directly at 1000W ---
+        GridManager cold1000Manager = new GridManager();
+        BatteryModel coldBattery1000 = new BatteryModel(pos(0, 64, 12), Direction.NORTH, BatteryChemistry.LEAD_ACID, 6, 1);
+        LoadModel coldLoad1000 = new LoadModel(pos(3, 64, 12), Direction.NORTH);
+        coldLoad1000.enabled = true;
+        coldLoad1000.targetWatts = 1000.0;
+
+        cold1000Manager.putAttachedBlock(coldBattery1000);
+        cold1000Manager.putAttachedBlock(coldLoad1000);
+
+        for (int x = 0; x <= 3; x++) {
+            cold1000Manager.putCable(pos(x, 64, 11), ConductorType.INSULATED_COPPER);
+            cold1000Manager.putCable(pos(x, 64, 13), ConductorType.INSULATED_COPPER);
+        }
+
+        for (int i = 0; i < 5; i++) {
+            cold1000Manager.tick(null);
+        }
+
+        System.out.println("COLD START 1000W: LoadP=" + coldLoad1000.getPowerDrawn()
+            + ", BatV=" + coldBattery1000.getTerminalVoltage()
+            + ", BatI=" + coldBattery1000.getTerminalCurrent()
+            + ", BMS Open=" + coldBattery1000.bmsOpen);
+
+        // --- CASE C: Cold Start directly at 1500W+ (triggers full BMS protection shutdown) ---
+        GridManager cold1500Manager = new GridManager();
+        BatteryModel coldBattery1500 = new BatteryModel(pos(0, 64, 12), Direction.NORTH, BatteryChemistry.LEAD_ACID, 6, 1);
+        LoadModel coldLoad1500 = new LoadModel(pos(3, 64, 12), Direction.NORTH);
+        coldLoad1500.enabled = true;
+        coldLoad1500.targetWatts = 1500.0;
+
+        cold1500Manager.putAttachedBlock(coldBattery1500);
+        cold1500Manager.putAttachedBlock(coldLoad1500);
+
+        for (int x = 0; x <= 3; x++) {
+            cold1500Manager.putCable(pos(x, 64, 11), ConductorType.INSULATED_COPPER);
+            cold1500Manager.putCable(pos(x, 64, 13), ConductorType.INSULATED_COPPER);
+        }
+
+        for (int i = 0; i < 5; i++) {
+            cold1500Manager.tick(null);
+        }
+
+        System.out.println("COLD START 1500W: LoadP=" + coldLoad1500.getPowerDrawn()
+            + ", BatV=" + coldBattery1500.getTerminalVoltage()
+            + ", BatI=" + coldBattery1500.getTerminalCurrent()
+            + ", BMS Open=" + coldBattery1500.bmsOpen);
+
+        // Assert desired behavior: cold start should deliver 1000W and not trip BMS into protection
+        assertEquals(1000.0, coldLoad1000.getPowerDrawn(), 50.0,
+            "BUG DETECTED: Cold start at 1000W collapsed to fallback (" + coldLoad1000.getPowerDrawn() + " W) drawing 268A!");
+        assertFalse(coldBattery1500.bmsOpen,
+            "BUG DETECTED: Battery BMS tripped into protection on cold heavy load connection!");
+    }
+
+    @Test
+    @DisplayName("16. Test Case: Sequential cable disconnect and reconnect across entire working circuit under 500W load")
+    void testSequentialCableChurnAcrossWorkingCircuitUnderLoad() {
+        connectFullCircuit();
+        load.enabled = true;
+        load.targetWatts = 500.0;
+        stepTicks(10);
+
+        System.out.println("--- BASELINE ACTIVE CIRCUIT ---");
+        System.out.println("LoadP=" + load.getPowerDrawn()
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", MPPT Tripped=" + mppt.tripped
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", BatI=" + battery.getTerminalCurrent());
+
+        assertEquals(500.0, load.getPowerDrawn(), 15.0, "Initial load must be ~500W");
+        assertTrue(mppt.outputPowerWatts > 50.0, "MPPT must initially deliver power");
+
+        // --- STAGE 1: Disconnect & Reconnect MPPT Out(+) cable ---
+        BlockPos mpptOutPlus = pos(0, 64, 7);
+        manager.removeCable(mpptOutPlus);
+        stepTicks(5);
+        System.out.println("STAGE 1 (MPPT Out+ Broken): LoadP=" + load.getPowerDrawn()
+            + ", BatI=" + battery.getTerminalCurrent()
+            + ", MPPT Iout=" + mppt.outputCurrentAmps
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        // Load must be carried entirely by battery
+        assertTrue(load.getPowerDrawn() > 400.0, "Battery should carry load when MPPT Out+ is disconnected");
+        assertTrue(battery.getTerminalCurrent() > 30.0, "Battery should discharge heavily to carry 500W");
+
+        // Reconnect MPPT Out(+)
+        manager.putCable(mpptOutPlus, ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        System.out.println("STAGE 1 (MPPT Out+ Restored): LoadP=" + load.getPowerDrawn()
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        assertFalse(mppt.tripped, "BUG DETECTED: MPPT tripped permanently when Out(+) cable was reconnected!");
+        assertTrue(mppt.outputPowerWatts > 50.0, "MPPT must resume delivering power after Out(+) reconnected");
+
+        // --- STAGE 2: Disconnect & Reconnect MPPT Out(-) cable ---
+        BlockPos mpptOutMinus = pos(-1, 64, 6);
+        manager.removeCable(mpptOutMinus);
+        stepTicks(5);
+        System.out.println("STAGE 2 (MPPT Out- Broken): LoadP=" + load.getPowerDrawn()
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        manager.putCable(mpptOutMinus, ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        System.out.println("STAGE 2 (MPPT Out- Restored): LoadP=" + load.getPowerDrawn()
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        assertFalse(mppt.tripped, "BUG DETECTED: MPPT tripped permanently when Out(-) cable was reconnected!");
+
+        // --- STAGE 3: Disconnect & Reconnect Load(+) cable ---
+        BlockPos loadPlus = pos(4, 64, 13);
+        manager.removeCable(loadPlus);
+        stepTicks(5);
+        System.out.println("STAGE 3 (Load+ Broken): LoadP=" + load.getPowerDrawn()
+            + ", BatI=" + battery.getTerminalCurrent()
+            + ", MPPT Pout=" + mppt.outputPowerWatts);
+
+        // If load cable is broken, real power delivered must be 0W
+        boolean loadShowsPowerThroughAir = (load.getPowerDrawn() > 10.0);
+        System.out.println("STAGE 3: Stale load telemetry bug present=" + loadShowsPowerThroughAir);
+
+        // Reconnect Load(+)
+        manager.putCable(loadPlus, ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        System.out.println("STAGE 3 (Load+ Restored): LoadP=" + load.getPowerDrawn()
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        assertTrue(load.getPowerDrawn() > 400.0, "BUG DETECTED: Load failed to resume 500W after Load(+) cable restored! Got: " + load.getPowerDrawn());
+
+        // --- STAGE 4: Disconnect & Reconnect Battery(+) cable under 500W load ---
+        BlockPos batPlus = pos(0, 64, 13);
+        manager.removeCable(batPlus);
+        stepTicks(5);
+        System.out.println("STAGE 4 (Bat+ Broken under 500W): LoadP=" + load.getPowerDrawn()
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        // Reconnect Battery(+)
+        manager.putCable(batPlus, ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        System.out.println("STAGE 4 (Bat+ Restored): LoadP=" + load.getPowerDrawn()
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        assertFalse(mppt.tripped, "BUG DETECTED: MPPT tripped permanently when Battery(+) cable was reconnected!");
+        assertTrue(load.getPowerDrawn() > 400.0, "BUG DETECTED: Load failed to recover 500W after Battery(+) restored!");
+
+        // --- STAGE 5: Disconnect & Reconnect Solar(+) cable under 500W load ---
+        BlockPos solarPlus = pos(0, 64, 3);
+        manager.removeCable(solarPlus);
+        stepTicks(5);
+        System.out.println("STAGE 5 (Solar+ Broken): LoadP=" + load.getPowerDrawn()
+            + ", MPPT Vin=" + mppt.inputVoltage
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", BatI=" + battery.getTerminalCurrent());
+
+        assertEquals(0.0, mppt.inputVoltage, 1e-6, "MPPT Vin should be 0 without solar");
+        assertTrue(load.getPowerDrawn() > 400.0, "Battery carries load without solar");
+
+        // Reconnect Solar(+)
+        manager.putCable(solarPlus, ConductorType.INSULATED_COPPER);
+        stepTicks(5);
+        System.out.println("STAGE 5 (Solar+ Restored): LoadP=" + load.getPowerDrawn()
+            + ", MPPT Vin=" + mppt.inputVoltage
+            + ", MPPT Pout=" + mppt.outputPowerWatts);
+
+        assertTrue(mppt.inputVoltage > 30.0, "Solar input voltage should be restored");
+        assertTrue(mppt.outputPowerWatts > 50.0, "BUG DETECTED: MPPT failed to resume solar output after Solar(+) restored!");
+    }
+
+    @Test
+    @DisplayName("17. Test Case: Bus segment disconnect dividing circuit into separate islands and reuniting them under load")
+    void testBusSegmentDisconnectIslandSplitAndReunite() {
+        connectFullCircuit();
+        load.enabled = true;
+        load.targetWatts = 500.0;
+        stepTicks(10);
+        assertEquals(500.0, load.getPowerDrawn(), 15.0, "Circuit fully running at 500W");
+
+        // Cut the bus between Battery/MPPT and Load on positive rail: pos(2, 64, 13)
+        // Bat(+) is at x=0, Load(+) is at x=4. Cutting x=2 splits into:
+        // Island A: Solar + MPPT + Battery
+        // Island B: Load alone (no source)
+        BlockPos busMidPlus = pos(2, 64, 13);
+        manager.removeCable(busMidPlus);
+        stepTicks(5);
+
+        System.out.println("BUS CUT (Split Islands): LoadP=" + load.getPowerDrawn()
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", BatI=" + battery.getTerminalCurrent()
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        // In Island A: MPPT charges battery (battery current negative)
+        assertTrue(battery.getTerminalCurrent() < -1.0, "Battery should be charging from MPPT in Island A");
+        assertFalse(mppt.tripped, "MPPT should not trip when load branch is separated");
+
+        // Reconnect bus segment pos(2, 64, 13) to reunite islands
+        manager.putCable(busMidPlus, ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+
+        System.out.println("BUS RESTORED (Reunited): LoadP=" + load.getPowerDrawn()
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", BatI=" + battery.getTerminalCurrent()
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", MPPT Tripped=" + mppt.tripped);
+
+        assertFalse(mppt.tripped, "BUG DETECTED: MPPT tripped permanently when bus segment was restored!");
+        assertTrue(load.getPowerDrawn() > 400.0, "BUG DETECTED: Load failed to resume 500W after bus was reunited! Got: " + load.getPowerDrawn());
+    }
 }
+

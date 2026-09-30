@@ -72,15 +72,66 @@ public class VoltcraftSimulationTestCommand {
                 )
             )
             .then(CommandManager.literal("run")
-                .executes(ctx -> {
-                    ServerWorld world = ctx.getSource().getWorld();
-                    runFullAutomatedTest(world, msg -> {
-                        System.out.println("[VoltcraftTest] " + msg);
-                        ctx.getSource().sendFeedback(() -> Text.literal(msg).formatted(Formatting.GOLD), false);
-                    });
-                    return 1;
-                })
+                .executes(ctx -> executeSuite(ctx.getSource(), "all"))
+                .then(CommandManager.literal("all").executes(ctx -> executeSuite(ctx.getSource(), "all")))
+                .then(CommandManager.literal("baseline").executes(ctx -> executeSuite(ctx.getSource(), "baseline")))
+                .then(CommandManager.literal("cases").executes(ctx -> executeSuite(ctx.getSource(), "cases")))
+            )
+            .then(CommandManager.literal("suite")
+                .executes(ctx -> executeSuite(ctx.getSource(), "all"))
+            )
+            .then(CommandManager.literal("case")
+                .then(CommandManager.literal("solar_cutoff").executes(ctx -> executeCase(ctx.getSource(), 1)))
+                .then(CommandManager.literal("load_disconnect").executes(ctx -> executeCase(ctx.getSource(), 2)))
+                .then(CommandManager.literal("mppt_recovery").executes(ctx -> executeCase(ctx.getSource(), 3)))
+                .then(CommandManager.literal("battery_swap").executes(ctx -> executeCase(ctx.getSource(), 4)))
+                .then(CommandManager.literal("mppt_swap").executes(ctx -> executeCase(ctx.getSource(), 5)))
+                .then(CommandManager.literal("solar_swap").executes(ctx -> executeCase(ctx.getSource(), 6)))
+                .then(CommandManager.literal("heavy_load").executes(ctx -> executeCase(ctx.getSource(), 7)))
+                .then(CommandManager.literal("cable_churn").executes(ctx -> executeCase(ctx.getSource(), 8)))
+                .then(CommandManager.literal("all").executes(ctx -> executeSuite(ctx.getSource(), "cases")))
+            )
+            // Backward compatibility alias for 'bugs'
+            .then(CommandManager.literal("bugs")
+                .executes(ctx -> executeSuite(ctx.getSource(), "cases"))
             );
+    }
+
+    private static int executeSuite(ServerCommandSource source, String type) {
+        ServerWorld world = source.getWorld();
+        Consumer<String> log = msg -> {
+            System.out.println("[VoltcraftTest] " + msg);
+            source.sendFeedback(() -> Text.literal(msg).formatted(Formatting.GOLD), false);
+        };
+        if ("baseline".equalsIgnoreCase(type)) {
+            runFullAutomatedTest(world, log);
+        } else if ("cases".equalsIgnoreCase(type)) {
+            runAllTestCases(world, log);
+        } else {
+            runFullAutomatedTest(world, log);
+            runAllTestCases(world, log);
+        }
+        return 1;
+    }
+
+    private static int executeCase(ServerCommandSource source, int caseNum) {
+        ServerWorld world = source.getWorld();
+        Consumer<String> log = msg -> {
+            System.out.println("[VoltcraftTest] " + msg);
+            source.sendFeedback(() -> Text.literal(msg).formatted(Formatting.GOLD), false);
+        };
+        switch (caseNum) {
+            case 1 -> runTestCaseSolarCutoff(world, log);
+            case 2 -> runTestCaseLoadCableDisconnect(world, log);
+            case 3 -> runTestCaseMpptRecovery(world, log);
+            case 4 -> runTestCaseBatteryHotSwap(world, log);
+            case 5 -> runTestCaseMpptHotSwap(world, log);
+            case 6 -> runTestCaseSolarHotSwap(world, log);
+            case 7 -> runTestCaseHeavyLoadRampAndColdStart(world, log);
+            case 8 -> runTestCaseCableChurn(world, log);
+            default -> runAllTestCases(world, log);
+        }
+        return 1;
     }
 
     public static void buildCircuit(ServerWorld world, Consumer<String> log) {
@@ -213,8 +264,9 @@ public class VoltcraftSimulationTestCommand {
             log.accept("MPPT: Not found");
         }
         if (bat != null) {
-            log.accept(String.format("BATTERY: V=%.2fV, SoC=%.1f%%, Chem=%s",
-                bat.getLastTerminalVoltage(), bat.getStateOfCharge() * 100.0, bat.getChemistry().getDisplayName()));
+            log.accept(String.format("BATTERY: V=%.2fV, I=%.2fA, EMF=%.2fV, SoC=%.1f%%, Temp=%.1fC, BMSOpen=%b, Chem=%s",
+                bat.getLastTerminalVoltage(), bat.getLastCurrentAmps(), bat.getElectromotiveForce(),
+                bat.getStateOfCharge() * 100.0, bat.getTemperatureCelsius(), bat.isBmsOpen(), bat.getChemistry().getDisplayName()));
         } else {
             log.accept("BATTERY: Not found");
         }
@@ -274,6 +326,228 @@ public class VoltcraftSimulationTestCommand {
         printStatus(world, log);
 
         log.accept("=== IN-GAME INTEGRATION TEST COMPLETED SUCCESSFULLY ===");
+    }
+
+    public static void runTestCaseSolarCutoff(ServerWorld world, Consumer<String> log) {
+        log.accept("=== TEST CASE 1: Solar Panel Break & Charging Cutoff ===");
+        buildCircuit(world, log);
+        stepTicks(world, 10);
+        log.accept("Initial charging state:");
+        printStatus(world, log);
+
+        log.accept("Breaking Solar Panel block at " + SOLAR_POS.toShortString() + " with world.breakBlock...");
+        world.breakBlock(SOLAR_POS, false);
+        stepTicks(world, 10);
+        log.accept("Status after Solar Panel block broken (expect: Vin=0, Pin=0, Pout=0, no phantom charge):");
+        printStatus(world, log);
+    }
+
+    public static void runTestCaseLoadCableDisconnect(ServerWorld world, Consumer<String> log) {
+        log.accept("=== TEST CASE 2: Load Cable Disconnect & Stale Telemetry Check ===");
+        buildCircuit(world, log);
+        setLoad(world, 500.0, log);
+        stepTicks(world, 10);
+        log.accept("Status with 500W load active:");
+        printStatus(world, log);
+
+        BlockPos loadCablePos = new BlockPos(104, 64, 111);
+        log.accept("Breaking load cable at " + loadCablePos.toShortString() + " with world.breakBlock...");
+        world.breakBlock(loadCablePos, false);
+        stepTicks(world, 10);
+        log.accept("Status after load cable broken (expect: load power drops to 0W, not frozen at 500W):");
+        printStatus(world, log);
+
+        log.accept("Reconnecting load cable at " + loadCablePos.toShortString() + " with setBlockState...");
+        world.setBlockState(loadCablePos, VoltcraftBlocks.CABLE_COPPER_HEAVY.getDefaultState(), 3);
+        stepTicks(world, 10);
+        log.accept("Status after load cable reconnected (expect: load resumes 500W, MPPT healthy):");
+        printStatus(world, log);
+    }
+
+    public static void runTestCaseMpptRecovery(ServerWorld world, Consumer<String> log) {
+        log.accept("=== TEST CASE 3: MPPT Cable Disconnect & Auto-Recovery ===");
+        buildCircuit(world, log);
+        stepTicks(world, 10);
+        BlockPos mpptCablePos = new BlockPos(100, 64, 105);
+        log.accept("Breaking MPPT input cable at " + mpptCablePos.toShortString() + "...");
+        world.breakBlock(mpptCablePos, false);
+        stepTicks(world, 10);
+        log.accept("Status after MPPT input cable broken:");
+        printStatus(world, log);
+
+        log.accept("Reconnecting MPPT input cable at " + mpptCablePos.toShortString() + "...");
+        world.setBlockState(mpptCablePos, VoltcraftBlocks.CABLE_COPPER_HEAVY.getDefaultState(), 3);
+        stepTicks(world, 10);
+        log.accept("Status after MPPT input cable reconnected (expect: MPPT auto-recovers, Tripped=false):");
+        printStatus(world, log);
+    }
+
+    public static void runTestCaseBatteryHotSwap(ServerWorld world, Consumer<String> log) {
+        log.accept("=== TEST CASE 4: Battery Hot-Swap Under 500W Load ===");
+        buildCircuit(world, log);
+        setLoad(world, 500.0, log);
+        stepTicks(world, 10);
+        log.accept("Status before battery broken:");
+        printStatus(world, log);
+
+        log.accept("Breaking Battery block with world.breakBlock...");
+        world.breakBlock(BATTERY_POS, false);
+        stepTicks(world, 10);
+        log.accept("Status after Battery block broken (MPPT alone under 500W load, expect no over-unity):");
+        printStatus(world, log);
+
+        log.accept("Placing new Battery block with setBlockState...");
+        world.setBlockState(BATTERY_POS, VoltcraftBlocks.BATTERY_BLOCK_LEAD_ACID.getDefaultState()
+            .with(BatteryBlock.FACING, Direction.NORTH), 3);
+        stepTicks(world, 10);
+        log.accept("Status after Battery placed back (expect: MPPT resumes charging, Tripped=false):");
+        printStatus(world, log);
+    }
+
+    public static void runTestCaseMpptHotSwap(ServerWorld world, Consumer<String> log) {
+        log.accept("=== TEST CASE 5: MPPT Hot-Swap While Live ===");
+        buildCircuit(world, log);
+        stepTicks(world, 10);
+        log.accept("Breaking MPPT block with world.breakBlock...");
+        world.breakBlock(MPPT_POS, false);
+        stepTicks(world, 10);
+        log.accept("Placing new MPPT block with setBlockState...");
+        world.setBlockState(MPPT_POS, VoltcraftBlocks.CHARGE_CONTROLLER_MPPT.getDefaultState()
+            .with(AbstractPowerConverterBlock.FACING, Direction.SOUTH), 3);
+        if (world.getBlockEntity(MPPT_POS) instanceof ChargeControllerBlockEntity cc) {
+            cc.setTargetOutputVoltage(12.0);
+        }
+        stepTicks(world, 10);
+        log.accept("Status after new MPPT placed (expect: discovers solar and charges battery):");
+        printStatus(world, log);
+    }
+
+    public static void runTestCaseSolarHotSwap(ServerWorld world, Consumer<String> log) {
+        log.accept("=== TEST CASE 6: Solar Panel Hot-Swap While Live ===");
+        buildCircuit(world, log);
+        stepTicks(world, 10);
+        log.accept("Breaking Solar Panel block with world.breakBlock...");
+        world.breakBlock(SOLAR_POS, false);
+        stepTicks(world, 10);
+        log.accept("Status with Solar Panel broken:");
+        printStatus(world, log);
+
+        log.accept("Placing new Solar Panel with setBlockState...");
+        world.setBlockState(SOLAR_POS, VoltcraftBlocks.SOLAR_PANEL_MONOCRYSTALLINE.getDefaultState()
+            .with(SolarPanelBlock.FACING, Direction.NORTH), 3);
+        stepTicks(world, 10);
+        log.accept("Status after new Solar Panel placed (expect: solar charging resumes):");
+        printStatus(world, log);
+    }
+
+    public static void runTestCaseHeavyLoadRampAndColdStart(ServerWorld world, Consumer<String> log) {
+        log.accept("=== TEST CASE 7: Heavy Load Soft-Start Ramp vs Cold-Start (100W -> 1000W -> 2500W) ===");
+        buildCircuit(world, log);
+        stepTicks(world, 10);
+        log.accept("Soft-starting load at 100W...");
+        setLoad(world, 100.0, log);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        log.accept("Ramping load to 1000W...");
+        setLoad(world, 1000.0, log);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        log.accept("Testing Cold Start directly at 2500W...");
+        buildCircuit(world, log);
+        setLoad(world, 2500.0, log);
+        stepTicks(world, 10);
+        log.accept("Status after Cold Start at 2500W (did Battery trip into protection?):");
+        printStatus(world, log);
+    }
+
+    public static void runTestCaseCableChurn(ServerWorld world, Consumer<String> log) {
+        log.accept("=== TEST CASE 8: Active Circuit Cable Churn (Disconnect/Reconnect Across Working Circuit) ===");
+        buildCircuit(world, log);
+        setLoad(world, 500.0, log);
+        stepTicks(world, 10);
+        log.accept("--- 1. Baseline state with 500W load active ---");
+        printStatus(world, log);
+
+        // A. MPPT Out(+) disconnect & reconnect
+        BlockPos mpptOutPlus = new BlockPos(100, 64, 107);
+        log.accept("--- 2. Disconnecting MPPT Out(+) cable at " + mpptOutPlus.toShortString() + " (Battery should carry load alone) ---");
+        world.breakBlock(mpptOutPlus, false);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        log.accept("--- 3. Reconnecting MPPT Out(+) cable at " + mpptOutPlus.toShortString() + " ---");
+        setCable(world, mpptOutPlus);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        // B. MPPT Out(-) disconnect & reconnect
+        BlockPos mpptOutMinus = new BlockPos(99, 64, 106);
+        log.accept("--- 4. Disconnecting MPPT Out(-) cable at " + mpptOutMinus.toShortString() + " ---");
+        world.breakBlock(mpptOutMinus, false);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        log.accept("--- 5. Reconnecting MPPT Out(-) cable at " + mpptOutMinus.toShortString() + " ---");
+        setCable(world, mpptOutMinus);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        // C. Bus segment between Battery and Load (splits into 2 islands)
+        BlockPos busMidPlus = new BlockPos(102, 64, 113);
+        log.accept("--- 6. Disconnecting Bus (+) cable between Battery and Load at " + busMidPlus.toShortString() + " ---");
+        world.breakBlock(busMidPlus, false);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        log.accept("--- 7. Reconnecting Bus (+) cable at " + busMidPlus.toShortString() + " ---");
+        setCable(world, busMidPlus);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        // D. Battery(+) disconnect & reconnect under 500W load
+        BlockPos batPlusCable = new BlockPos(100, 64, 113);
+        log.accept("--- 8. Disconnecting Battery (+) cable at " + batPlusCable.toShortString() + " under 500W load ---");
+        world.breakBlock(batPlusCable, false);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        log.accept("--- 9. Reconnecting Battery (+) cable at " + batPlusCable.toShortString() + " ---");
+        setCable(world, batPlusCable);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        // E. Solar(+) disconnect & reconnect under 500W load
+        BlockPos solarPlusCable = new BlockPos(100, 64, 103);
+        log.accept("--- 10. Disconnecting Solar (+) cable at " + solarPlusCable.toShortString() + " ---");
+        world.breakBlock(solarPlusCable, false);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        log.accept("--- 11. Reconnecting Solar (+) cable at " + solarPlusCable.toShortString() + " ---");
+        setCable(world, solarPlusCable);
+        stepTicks(world, 10);
+        printStatus(world, log);
+
+        log.accept("=== TEST CASE 8 FINISHED ===");
+    }
+
+    public static void runAllTestCases(ServerWorld world, Consumer<String> log) {
+        log.accept("=== RUNNING FULL VOLTCRAFT SIMULATION TEST SUITE ===");
+        runTestCaseSolarCutoff(world, log);
+        runTestCaseLoadCableDisconnect(world, log);
+        runTestCaseMpptRecovery(world, log);
+        runTestCaseBatteryHotSwap(world, log);
+        runTestCaseMpptHotSwap(world, log);
+        runTestCaseSolarHotSwap(world, log);
+        runTestCaseHeavyLoadRampAndColdStart(world, log);
+        runTestCaseCableChurn(world, log);
+        log.accept("=== VOLTCRAFT TEST SUITE EXECUTION FINISHED ===");
+    }
+
+    public static void runUserReportedBugsTest(ServerWorld world, Consumer<String> log) {
+        runAllTestCases(world, log);
     }
 
     private static void stepTicks(ServerWorld world, int count) {
