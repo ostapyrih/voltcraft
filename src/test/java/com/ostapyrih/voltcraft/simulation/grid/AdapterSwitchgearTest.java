@@ -26,13 +26,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.ostapyrih.voltcraft.simulation.electrical.BreakerElement;
 import com.ostapyrih.voltcraft.simulation.electrical.BusbarElement;
 import com.ostapyrih.voltcraft.simulation.electrical.ContactorElement;
-import com.ostapyrih.voltcraft.simulation.electrical.EarthElement;
 import com.ostapyrih.voltcraft.simulation.electrical.FuseElement;
 import com.ostapyrih.voltcraft.simulation.electrical.SpliceElement;
 import com.ostapyrih.voltcraft.simulation.electrical.SwitchElement;
 
 /**
- * Static-block adapter tests: earth + switchgear kernel adapters (knife switch,
+ * Static-block adapter tests: switchgear kernel adapters (knife switch,
  * contactor relay, busbar, junction splice, circuit breaker, fuse).
  *
  * <p>Pure Java + kernel + adapter logic, no server, no registries. A hard
@@ -46,7 +45,7 @@ import com.ostapyrih.voltcraft.simulation.electrical.SwitchElement;
  * <p>Consequently every branch of switchgear adapter logic (stamps, derivatives, discrete
  * transitions, state validation/copy, NBT bodies, terminal offsets, defaults) lives
  * in the static nested adapter classes
- * ({@code EarthElement}, {@code SwitchElement}, {@code ContactorElement},
+ * ({@code SwitchElement}, {@code ContactorElement},
  * {@code BusbarElement}, {@code SpliceElement}, {@code BreakerElement},
  * {@code FuseElement}), which initialize independently of their enclosing BE class
  * and are driven directly here with supplier-injected discrete cells. The outer BE
@@ -56,7 +55,7 @@ import com.ostapyrih.voltcraft.simulation.electrical.SwitchElement;
  * referenced — never anything that would initialize the outer BE class.</p>
  *
  * <p>Note on topology: "closed = conducting / open = isolated" is demonstrated with
- * a 3-node series loop (source {0,2}, device {0,1}, load {1,2}, earth {2}). A 2-node
+ * a 3-node series loop (source {0,2}, device {0,1}, load {1,2}, node 0 is reference). A 2-node
  * all-parallel network cannot demonstrate isolation (the load stays fed by the source
  * regardless of the switch), so the series loop is the deliberate interpretation.</p>
  */
@@ -178,9 +177,8 @@ class AdapterSwitchgearTest {
         k.setNodeCount(3);
         k.setOmega(0.0);
         k.setElements(
-            List.of(new TestThevenin(SOURCE_V, SOURCE_R), device, new TestResistor(loadR),
-                new EarthElement()),
-            List.of(new int[]{0, 2}, new int[]{0, 1}, new int[]{1, 2}, new int[]{2}));
+            List.of(new TestThevenin(SOURCE_V, SOURCE_R), device, new TestResistor(loadR)),
+            List.of(new int[]{0, 2}, new int[]{0, 1}, new int[]{1, 2}));
         k.setConductors(List.of());
         return k;
     }
@@ -195,27 +193,16 @@ class AdapterSwitchgearTest {
     // ---- stamp / derivatives contract ----
 
     @Test
-    void earthStampAddsShuntConductance() {
-        EarthElement earth = new EarthElement();
-        assertEquals(1, earth.terminalCount());
-        assertEquals(0, earth.stateCount());
-
-        Complex[][] y = ComplexNodalSolver.zeroMatrix(1);
-        Complex[] inj = ComplexNodalSolver.zeroVector(1);
-        earth.stamp(y, inj, new int[]{0}, ComplexNodalSolver.zeroVector(1), new double[0], 0.0);
-        assertEquals(EarthElement.G_EARTH_S, y[0][0].re, 1e-12);
-        assertEquals(0.0, y[0][0].im, 1e-12);
-        assertEquals(0.0, inj[0].magnitude(), 0.0);
-
-        // Kernel level: single earthed node solves to ~0 V.
+    void referenceNodeSolvesToZero() {
+        // Kernel level: a single isolated node is the reference and solves to exactly 0 V.
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(1);
         k.setOmega(0.0);
-        k.setElements(List.of(earth), List.of(new int[]{0}));
+        k.setElements(List.of(), List.of());
         k.setConductors(List.of());
         KernelSolveResult r = k.solve();
         assertTrue(r.converged());
-        assertTrue(r.voltage()[0].magnitude() < 1e-6, "earth node=" + r.voltage()[0]);
+        assertEquals(0.0, r.voltage()[0].magnitude(), 1e-9, "reference node=" + r.voltage()[0]);
     }
 
     @Test
@@ -339,7 +326,6 @@ class AdapterSwitchgearTest {
     void zeroStateDerivativesAreNoOp() {
         boolean[] flag = {true};
         List<ElectricalElement> statics = List.of(
-            new EarthElement(),
             new SwitchElement(() -> flag[0]),
             new ContactorElement(() -> flag[0]),
             new BusbarElement(),
@@ -473,18 +459,17 @@ class AdapterSwitchgearTest {
     }
 
     @Test
-    void earthProvidesGroundReference() {
+    void referenceNodeProvidesZero() {
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(2);
         k.setOmega(0.0);
         k.setElements(
-            List.of(new TestThevenin(SOURCE_V, SOURCE_R), new TestResistor(LOAD_R),
-                new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+            List.of(new TestThevenin(SOURCE_V, SOURCE_R), new TestResistor(LOAD_R)),
+            List.of(new int[]{0, 1}, new int[]{0, 1}));
         k.setConductors(List.of());
         KernelSolveResult r = k.solve();
         assertTrue(r.converged());
-        assertTrue(r.voltage()[1].magnitude() < 1e-6, "earth node=" + r.voltage()[1]);
+        assertEquals(0.0, r.voltage()[0].magnitude(), 1e-9, "reference node=" + r.voltage()[0]);
         double expected = SOURCE_V * LOAD_R / (LOAD_R + SOURCE_R);
         assertEquals(expected, r.voltage()[0].sub(r.voltage()[1]).magnitude(), 1e-3);
     }
@@ -494,14 +479,12 @@ class AdapterSwitchgearTest {
     @Test
     void zeroStateCheckAndSnapshot() {
         // checkState accepts exactly empty/non-null; snapshot returns a fresh array per call.
-        EarthElement.checkState(new double[0]);
         SwitchElement.checkState(new double[0]);
         ContactorElement.checkState(new double[0]);
         BusbarElement.checkState(new double[0]);
         SpliceElement.checkState(new double[0]);
         BreakerElement.checkState(new double[0]);
 
-        assertThrows(IllegalArgumentException.class, () -> EarthElement.checkState(null));
         assertThrows(IllegalArgumentException.class,
             () -> SwitchElement.checkState(new double[]{1.0}));
         assertThrows(IllegalArgumentException.class,
@@ -513,7 +496,6 @@ class AdapterSwitchgearTest {
         assertThrows(IllegalArgumentException.class,
             () -> BreakerElement.checkState(new double[]{1.0}));
 
-        assertEquals(0, EarthElement.snapshotState().length);
         assertNotSame(SwitchElement.snapshotState(),
             SwitchElement.snapshotState());
     }
@@ -604,11 +586,6 @@ class AdapterSwitchgearTest {
 
     @Test
     void staticDevicesNbtRoundTripWithoutThrowing() {
-        Map<String, Object> earthStore = new HashMap<>();
-        EarthElement.writeNbt(writeFake(earthStore));
-        assertTrue(earthStore.containsKey(EarthElement.KEY_STATE_ARRAY));
-        EarthElement.readNbt(readFake(earthStore));
-
         Map<String, Object> busStore = new HashMap<>();
         BusbarElement.writeNbt(writeFake(busStore));
         assertTrue(busStore.containsKey(BusbarElement.KEY_STATE_ARRAY));
@@ -690,9 +667,6 @@ class AdapterSwitchgearTest {
     @Test
     void terminalOffsetsAreAdjacentWorldPositions() {
         BlockPos p = new BlockPos(60, 64, 0);
-        assertArrayEquals(new int[][]{{0, -1, 0}}, EarthElement.TERMINAL_OFFSETS);
-        assertEquals(p.down(), p.add(0, -1, 0));
-
         int[][][] twoTerminal = {
             SwitchElement.TERMINAL_OFFSETS,
             ContactorElement.TERMINAL_OFFSETS,

@@ -98,8 +98,8 @@ class KernelRobustnessTest {
     }
 
     /**
-     * Earth reference: single-terminal 1000 S shunt to implicit ground.
-     * Adds {@code g} to {@code Y[t][t]} with zero current injection.
+     * Legacy reference-anchor fixture, now a no-op stamp (no writes) so it
+     * truly does nothing. Kept to avoid compile churn; not used in element lists.
      */
     static final class TestEarth implements ElectricalElement {
         private final double shunt;
@@ -125,8 +125,7 @@ class KernelRobustnessTest {
         @Override
         public void stamp(Complex[][] y, Complex[] in, int[] terminals, Complex[] v,
                           double[] state, double omega) {
-            int t = terminals[0];
-            y[t][t] = y[t][t].add(new Complex(shunt, 0.0));
+            // No-op: the per-island reference node (node 0) is the architecture.
         }
 
         @Override
@@ -299,17 +298,17 @@ class KernelRobustnessTest {
     @Test
     void test26LongRun200Ticks() {
         // Thevenin 12 V / 0.5 ohm across {0,2}; 10 ohm load {1,2};
-        // 0.05 ohm conductor {0,1}; earth on 2; exp-decay state x(0) = 10.
+        // 0.05 ohm conductor {0,1}; node 0 is reference; exp-decay state x(0) = 10.
         // Purely linear network: every tick must converge and integrate.
         TestConductor c = new TestConductor(0, 1, 0.05);
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(3);
         k.setElements(
                 new ArrayList<>(List.of(new TestThevenin(12.0, 0.5), new TestResistor(10.0),
-                        new TestEarth(), new TestExpDecay())),
-                new ArrayList<>(List.of(new int[]{0, 2}, new int[]{1, 2}, new int[]{2}, new int[]{})));
+                        new TestExpDecay())),
+                new ArrayList<>(List.of(new int[]{0, 2}, new int[]{1, 2}, new int[]{})));
         k.setConductors(new ArrayList<>(List.of(c)));
-        k.setElementState(3, new double[]{10.0});
+        k.setElementState(2, new double[]{10.0});
         int ticks = 200;
         for (int t = 0; t < ticks; t++) {
             k.tick();
@@ -320,7 +319,7 @@ class KernelRobustnessTest {
         for (Complex v : k.getLastSolution()) {
             assertTrue(v.isFinite(), "final voltage must be finite: " + v);
         }
-        for (int idx = 0; idx < 4; idx++) {
+        for (int idx = 0; idx < 3; idx++) {
             for (double s : k.getElementState(idx)) {
                 assertTrue(Double.isFinite(s), "element " + idx + " state must be finite: " + s);
             }
@@ -331,7 +330,7 @@ class KernelRobustnessTest {
         System.out.println("test26 ticks=" + ticks + " residual=" + r.residual()
                 + " converged=" + r.converged() + " singular=" + r.singular()
                 + " iterations=" + r.newtonIterations()
-                + " decayState=" + k.getElementState(3)[0]
+                + " decayState=" + k.getElementState(2)[0]
                 + " conductorTemp=" + c.temperature());
         assertTrue(r.converged(), "final solve must converge, residual=" + r.residual());
         assertTrue(r.residual() < GridConstants.NEWTON_TOL * 10.0,
@@ -341,8 +340,8 @@ class KernelRobustnessTest {
     @Test
     void test27PerformanceDiagnostic() {
         // Chain/tree of 100 nodes: 99 series conductors (i,i+1), 1 Thevenin
-        // source {0,99}, 49 resistor loads {i,99} (i = 1..49), earth on 99.
-        // Node count = 100, elements = 51, conductors = 99.
+        // source {0,99}, 49 resistor loads {i,99} (i = 1..49), node 0 is reference.
+        // Node count = 100, elements = 50, conductors = 99.
         int nodes = 100;
         List<Conductor> conductors = new ArrayList<>();
         for (int i = 0; i < nodes - 1; i++) {
@@ -356,8 +355,6 @@ class KernelRobustnessTest {
             elements.add(new TestResistor(10.0 + i));
             terms.add(new int[]{i, nodes - 1});
         }
-        elements.add(new TestEarth());
-        terms.add(new int[]{nodes - 1});
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(nodes);
         k.setElements(new ArrayList<>(elements), new ArrayList<>(terms));
@@ -381,7 +378,7 @@ class KernelRobustnessTest {
         // vMin = 0.1, conductor R in [1e-4,1] (linear-uniform), random tree
         // over n = 3 + rng.nextInt(8) nodes with one conductor per tree
         // edge, one Thevenin + one resistor XOR one CP load across the
-        // source terminals, earth on the last node, ZERO warm start.
+        // source terminals, node 0 is reference, ZERO warm start.
         // Feasibility guard: when CP is used and 0.8*Vs^2/(4*Rint) < 1 no
         // P in [1,200] can satisfy the bound, so Vs/Rint are resampled
         // first; then P itself is resampled until the bound holds.
@@ -433,8 +430,6 @@ class KernelRobustnessTest {
                 elements.add(new TestResistor(rLoad));
                 terms.add(new int[]{0, n - 1});
             }
-            elements.add(new TestEarth());
-            terms.add(new int[]{n - 1});
             List<Conductor> conductors = new ArrayList<>();
             for (int j = 1; j < n; j++) {
                 int parent = rng.nextInt(j);
@@ -480,7 +475,7 @@ class KernelRobustnessTest {
                 + " P in [1,200] with P<=0.8*Vs^2/(4*Rint), vMin=0.1,"
                 + " conductor R in [1e-4,1] linear-uniform, random tree 3-10 nodes,"
                 + " one resistor XOR one CP load across the source terminals,"
-                + " earth on last node, zero warm start;"
+                + " node 0 is reference, zero warm start;"
                 + " converged=" + ok + "/" + trials + " (" + pct + "%)"
                 + " fallbackActive=" + fallbackCount);
         assertTrue(ok >= 99, "expected >=99% convergence, got " + ok + "/" + trials);
@@ -489,23 +484,17 @@ class KernelRobustnessTest {
     @Test
     void test29SignConventionAudit() {
         // 3-node series loop: source {0,2}, resistor {1,2}, return
-        // conductor {0,1}, earth on 2.
-        // DEVIATION NOTE: the literal placement "source {0,1} + resistor
-        // {1,2} + earth, no return path" leaves node 0 floating (an open
-        // circuit whose only return is the GMIN-scale ground leakage), so
-        // no series current flows and the sign assertions cannot hold
-        // (measured: source It[0] ~ -1.2e-8, load It[0] ~ -1.2e-8, both
-        // leakage-scale). The loop-closed variant above is the minimal
-        // true series network on 3 nodes. Source terminal 0 (positive)
+        // conductor {0,1}, node 0 is reference.
+        // The loop-closed variant is the minimal true series network on
+        // 3 nodes. Source terminal 0 (positive)
         // must show It[0] < 0 (delivering, negative entering at the
         // positive terminal); load terminal 0 (at node 1) must show
         // It[0] > 0 (consuming).
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(3);
         k.setElements(
-                new ArrayList<>(List.of(new TestThevenin(12.0, 0.5), new TestResistor(10.0),
-                        new TestEarth())),
-                new ArrayList<>(List.of(new int[]{0, 2}, new int[]{1, 2}, new int[]{2})));
+                new ArrayList<>(List.of(new TestThevenin(12.0, 0.5), new TestResistor(10.0))),
+                new ArrayList<>(List.of(new int[]{0, 2}, new int[]{1, 2})));
         k.setConductors(new ArrayList<>(List.of(new TestConductor(0, 1, 0.05))));
         KernelSolveResult r = k.solve();
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
@@ -521,15 +510,15 @@ class KernelRobustnessTest {
     void test30BacktrackingOnLinear() {
         // Pure linear network (no nonlinear elements): source 12 V / 0.5
         // across {0,2}, two 10 ohm resistors {0,1} and {1,2}, two
-        // conductors {0,1} and {1,2}, earth on 2. Must converge in
+        // conductors {0,1} and {1,2}, node 0 is reference. Must converge in
         // well under 5 Newton iterations.
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(3);
         k.setElements(
                 new ArrayList<>(List.of(new TestThevenin(12.0, 0.5), new TestResistor(10.0),
-                        new TestResistor(10.0), new TestEarth())),
+                        new TestResistor(10.0))),
                 new ArrayList<>(List.of(new int[]{0, 2}, new int[]{0, 1},
-                        new int[]{1, 2}, new int[]{2})));
+                        new int[]{1, 2})));
         k.setConductors(new ArrayList<>(List.of(
                 new TestConductor(0, 1, 0.05), new TestConductor(1, 2, 0.05))));
         KernelSolveResult r = k.solve();
@@ -589,8 +578,8 @@ class KernelRobustnessTest {
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(2);
         k.setElements(
-                new ArrayList<>(List.of(new TestThevenin(12.0, 0.5), new TestEarth(), spy)),
-                new ArrayList<>(List.of(new int[]{0, 1}, new int[]{1}, new int[]{0})));
+                new ArrayList<>(List.of(new TestThevenin(12.0, 0.5), spy)),
+                new ArrayList<>(List.of(new int[]{0, 1}, new int[]{0})));
         k.setConductors(List.of());
         KernelSolveResult r1 = k.solve();
         assertTrue(r1.converged(), "expected convergence, residual=" + r1.residual());

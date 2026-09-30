@@ -191,9 +191,6 @@ public class VoltcraftBlocks {
     public static final Block CONTACTOR_RELAY = register(
         "contactor_relay", ContactorRelayBlock::new, switchgearSettings()
     );
-    public static final Block EARTH_ROD = register(
-        "earth_rod", EarthRodBlock::new, switchgearSettings()
-    );
 
     // --- Stationary Energy Storage Systems (BESS) ---
     public static final Block BATTERY_BLOCK_LIFEPO4 = register(

@@ -18,7 +18,6 @@ import com.ostapyrih.voltcraft.block.entity.storage.BatteryRackBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.switchgear.CircuitBreakerBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.switchgear.ContactorRelayBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.switchgear.CopperBusbarBlockEntity;
-import com.ostapyrih.voltcraft.block.entity.switchgear.EarthBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.switchgear.FuseBoxBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.switchgear.JunctionBoxBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.switchgear.KnifeSwitchBlockEntity;
@@ -166,16 +165,7 @@ public class VoltcraftBlockEntityTypes {
         ).build()
     );
 
-    // --- Static switchgear + earth adapters (kernel-attached, no wire ticking) ---
-
-    public static final BlockEntityType<EarthBlockEntity> EARTH_BLOCK_ENTITY = Registry.register(
-        Registries.BLOCK_ENTITY_TYPE,
-        Identifier.of(Voltcraft.MOD_ID, "earth_block_entity"),
-        FabricBlockEntityTypeBuilder.create(
-            EarthBlockEntity::new,
-            VoltcraftBlocks.EARTH_ROD
-        ).build()
-    );
+    // --- Static switchgear adapters (kernel-attached, no wire ticking) ---
 
     public static final BlockEntityType<KnifeSwitchBlockEntity> KNIFE_SWITCH_BLOCK_ENTITY = Registry.register(
         Registries.BLOCK_ENTITY_TYPE,

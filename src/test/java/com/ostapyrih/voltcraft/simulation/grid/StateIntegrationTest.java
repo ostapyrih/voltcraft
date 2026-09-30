@@ -94,8 +94,8 @@ class StateIntegrationTest {
     }
 
     /**
-     * Earth reference: single-terminal 1000 S shunt to implicit ground.
-     * Adds {@code g} to {@code Y[t][t]} with zero current injection.
+     * Legacy reference-anchor fixture, now a no-op stamp (no writes) so it
+     * truly does nothing. Kept to avoid compile churn; not used in element lists.
      */
     static final class TestEarth implements ElectricalElement {
         private final double shunt;
@@ -121,8 +121,7 @@ class StateIntegrationTest {
         @Override
         public void stamp(Complex[][] y, Complex[] in, int[] terminals, Complex[] v,
                           double[] state, double omega) {
-            int t = terminals[0];
-            y[t][t] = y[t][t].add(new Complex(shunt, 0.0));
+            // No-op: the per-island reference node (node 0) is the architecture.
         }
 
         @Override
@@ -267,8 +266,7 @@ class StateIntegrationTest {
     /**
      * Synthetic non-convergence fixture: injects a NaN current so the
      * linear solve returns a non-finite iterate and the Newton loop breaks
-     * with {@code converged == false}. GMIN alone would let every physical
-     * topology converge, so a synthetic stamp is the only deterministic way
+     * with {@code converged == false}. A synthetic stamp is the deterministic way
      * to exercise the failed-solve path.
      */
     static final class TestNan implements ElectricalElement {
@@ -397,8 +395,8 @@ class StateIntegrationTest {
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(2);
         k.setElements(
-                new ArrayList<>(List.of(new TestThevenin(12.0, 0.01), soc, new TestEarth())),
-                new ArrayList<>(List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1})));
+                new ArrayList<>(List.of(new TestThevenin(12.0, 0.01), soc)),
+                new ArrayList<>(List.of(new int[]{0, 1}, new int[]{0, 1})));
         k.setConductors(List.of());
         k.setOmega(0.0);
         k.setElementState(1, new double[]{1.0});
@@ -434,8 +432,8 @@ class StateIntegrationTest {
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(2);
         k.setElements(
-                new ArrayList<>(List.of(new TestThevenin(0.1, 1e-6), new TestEarth())),
-                new ArrayList<>(List.of(new int[]{0, 1}, new int[]{1})));
+                new ArrayList<>(List.of(new TestThevenin(0.1, 1e-6))),
+                new ArrayList<>(List.of(new int[]{0, 1})));
         k.setConductors(new ArrayList<>(List.of(c)));
         for (int t = 0; t < 4; t++) {
             k.tick();
@@ -474,8 +472,8 @@ class StateIntegrationTest {
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(2);
         k.setElements(
-                new ArrayList<>(List.of(new TestThevenin(0.1, 1e-6), new TestEarth())),
-                new ArrayList<>(List.of(new int[]{0, 1}, new int[]{1})));
+                new ArrayList<>(List.of(new TestThevenin(0.1, 1e-6))),
+                new ArrayList<>(List.of(new int[]{0, 1})));
         k.setConductors(new ArrayList<>(List.of(c)));
         k.setOmega(0.0);
         for (int t = 0; t < 10; t++) {
@@ -506,7 +504,8 @@ class StateIntegrationTest {
 
     @Test
     void test24FailedSolveDoesNotIntegrate() {
-        // NaN injection forces solve() to break with converged == false;
+        // NaN injection at node 1 (non-reference; node 0 is the reference and its
+        // injection is masked to zero) forces solve() to break with converged == false;
         // the tick must then leave element state and conductor temperature
         // byte-identical.
         TestConductor c = new TestConductor(0, 1, 1.0, 50.0, 100.0, 1.0, 1085.0);
@@ -515,7 +514,7 @@ class StateIntegrationTest {
         k.setNodeCount(2);
         k.setElements(
                 new ArrayList<>(List.of(new TestNan(), decay)),
-                new ArrayList<>(List.of(new int[]{0}, new int[]{})));
+                new ArrayList<>(List.of(new int[]{1}, new int[]{})));
         k.setConductors(new ArrayList<>(List.of(c)));
         k.setOmega(0.0);
         k.setElementState(1, new double[]{7.5});
@@ -542,8 +541,8 @@ class StateIntegrationTest {
         ElectricalKernel k = new ElectricalKernel();
         k.setNodeCount(2);
         k.setElements(
-                new ArrayList<>(List.of(new TestThevenin(12.0, 0.01), spy, new TestEarth())),
-                new ArrayList<>(List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1})));
+                new ArrayList<>(List.of(new TestThevenin(12.0, 0.01), spy)),
+                new ArrayList<>(List.of(new int[]{0, 1}, new int[]{0, 1})));
         k.setConductors(List.of());
         k.setElementState(1, new double[]{3.25});
         k.tick();

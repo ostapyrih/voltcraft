@@ -95,7 +95,7 @@ class AdapterCleanupTest {
         }
     }
 
-    /** Single-terminal ground shunt (mirrors the production earth stamp, 1000 S). */
+    /** Legacy reference-anchor fixture, now a no-op (not used in element lists). */
     static final class TestEarth implements ElectricalElement {
         @Override
         public int terminalCount() {
@@ -110,8 +110,7 @@ class AdapterCleanupTest {
         @Override
         public void stamp(Complex[][] y, Complex[] in, int[] terminals, Complex[] v,
                           double[] state, double omega) {
-            int t = terminals[0];
-            y[t][t] = y[t][t].add(new Complex(1000.0, 0.0));
+            // No-op: the per-island reference node (node 0) is the architecture.
         }
 
         @Override
@@ -286,18 +285,17 @@ class AdapterCleanupTest {
 
     @Test
     void meltReroutesThroughRemainingPath() {
-        // 12 V source west, 10 ohm load east, earth return both ends, two parallel
+        // 12 V source west, 10 ohm load east, shared low return at (0,0,4), two parallel
         // nichrome lanes (A: z=0 via x=1..3; B: z=1 with end links). Nichrome
         // (0.7333 ohm/branch) magnifies the redistribution beyond solver noise.
+        // Node 0 (lowest position) is the kernel reference.
         GridManager manager = new GridManager();
         manager.clearTopology();
         BlockPos loadBe = pos(6, 0, 2);
         manager.putAttachedBlock(new AdapterBlock(pos(2, 0, 5),
             new TestThevenin(12.0, 0.05), true, false, pos(0, 0, 0), pos(0, 0, 4)));
-        manager.putAttachedBlock(new AdapterBlock(pos(0, 0, 6), new TestEarth(), false, false, pos(0, 0, 4)));
         manager.putAttachedBlock(new AdapterBlock(loadBe,
-            new TestResistor(10.0), false, false, pos(4, 0, 0), pos(4, 0, 4)));
-        manager.putAttachedBlock(new AdapterBlock(pos(4, 0, 6), new TestEarth(), false, false, pos(4, 0, 4)));
+            new TestResistor(10.0), false, false, pos(4, 0, 0), pos(0, 0, 4)));
         BlockPos[] laneA = {pos(1, 0, 0), pos(2, 0, 0), pos(3, 0, 0)};
         BlockPos[] laneB = {pos(0, 0, 1), pos(1, 0, 1), pos(2, 0, 1), pos(3, 0, 1), pos(4, 0, 1)};
         for (BlockPos cable : laneA) {
@@ -309,7 +307,7 @@ class AdapterCleanupTest {
         manager.rebuildIslands();
 
         assertEquals(1, manager.getIslands().size());
-        assertEquals(12, manager.getIslands().get(0).nodeCount());
+        assertEquals(11, manager.getIslands().get(0).nodeCount());
         double preBreak = terminalZeroCurrent(manager.getIslandAt(pos(0, 0, 0)), loadBe);
         assertTrue(preBreak > 0.5 && preBreak < 2.0, "sane fed load current, got " + preBreak);
 
@@ -331,18 +329,17 @@ class AdapterCleanupTest {
 
     @Test
     void meltOfSoleFeedOpensCircuit() {
-        // Single nichrome link (1,0,0) is the only S+ -> L+ path. After its melt
-        // break the load island must go dark: a lingering melted conductor would
-        // keep feeding the load and fail the ~0 assert.
+        // Single nichrome link (1,0,0) is the only S+ -> L+ path with a shared low
+        // return at (0,0,2). After its melt break the load must go dark: a lingering
+        // melted conductor would keep feeding the load and fail the ~0 assert.
+        // Node 0 (lowest position) is the kernel reference.
         GridManager manager = new GridManager();
         manager.clearTopology();
         BlockPos loadBe = pos(6, 0, 2);
         manager.putAttachedBlock(new AdapterBlock(pos(2, 0, 5),
             new TestThevenin(12.0, 0.05), true, false, pos(0, 0, 0), pos(0, 0, 2)));
-        manager.putAttachedBlock(new AdapterBlock(pos(0, 0, 6), new TestEarth(), false, false, pos(0, 0, 2)));
         manager.putAttachedBlock(new AdapterBlock(loadBe,
-            new TestResistor(10.0), false, false, pos(2, 0, 0), pos(2, 0, 2)));
-        manager.putAttachedBlock(new AdapterBlock(pos(2, 0, 6), new TestEarth(), false, false, pos(2, 0, 2)));
+            new TestResistor(10.0), false, false, pos(2, 0, 0), pos(0, 0, 2)));
         manager.putCable(pos(1, 0, 0), ConductorType.NICHROME_HEATING);
         manager.rebuildIslands();
 
@@ -354,7 +351,7 @@ class AdapterCleanupTest {
         manager.rebuildIslands();
 
         assertTrue(manager.getKnownCablePositions().isEmpty(), "break must clear the cable");
-        assertEquals(2, manager.getIslands().size(), "source and load islands split");
+        assertEquals(1, manager.getIslands().size(), "shared low return keeps one island");
         IslandContext loadIsland = manager.getIslandAt(pos(2, 0, 0));
         assertNotNull(loadIsland);
         assertTrue(loadIsland.conductors().isEmpty(), "no cable branch may survive the break");

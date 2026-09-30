@@ -93,8 +93,8 @@ class NonlinearElementTest {
     }
 
     /**
-     * Earth reference: single-terminal 1000 S shunt to implicit ground.
-     * Adds {@code g} to {@code Y[t][t]} with zero current injection.
+     * Legacy reference-anchor fixture, now a no-op stamp (no writes) so it
+     * truly does nothing. Kept to avoid compile churn; not used in element lists.
      */
     static final class TestEarth implements ElectricalElement {
         private final double shunt;
@@ -120,8 +120,7 @@ class NonlinearElementTest {
         @Override
         public void stamp(Complex[][] y, Complex[] in, int[] terminals, Complex[] v,
                           double[] state, double omega) {
-            int t = terminals[0];
-            y[t][t] = y[t][t].add(new Complex(shunt, 0.0));
+            // No-op: the per-island reference node (node 0) is the architecture.
         }
 
         @Override
@@ -279,9 +278,8 @@ class NonlinearElementTest {
         // {0,1}; CC 5A load across {0,1}; earth on 1.
         // Expected rail: V = emf − I*Rint = 12 − 5*0.5 = 9.5 V.
         ElectricalKernel k = kernel(2,
-                List.of(new TestThevenin(12.0, 0.5), new TestConstantCurrent(5.0, 0.1),
-                        new TestEarth()),
-                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+                List.of(new TestThevenin(12.0, 0.5), new TestConstantCurrent(5.0, 0.1)),
+                List.of(new int[]{0, 1}, new int[]{0, 1}));
         KernelSolveResult r = k.solve();
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
         double loadV = r.voltage()[0].sub(r.voltage()[1]).magnitude();
@@ -294,9 +292,8 @@ class NonlinearElementTest {
         // V² − 12V + 25*0.5 = 0 → upper root (12+√94)/2 ≈ 10.847679857 V.
         // Warm-started at a 12 V differential so Newton takes the upper root.
         ElectricalKernel k = kernel(2,
-                List.of(new TestThevenin(12.0, 0.5), new TestConstantPower(25.0, 0.1),
-                        new TestEarth()),
-                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+                List.of(new TestThevenin(12.0, 0.5), new TestConstantPower(25.0, 0.1)),
+                List.of(new int[]{0, 1}, new int[]{0, 1}));
         k.setInitialVoltage(new Complex[]{new Complex(12.0, 0.0), Complex.ZERO});
         KernelSolveResult r = k.solve();
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
@@ -315,9 +312,8 @@ class NonlinearElementTest {
         // the result must report converged==true with fallbackActive==true and
         // V_load below vMin. Voltages must stay finite with |current| < 1e6.
         ElectricalKernel k = kernel(2,
-                List.of(new TestThevenin(12.0, 0.5), new TestConstantPower(1000.0, 0.1),
-                        new TestEarth()),
-                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+                List.of(new TestThevenin(12.0, 0.5), new TestConstantPower(1000.0, 0.1)),
+                List.of(new int[]{0, 1}, new int[]{0, 1}));
         k.setInitialVoltage(new Complex[]{new Complex(12.0, 0.0), Complex.ZERO});
         KernelSolveResult r = k.solve();
         double vLoad = r.voltage()[0].sub(r.voltage()[1]).re;
@@ -351,9 +347,8 @@ class NonlinearElementTest {
         // Same topology as test11 (25 W on 12 V / 0.5 Ω): a genuine physical
         // operating point exists, so the solve must converge with no fallback.
         ElectricalKernel k = kernel(2,
-                List.of(new TestThevenin(12.0, 0.5), new TestConstantPower(25.0, 0.1),
-                        new TestEarth()),
-                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+                List.of(new TestThevenin(12.0, 0.5), new TestConstantPower(25.0, 0.1)),
+                List.of(new int[]{0, 1}, new int[]{0, 1}));
         k.setInitialVoltage(new Complex[]{new Complex(12.0, 0.0), Complex.ZERO});
         KernelSolveResult r = k.solve();
         double vLoad = r.voltage()[0].sub(r.voltage()[1]).re;
@@ -371,9 +366,8 @@ class NonlinearElementTest {
         // Vsource=12, Rint=0.5, P=50, vMin=0.1, warm start at 12 V differential.
         // Upper root (12+√44)/2 ≈ 9.3166 V; must converge within 20 iterations.
         ElectricalKernel k = kernel(2,
-                List.of(new TestThevenin(12.0, 0.5), new TestConstantPower(50.0, 0.1),
-                        new TestEarth()),
-                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+                List.of(new TestThevenin(12.0, 0.5), new TestConstantPower(50.0, 0.1)),
+                List.of(new int[]{0, 1}, new int[]{0, 1}));
         k.setInitialVoltage(new Complex[]{new Complex(12.0, 0.0), Complex.ZERO});
         KernelSolveResult r = k.solve();
         System.out.println("test13 iterations=" + r.newtonIterations()
@@ -386,11 +380,11 @@ class NonlinearElementTest {
     @Test
     void test14PowerBalanceIncludingGmin() {
         // Source (12 V / 0.5 Ω) across {0,2}; 0.1 Ω conductor {0,1};
-        // 10 Ω load {1,2}; earth on 2. All linear: Tellegen balance
-        // P_source = P_load + P_conductor + P_GMIN must hold to 1e-4 relative.
+        // 10 Ω load {1,2}; node 0 is reference. All linear: Tellegen balance
+        // P_source = P_load + P_conductor must hold to 1e-4 relative.
         ElectricalKernel k = kernel(3,
-                List.of(new TestThevenin(12.0, 0.5), new TestResistor(10.0), new TestEarth()),
-                List.of(new int[]{0, 2}, new int[]{1, 2}, new int[]{2}));
+                List.of(new TestThevenin(12.0, 0.5), new TestResistor(10.0)),
+                List.of(new int[]{0, 2}, new int[]{1, 2}));
         k.setConductors(List.of(new TestConductor(0, 1, 0.1)));
         KernelSolveResult r = k.solve();
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
@@ -408,22 +402,20 @@ class NonlinearElementTest {
                 new Complex[]{v[1], v[2]}, new Complex[]{itLoadA, itLoadA.neg()}, 0, 2);
 
         double pConductor = v[0].sub(v[1]).magnitudeSquared() / 0.1;
-        double pGmin = GridConstants.GMIN
-                * (v[0].magnitudeSquared() + v[1].magnitudeSquared() + v[2].magnitudeSquared());
 
-        double pDissipated = pLoad + pConductor + pGmin;
+        double pDissipated = pLoad + pConductor;
         double relErr = Math.abs(pSourceDelivered - pDissipated) / Math.max(pSourceDelivered, 1e-12);
         System.out.println("test14 pSource=" + pSourceDelivered
-                + " pLoad=" + pLoad + " pCond=" + pConductor + " pGmin=" + pGmin);
+                + " pLoad=" + pLoad + " pCond=" + pConductor);
         assertTrue(pSourceDelivered > 0.0, "source must deliver power");
         assertTrue(relErr < 1e-4, "power balance relErr=" + relErr);
     }
 
     @Test
     void test15FloatingConstantCurrent() {
-        // CC 5 A element alone between two floating nodes (no earth, no source).
-        // Below-vMin resistive fallback plus GMIN pins both nodes to ~0, so the
-        // differential must vanish. No reference EMF exists for a current
+        // CC 5 A element alone between two nodes (reference node 0, no source).
+        // Below-vMin resistive fallback plus the reference formulation pins the
+        // differential to ~0. No reference EMF exists for a current
         // source, so the bound is absolute (cf. the floating-Thevenin test, which uses an EMF-relative bound).
         ElectricalKernel k = kernel(2,
                 List.of(new TestConstantCurrent(5.0, 0.1)),

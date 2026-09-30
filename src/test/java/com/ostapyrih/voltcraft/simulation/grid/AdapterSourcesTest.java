@@ -28,7 +28,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import com.ostapyrih.voltcraft.simulation.electrical.EarthElement;
 
 /**
  * Source adapter tests: stateful source/storage kernel adapters (battery,
@@ -426,7 +425,7 @@ class AdapterSourcesTest {
 
     @Test
     void fallbackRollbackIsPerIsland() {
-        // Island A: two stateful elements (battery + crank) plus load and earth.
+        // Island A: two stateful elements (battery + crank) plus load; node 0 is reference.
         boolean[] bmsA = {false};
         double[] teleBattA = new double[2];
         double[] teleCrankA = new double[2];
@@ -437,8 +436,8 @@ class AdapterSourcesTest {
         islandA.setNodeCount(2);
         islandA.setOmega(0.0);
         islandA.setElements(
-            List.of(battA, crankA, new TestResistor(10.0), new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
+            List.of(battA, crankA, new TestResistor(10.0)),
+            List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0, 1}));
         islandA.setConductors(List.of());
 
         // Island B: independent single-battery island.
@@ -449,8 +448,8 @@ class AdapterSourcesTest {
         islandB.setNodeCount(2);
         islandB.setOmega(0.0);
         islandB.setElements(
-            List.of(battB, new TestResistor(10.0), new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
+            List.of(battB, new TestResistor(10.0)),
+            List.of(new int[]{0, 1}, new int[]{0, 1}));
         islandB.setConductors(List.of());
 
         // BE-owned snapshots (the topology owner seeds the kernel from these).
@@ -527,8 +526,8 @@ class AdapterSourcesTest {
         k.setNodeCount(2);
         k.setOmega(0.0);
         k.setElements(
-            List.of(batt, new TestResistor(10.0), new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
+            List.of(batt, new TestResistor(10.0)),
+            List.of(new int[]{0, 1}, new int[]{0, 1}));
         k.setConductors(List.of());
         double[] beState = {1.0, 25.0, 1.0};
         k.setElementState(0, beState);
@@ -590,9 +589,8 @@ class AdapterSourcesTest {
         k.setNodeCount(3);
         k.setOmega(0.0);
         k.setElements(
-            List.of(new TestResistor(0.01), batt, new TestResistor(10.0),
-                new EarthElement()),
-            List.of(new int[]{0, 2}, new int[]{0, 1}, new int[]{1, 2}, new int[]{2}));
+            List.of(new TestResistor(0.01), batt, new TestResistor(10.0)),
+            List.of(new int[]{0, 2}, new int[]{0, 1}, new int[]{1, 2}));
         k.setConductors(List.of());
         k.setElementState(1, new double[]{1.0, 25.0, 1.0});
         assertTrue(loadCurrent(k, 2) < 1e-6, "open BMS isolates the load");
@@ -613,8 +611,8 @@ class AdapterSourcesTest {
         day.setNodeCount(2);
         day.setOmega(0.0);
         day.setElements(
-            List.of(solar, new TestResistor(10.0), new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
+            List.of(solar, new TestResistor(10.0)),
+            List.of(new int[]{0, 1}, new int[]{0, 1}));
         day.setConductors(List.of());
         day.setElementState(0, SolarElement.newStateArray());
         double dayI = loadCurrent(day, 1);
@@ -639,8 +637,8 @@ class AdapterSourcesTest {
         k.setNodeCount(2);
         k.setOmega(0.0);
         k.setElements(
-            List.of(crank, new TestResistor(12.0), new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
+            List.of(crank, new TestResistor(12.0)),
+            List.of(new int[]{0, 1}, new int[]{0, 1}));
         k.setConductors(List.of());
         double[] beState = {1.0, 0.0};
         k.setElementState(0, beState);

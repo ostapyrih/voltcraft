@@ -20,8 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Linear circuit kernel tests (tests 1-9): complex arithmetic, resistive
- * networks (Ohm's law, dividers, parallel loads), floating and earth
- * references, singular and disconnected topologies, and solver elimination
+ * networks (Ohm's law, dividers, parallel loads), floating and reference-node
+ * topologies, singular and disconnected topologies, and solver elimination
  * steps.
  */
 class LinearCircuitTest {
@@ -90,9 +90,8 @@ class LinearCircuitTest {
     }
 
     /**
-     * Earth reference: single-terminal 1000 S shunt to implicit ground
-     * (equivalent to a 0.001 ohm Thevenin 0V tie). Adds {@code g} to
-     * {@code Y[t][t]} with zero current injection.
+     * Legacy reference-anchor fixture, now a no-op stamp (no writes) so it
+     * truly does nothing. Kept to avoid compile churn; not used in element lists.
      */
     static final class TestEarth implements ElectricalElement {
         private final double shunt;
@@ -118,8 +117,7 @@ class LinearCircuitTest {
         @Override
         public void stamp(Complex[][] y, Complex[] in, int[] terminals, Complex[] v,
                           double[] state, double omega) {
-            int t = terminals[0];
-            y[t][t] = y[t][t].add(new Complex(shunt, 0.0));
+            // No-op: the per-island reference node (node 0) is the architecture.
         }
 
         @Override
@@ -227,11 +225,11 @@ class LinearCircuitTest {
 
     @Test
     void test2OhmsLaw() {
-        // Nodes: 0 = high rail, 1 = ground return (earthed).
+        // Nodes: 0 = reference (V = 0), 1 = return rail.
         // Thevenin 12V/0.01 in parallel with 10 ohm load.
         ElectricalKernel k = kernel(2,
-                List.of(new TestThevenin(12.0, 0.01), new TestResistor(10.0), new TestEarth()),
-                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+                List.of(new TestThevenin(12.0, 0.01), new TestResistor(10.0)),
+                List.of(new int[]{0, 1}, new int[]{0, 1}));
         KernelSolveResult r = k.solve();
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
         double expectedV = 12.0 * 10.0 / (10.0 + 0.01);
@@ -243,11 +241,11 @@ class LinearCircuitTest {
 
     @Test
     void test3SeriesDivider() {
-        // Thevenin 12V/0.01 across {0,2}; R1=10 {0,1}; R2=10 {1,2}; earth on 2.
+        // Thevenin 12V/0.01 across {0,2}; R1=10 {0,1}; R2=10 {1,2}; node 0 is reference.
         ElectricalKernel k = kernel(3,
                 List.of(new TestThevenin(12.0, 0.01), new TestResistor(10.0),
-                        new TestResistor(10.0), new TestEarth()),
-                List.of(new int[]{0, 2}, new int[]{0, 1}, new int[]{1, 2}, new int[]{2}));
+                        new TestResistor(10.0)),
+                List.of(new int[]{0, 2}, new int[]{0, 1}, new int[]{1, 2}));
         KernelSolveResult r = k.solve();
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
         double expectedTotal = 12.0 * 20.0 / 20.01;
@@ -259,11 +257,11 @@ class LinearCircuitTest {
 
     @Test
     void test4ParallelLoads() {
-        // Thevenin 12V/0.01 across {0,1}; two 10 ohm loads in parallel; earth on 1.
+        // Thevenin 12V/0.01 across {0,1}; two 10 ohm loads in parallel; node 0 is reference.
         ElectricalKernel k = kernel(2,
                 List.of(new TestThevenin(12.0, 0.01), new TestResistor(10.0),
-                        new TestResistor(10.0), new TestEarth()),
-                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+                        new TestResistor(10.0)),
+                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0, 1}));
         KernelSolveResult r = k.solve();
         assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
         double v = r.voltage()[0].sub(r.voltage()[1]).magnitude();
@@ -289,13 +287,14 @@ class LinearCircuitTest {
     @Test
     void test6EarthReference() {
         ElectricalKernel k = kernel(2,
-                List.of(new TestThevenin(12.0, 0.01), new TestResistor(10.0), new TestEarth()),
-                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+                List.of(new TestThevenin(12.0, 0.01), new TestResistor(10.0)),
+                List.of(new int[]{0, 1}, new int[]{0, 1}));
         KernelSolveResult r = k.solve();
-        assertTrue(Math.abs(r.voltage()[1].re) < 1e-6 && Math.abs(r.voltage()[1].im) < 1e-6,
-                "earth node voltage=" + r.voltage()[1]);
-        assertTrue(r.voltage()[1].magnitude() < 1e-6,
-                "earth node magnitude=" + r.voltage()[1].magnitude());
+        assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
+        assertEquals(0.0, r.voltage()[0].re, 1e-9, "reference node voltage=" + r.voltage()[0]);
+        assertEquals(0.0, r.voltage()[0].im, 1e-9);
+        assertTrue(r.voltage()[0].magnitude() < 1e-9,
+                "reference node magnitude=" + r.voltage()[0].magnitude());
     }
 
     @Test
@@ -312,14 +311,17 @@ class LinearCircuitTest {
 
     @Test
     void test8DisconnectedNode() {
-        // Source + load on nodes 0-1, node 2 isolated, earth on 1.
+        // Source + load on nodes 0-1, node 2 isolated (safety-tied to zero).
         ElectricalKernel k = kernel(3,
-                List.of(new TestThevenin(12.0, 0.01), new TestResistor(10.0), new TestEarth()),
-                List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{1}));
+                List.of(new TestThevenin(12.0, 0.01), new TestResistor(10.0)),
+                List.of(new int[]{0, 1}, new int[]{0, 1}));
         KernelSolveResult r = k.solve();
+        assertTrue(r.converged(), "expected convergence, residual=" + r.residual());
         for (Complex c : r.voltage()) {
             assertTrue(Objects.requireNonNull(c).isFinite(), "voltage must be finite: " + c);
         }
+        assertEquals(0.0, r.voltage()[0].re, 1e-9, "reference node must be zero");
+        assertEquals(0.0, r.voltage()[2].magnitude(), 1e-9, "isolated node must sit at zero");
     }
 
     @Test

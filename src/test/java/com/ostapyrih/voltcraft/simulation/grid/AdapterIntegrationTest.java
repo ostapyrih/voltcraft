@@ -11,7 +11,6 @@ import com.ostapyrih.voltcraft.simulation.electrical.CreativeGeneratorElement;
 import com.ostapyrih.voltcraft.simulation.electrical.CreativeLoadElement;
 import com.ostapyrih.voltcraft.simulation.electrical.SolarElement;
 import com.ostapyrih.voltcraft.simulation.electrical.BatteryElement;
-import com.ostapyrih.voltcraft.simulation.electrical.EarthElement;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
 import com.ostapyrih.voltcraft.simulation.grid.ElectricalKernel.KernelSolveResult;
 import com.ostapyrih.voltcraft.simulation.solver.ComplexNodalSolver;
@@ -38,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * touches {@code Registries}, so no test loads an outer {@code BlockEntity} subclass.
  * Production static nested elements ({@code BatteryElement}, {@code SolarElement},
  * {@code ConverterElement}, {@code CreativeGeneratorElement},
- * {@code CreativeLoadElement}, {@code EarthElement}) initialize independently of their
+ * {@code CreativeLoadElement}) initialize independently of their
  * enclosing BE classes and are driven directly; island mechanics go through a local
  * {@link KernelAttachedBlock} double ({@link AdapterBlock}) backed by real elements.</p>
  *
@@ -263,10 +262,9 @@ class AdapterIntegrationTest {
         // Polarity: solar + sits at node 1 (west-positive source convention), so the controller input pair is
         // wired (1,0) with in+ on the high side; output +/battery + share node 2.
         dc.setElements(
-            List.of(solar, chargeController, battery, new TestResistor(10.0),
-                new EarthElement(), new EarthElement()),
+            List.of(solar, chargeController, battery, new TestResistor(10.0)),
             List.of(new int[]{0, 1}, new int[]{1, 0, 2, 3}, new int[]{3, 2},
-                new int[]{2, 3}, new int[]{1}, new int[]{3}));
+                new int[]{2, 3}));
         dc.setConductors(List.of());
         dc.setElementState(2, new double[]{0.5, 25.0, 1.0});
 
@@ -318,10 +316,8 @@ class AdapterIntegrationTest {
         ac.setNodeCount(4);
         ac.setOmega(GridConstants.AC_OMEGA_RAD_PER_S);
         ac.setElements(
-            List.of(new TestThevenin(48.0, 0.05), inverter, new TestResistor(26.45),
-                new EarthElement(), new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{0, 1, 2, 3}, new int[]{2, 3},
-                new int[]{1}, new int[]{3}));
+            List.of(new TestThevenin(48.0, 0.05), inverter, new TestResistor(26.45)),
+            List.of(new int[]{0, 1}, new int[]{0, 1, 2, 3}, new int[]{2, 3}));
         ac.setConductors(List.of());
 
         KernelSolveResult solved = ac.solve();
@@ -377,8 +373,8 @@ class AdapterIntegrationTest {
         islandA.setNodeCount(2);
         islandA.setOmega(0.0);
         islandA.setElements(
-            List.of(battA, new TestResistor(10.0), new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
+            List.of(battA, new TestResistor(10.0)),
+            List.of(new int[]{0, 1}, new int[]{0, 1}));
         islandA.setConductors(List.of());
         islandA.setElementState(0, new double[]{1.0, 25.0, 1.0});
 
@@ -389,8 +385,8 @@ class AdapterIntegrationTest {
         islandB.setNodeCount(2);
         islandB.setOmega(0.0);
         islandB.setElements(
-            List.of(battB, new TestResistor(10.0), new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{0, 1}, new int[]{0}));
+            List.of(battB, new TestResistor(10.0)),
+            List.of(new int[]{0, 1}, new int[]{0, 1}));
         islandB.setConductors(List.of());
         islandB.setElementState(0, new double[]{1.0, 25.0, 1.0});
 
@@ -418,8 +414,9 @@ class AdapterIntegrationTest {
         GridManager manager = new GridManager();
         manager.clearTopology();
 
-        // Ground-fault loop: 48 V creative source (+) grounded at (-2,0,0), cable
-        // A(0,0,0)-B(1,0,0) in series, return grounded at (2,0,0). Terminals never
+        // Short-circuit loop: 48 V creative source across (0,0,0)-(2,0,0) with
+        // cables A(0,0,0)-B(1,0,0) in series closing the loop via (1,0,0)-(2,0,0).
+        // Node 0 (lowest position) is the kernel reference. Terminals never
         // coincide on the melt branches, so both stay true cable branches.
         boolean[] enabled = {true};
         double[] emf = {48.0};
@@ -428,30 +425,24 @@ class AdapterIntegrationTest {
         CreativeGeneratorElement source = new CreativeGeneratorElement(
             () -> enabled[0], () -> emf[0], () -> rInt[0], genTele);
         AdapterBlock sourceBlock = new AdapterBlock(pos(-1, 0, 0), source,
-            true, false, pos(0, 0, 0), pos(-2, 0, 0));
-        AdapterBlock earthWest = new AdapterBlock(pos(-2, 0, 1), new EarthElement(),
-            false, false, pos(-2, 0, 0));
-        AdapterBlock earthEast = new AdapterBlock(pos(2, 1, 0), new EarthElement(),
-            false, false, pos(2, 0, 0));
+            true, false, pos(0, 0, 0), pos(2, 0, 0));
 
         manager.putCable(pos(0, 0, 0), ConductorType.INSULATED_COPPER);
         manager.putCable(pos(1, 0, 0), ConductorType.INSULATED_COPPER);
         manager.putAttachedBlock(sourceBlock);
-        manager.putAttachedBlock(earthWest);
-        manager.putAttachedBlock(earthEast);
         manager.rebuildIslands();
 
         assertEquals(1, manager.getIslands().size());
-        assertEquals(4, manager.getIslands().get(0).nodeCount());
+        assertEquals(3, manager.getIslands().get(0).nodeCount());
 
-        // ~730 A through 0.0068 ohm cable (~3.6 kW, cap 9.5 J/K) melts within ~60 ticks.
+        // ~840 A through the short loop (~3.6 kW per cable, cap 9.5 J/K) melts within ~60 ticks.
         int ticks = 0;
         while (manager.getPendingBreaks().isEmpty() && ticks < 300) {
             manager.tick(null);
             ticks++;
         }
         assertFalse(manager.getPendingBreaks().isEmpty(),
-            "ground fault must melt a cable within 300 ticks");
+            "short circuit must melt a cable within 300 ticks");
         assertTrue(ticks < 300, "melt took " + ticks + " ticks");
         assertTrue(manager.getPendingBreaks().contains(pos(0, 0, 0))
             || manager.getPendingBreaks().contains(pos(1, 0, 0)),
@@ -522,8 +513,8 @@ class AdapterIntegrationTest {
         kernel.setNodeCount(2);
         kernel.setOmega(0.0);
         kernel.setElements(
-            List.of(battery, new TestConstantPower(2000.0, 20.0), new EarthElement()),
-            List.of(new int[]{0, 1}, new int[]{1, 0}, new int[]{0}));
+            List.of(battery, new TestConstantPower(2000.0, 20.0)),
+            List.of(new int[]{0, 1}, new int[]{1, 0}));
         kernel.setConductors(List.of());
 
         double[] beState = {1.0, 25.0, 1.0};
@@ -554,25 +545,20 @@ class AdapterIntegrationTest {
         GridManager manager = new GridManager();
         manager.clearTopology();
 
-        // Gentle loop (~20 A on nichrome, far from melting in 3 ticks): 4s LiFePO4
-        // pack grounded west, return grounded east of cable B.
+        // Gentle loop (~10 A on nichrome, far from melting in 3 ticks): 4s LiFePO4
+        // pack across (4,0,0)-(6,0,0) closed by nichrome cables (4,0,0)-(5,0,0)-(6,0,0).
+        // Node 0 (lowest position) is the kernel reference.
         boolean[] bms = {false};
         double[] battTele = new double[2];
         BatteryElement battery = new BatteryElement(BatteryChemistry.LIFEPO4, 4, 1,
             () -> bms[0], battTele);
         AdapterBlock batteryBlock = new AdapterBlock(pos(3, 0, 0), battery,
-            true, false, pos(4, 0, 0), pos(2, 0, 0));
+            true, false, pos(4, 0, 0), pos(6, 0, 0));
         batteryBlock.seedState(1.0, 25.0, 1.0);
-        AdapterBlock earthWest = new AdapterBlock(pos(2, 0, 1), new EarthElement(),
-            false, false, pos(2, 0, 0));
-        AdapterBlock earthEast = new AdapterBlock(pos(6, 1, 0), new EarthElement(),
-            false, false, pos(6, 0, 0));
 
         manager.putCable(pos(4, 0, 0), ConductorType.NICHROME_HEATING);
         manager.putCable(pos(5, 0, 0), ConductorType.NICHROME_HEATING);
         manager.putAttachedBlock(batteryBlock);
-        manager.putAttachedBlock(earthWest);
-        manager.putAttachedBlock(earthEast);
         manager.rebuildIslands();
 
         assertEquals(1, manager.getIslands().size());

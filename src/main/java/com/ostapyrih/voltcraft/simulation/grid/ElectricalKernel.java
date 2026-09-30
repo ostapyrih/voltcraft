@@ -8,7 +8,9 @@ import com.ostapyrih.voltcraft.api.electrical.Stamps;
 import com.ostapyrih.voltcraft.simulation.solver.ComplexNodalSolver;
 import com.ostapyrih.voltcraft.simulation.solver.ComplexNodalSolver.SolveResult;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
 
@@ -18,6 +20,18 @@ import java.util.Objects;
  * all voltages, states, and iteration live here.
  *
  * <p>This class is final and not intended for subclassing.</p>
+ *
+ * <p>Reference formulation: each galvanically-connected component has exactly
+ * one reference node (V = 0). The component containing node {@code 0} uses
+ * node {@code 0} as its reference; any other component (e.g., a galvanically
+ * isolated converter output pair) uses its lowest-index node. No shunt is added
+ * to any diagonal. After element and conductor stamps, {@link #buildSystem}
+ * forces each component reference row to a unit row and zeroes its injection;
+ * columns of reference nodes in other rows are left untouched since
+ * {@code V[ref] = 0} makes their contribution vanish. Completely unstamped
+ * nodes are singleton components and are tied to zero by the same mechanism
+ * as a pure numerical safety net. All steps run inside the Newton loop on
+ * every system build.</p>
  *
  * <p>Scope: {@link #solve()} (Newton solve), {@link #tick()} (one solve plus RK2
  * integration of element state and conductor temperature, gated on
@@ -54,6 +68,7 @@ public final class ElectricalKernel {
     private final List<double[]> elementStates = new ArrayList<>();
     private List<Conductor> conductors = List.of();
     private int nodeCount;
+    private int referenceNode;
     private double omega = GridConstants.AC_OMEGA_RAD_PER_S;
     private Complex[] pendingInitialVoltage;
     private Complex[] lastSolution;
@@ -265,9 +280,69 @@ public final class ElectricalKernel {
         for (int idx = 0; idx < elements.size(); idx++) {
             elements.get(idx).stamp(y, inj, elementTerminals.get(idx), v, elementStates.get(idx), omega);
         }
-        Complex gmin = new Complex(GridConstants.GMIN, 0.0);
-        for (int k = 0; k < nodeCount; k++) {
-            y[k][k] = y[k][k].add(gmin);
+        if (nodeCount <= 0) {
+            return;
+        }
+        int ref = referenceNode;
+        if (ref < 0 || ref >= nodeCount) {
+            ref = 0;
+        }
+        boolean[] visited = new boolean[nodeCount];
+        Deque<Integer> stack = new ArrayDeque<>();
+        visited[ref] = true;
+        stack.push(ref);
+        while (!stack.isEmpty()) {
+            int i = stack.pop();
+            for (int j = 0; j < nodeCount; j++) {
+                if (j == i || visited[j]) {
+                    continue;
+                }
+                Complex a = y[i][j];
+                Complex b = y[j][i];
+                if ((a.re != 0.0 || a.im != 0.0) || (b.re != 0.0 || b.im != 0.0)) {
+                    visited[j] = true;
+                    stack.push(j);
+                }
+            }
+        }
+        for (int j = 0; j < nodeCount; j++) {
+            y[ref][j] = j == ref ? Complex.ONE : Complex.ZERO;
+        }
+        inj[ref] = Complex.ZERO;
+        for (int i = 0; i < nodeCount; i++) {
+            if (visited[i]) {
+                continue;
+            }
+            List<Integer> component = new ArrayList<>();
+            Deque<Integer> work = new ArrayDeque<>();
+            visited[i] = true;
+            work.push(i);
+            component.add(i);
+            while (!work.isEmpty()) {
+                int a = work.pop();
+                for (int j = 0; j < nodeCount; j++) {
+                    if (j == a || visited[j]) {
+                        continue;
+                    }
+                    Complex u = y[a][j];
+                    Complex w = y[j][a];
+                    if ((u.re != 0.0 || u.im != 0.0) || (w.re != 0.0 || w.im != 0.0)) {
+                        visited[j] = true;
+                        work.push(j);
+                        component.add(j);
+                    }
+                }
+            }
+            int compRef = component.get(0);
+            for (int m : component) {
+                if (m < compRef) {
+                    compRef = m;
+                }
+            }
+            for (int j = 0; j < nodeCount; j++) {
+                y[compRef][j] = j == compRef ? Complex.ONE : Complex.ZERO;
+            }
+            inj[compRef] = Complex.ZERO;
         }
     }
 
@@ -402,7 +477,7 @@ public final class ElectricalKernel {
      * never receives global node indices. Fresh local arrays are built,
      * {@code Yl} (zero {@code k x k}) and {@code Il} (zero length
      * {@code k}), the element stamps into them, and
-     * {@code It[j] = sum_m Yl[j][m]*Vt[m] - Il[j]}. No global GMIN or other
+     * {@code It[j] = sum_m Yl[j][m]*Vt[m] - Il[j]}. No reference-node tie or other
      * element contributes.</p>
      *
      * <p>The local stamp may set the {@link Stamps} fallback flag, which

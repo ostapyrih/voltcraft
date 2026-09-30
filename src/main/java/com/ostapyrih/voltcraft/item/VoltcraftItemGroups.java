@@ -121,7 +121,6 @@ public class VoltcraftItemGroups {
                 entries.add(VoltcraftBlocks.CIRCUIT_BREAKER);
                 entries.add(VoltcraftBlocks.FUSE_BOX);
                 entries.add(VoltcraftBlocks.CONTACTOR_RELAY);
-                entries.add(VoltcraftBlocks.EARTH_ROD);
 
                 // Stationary Energy Storage Systems (BESS)
                 entries.add(VoltcraftBlocks.BATTERY_BLOCK_LIFEPO4);

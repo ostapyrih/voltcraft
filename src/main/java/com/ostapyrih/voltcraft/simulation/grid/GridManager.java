@@ -76,7 +76,8 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class GridManager extends PersistentState {
 
-    /** Deterministic position order used for every index map and island ordering. */
+    /** Deterministic position order used for every index map and island ordering.
+     * Node {@code 0} in each island (the lowest-position node) is the kernel reference (V = 0). */
     public static final Comparator<BlockPos> POS_ORDER = Comparator
         .comparingInt(BlockPos::getX)
         .thenComparingInt(BlockPos::getY)

@@ -9,8 +9,6 @@ public final class GridConstants {
 
     /** Fixed simulation timestep in seconds. */
     public static final double DT = 0.05;
-    /** Small shunt conductance to ground applied to every nodal diagonal (S). Real and power-relevant. */
-    public static final double GMIN = 1e-9;
     /** Newton step convergence tolerance on max voltage delta. */
     public static final double NEWTON_TOL = 1e-6;
     /** Maximum Newton iterations per solve. */
