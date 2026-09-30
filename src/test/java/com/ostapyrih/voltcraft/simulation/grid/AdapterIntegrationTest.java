@@ -496,9 +496,11 @@ class AdapterIntegrationTest {
         BatteryElement open = new BatteryElement(BatteryChemistry.LIFEPO4, 4, 1,
             () -> bms[0], new double[2]);
         double[] y = stampConductance(open, new int[]{0, 1}, 2);
-        assertEquals(0.0, y[0], 0.0);
-        assertEquals(0.0, y[1], 0.0);
-        assertEquals(0.0, y[2], 0.0);
+        double gHi = 1.0 / BatteryElement.BMS_OPEN_RESISTANCE_OHM;
+        double emfAtZeroSoc = BatteryElement.packEmf(BatteryChemistry.LIFEPO4, 4, 0.0);
+        assertEquals(gHi, y[0], 1e-15);
+        assertEquals(-gHi * emfAtZeroSoc, y[1], 1e-12);
+        assertEquals(gHi * emfAtZeroSoc, y[2], 1e-12);
     }
 
     // ---- 6. fallback overload persists nothing in the BE ----

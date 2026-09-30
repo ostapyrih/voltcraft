@@ -169,10 +169,14 @@ class AdapterSourcesTest {
         assertEquals(g * emf, y[5], 1e-6);
 
         bms[0] = true;
+        double gHi = 1.0 / BatteryElement.BMS_OPEN_RESISTANCE_OHM;
         double[] open = stampI(batt, new double[]{1.0, 25.0, 1.0}, 2);
-        for (double v : open) {
-            assertEquals(0.0, v, 0.0);
-        }
+        assertEquals(gHi, open[0], 1e-15);
+        assertEquals(-gHi, open[1], 1e-15);
+        assertEquals(-gHi, open[2], 1e-15);
+        assertEquals(gHi, open[3], 1e-15);
+        assertEquals(-gHi * emf, open[4], 1e-12);
+        assertEquals(gHi * emf, open[5], 1e-12);
     }
 
     @Test
@@ -593,8 +597,8 @@ class AdapterSourcesTest {
             List.of(new int[]{0, 2}, new int[]{0, 1}, new int[]{1, 2}));
         k.setConductors(List.of());
         k.setElementState(1, new double[]{1.0, 25.0, 1.0});
-        assertTrue(loadCurrent(k, 2) < 1e-6, "open BMS isolates the load");
-    }
+        assertTrue(loadCurrent(k, 2) < 1e-4,
+            "open BMS must isolate the load, residual I=" + loadCurrent(k, 2));    }
 
     // ---- solar day/night ----
 

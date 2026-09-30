@@ -35,6 +35,7 @@ public final class BatteryElement implements ElectricalElement {
     /** Reclose threshold below the trip point (hysteresis against chatter). */
     public static final double BMS_OVERTEMP_CLOSE_C = 55.0;
     public static final double BMS_RECOVERY_HYST_V_PER_CELL = 0.05;
+    public static final double BMS_OPEN_RESISTANCE_OHM = 1.0e6;
     public static final double HEALTH_DECAY_K = 1e-9;
     public static final int TELE_V = 0;
     public static final int TELE_I = 1;
@@ -71,7 +72,7 @@ public final class BatteryElement implements ElectricalElement {
     public void stamp(Complex[][] y, Complex[] in, int[] terminals, Complex[] v,
                       double[] state, double omega) {
         if (bmsOpen.getAsBoolean()) {
-            double rHi = 1.0e9;
+            double rHi = BMS_OPEN_RESISTANCE_OHM;
             double soc = clamp01(state[STATE_SOC]);
             double emf = packEmf(chemistry, seriesCount, soc);
             Stamps.thevenin(y, in, terminals[1], terminals[0],
