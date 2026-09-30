@@ -167,8 +167,8 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
     }
 
     public boolean isBatteryVoltageMismatch(double battV) {
-        if (hasDownstreamStorage()) {
-            return isBatteryStorageMismatch();
+        if (isBatteryStorageMismatch()) {
+            return true;
         }
         if (battV <= DEAD_RAIL_VOLTAGE) {
             return false;
@@ -222,34 +222,28 @@ public class ChargeControllerBlockEntity extends AbstractPowerConverterBlockEnti
             return 0.0;
         }
 
-        boolean hasStorage = hasDownstreamStorage();
-
-        if (hasStorage) {
-            if (isBatteryStorageMismatch()) {
-                return 0.0;
-            }
-            double railV = getDownstreamRailVoltage();
-            double battV = railV > DEAD_RAIL_VOLTAGE ? railV : targetOutputVoltage;
-            boolean settled = MPPTLogic.isRailSettled(inputVoltage, getMinInputVoltage(),
-                    mpptLogic.getTargetInputVoltage(), calculateInputPowerDemand(), lastDemandWatts);
-            mpptLogic.step(inputVoltage, inputCurrentAmps, battV, settled);
-
-            if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK
-                    || mpptLogic.getStage() == MPPTLogic.ChargeStage.ABSORPTION) {
-                return mpptLogic.getAbsorptionVoltage();
-            } else {
-                return mpptLogic.getFloatVoltage();
-            }
+        if (hasDownstreamStorage() && isBatteryVoltageMismatch(actualOutputVoltage)) {
+            return 0.0;
         }
 
-        // Direct standalone output without battery (powering inverters or DC loads directly)
-        return targetOutputVoltage;
+        double railV = getDownstreamRailVoltage();
+        double battV = railV > DEAD_RAIL_VOLTAGE ? railV : targetOutputVoltage;
+        boolean settled = MPPTLogic.isRailSettled(inputVoltage, getMinInputVoltage(),
+                mpptLogic.getTargetInputVoltage(), calculateInputPowerDemand(), lastDemandWatts);
+        mpptLogic.step(inputVoltage, inputCurrentAmps, battV, settled);
+
+        if (mpptLogic.getStage() == MPPTLogic.ChargeStage.BULK
+                || mpptLogic.getStage() == MPPTLogic.ChargeStage.ABSORPTION) {
+            return mpptLogic.getAbsorptionVoltage();
+        } else {
+            return mpptLogic.getFloatVoltage();
+        }
     }
 
     @Override
     public void tickElectrical(ServerWorld world) {
         super.tickElectrical(world);
-        if (hasDownstreamStorage() && isBatteryStorageMismatch()) {
+        if (hasDownstreamStorage() && isBatteryVoltageMismatch(actualOutputVoltage)) {
             if (tripGraceTicks == 0) {
                 this.tripped = true;
                 this.reportedState = ElectricalState.SURGE;

@@ -37,6 +37,11 @@ public class JunctionBoxBlock extends AbstractGridBlock {
     }
 
     @Override
+    protected boolean shouldSeedNode(BlockState state) {
+        return true;
+    }
+
+    @Override
     public BlockEntity createBlockEntity(BlockPos pos, BlockState state) {
         return null; // Passive junction: no block entity.
     }

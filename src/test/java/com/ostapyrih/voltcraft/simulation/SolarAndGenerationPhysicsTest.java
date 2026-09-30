@@ -127,6 +127,66 @@ public class SolarAndGenerationPhysicsTest {
     }
 
     @Test
+    @DisplayName("Unloaded MPPT output maintains Bulk EMF and does not prematurely transition to Float")
+    void testMPPTUnloadedOutputStaysBulk() {
+        MPPTLogic mppt = new MPPTLogic(12.0); // 12V nominal bank
+        assertEquals(14.4, mppt.getAbsorptionVoltage(), 0.01);
+        assertEquals(13.6, mppt.getFloatVoltage(), 0.01);
+        assertEquals(MPPTLogic.ChargeStage.BULK, mppt.getStage());
+
+        // When unloaded, inputCurrent is 0.0 A and output rail floats at EMF (14.4V).
+        // It must NOT enter Absorption or Float because no actual charging current is flowing.
+        for (int i = 0; i < 50; i++) {
+            double vTarget = mppt.step(40.0, 0.0, 14.4);
+            assertEquals(MPPTLogic.ChargeStage.BULK, mppt.getStage(), "Tick " + i + " must stay in BULK");
+            assertEquals(14.4, vTarget, 0.01);
+        }
+    }
+
+    @Test
+    @DisplayName("MPPT bank voltages scale proportionally across 12V, 24V, and 48V modes")
+    void testMPPTBankModes12V24V48V() {
+        // 12V Bank Mode
+        MPPTLogic mppt12 = new MPPTLogic(12.0);
+        assertEquals(12.0, mppt12.getBatteryBankVoltage());
+        assertEquals(14.4, mppt12.getAbsorptionVoltage(), 1e-4);
+        assertEquals(13.6, mppt12.getFloatVoltage(), 1e-4);
+
+        // 24V Bank Mode
+        MPPTLogic mppt24 = new MPPTLogic(24.0);
+        assertEquals(24.0, mppt24.getBatteryBankVoltage());
+        assertEquals(28.8, mppt24.getAbsorptionVoltage(), 1e-4);
+        assertEquals(27.2, mppt24.getFloatVoltage(), 1e-4);
+
+        // 48V Bank Mode
+        MPPTLogic mppt48 = new MPPTLogic(48.0);
+        assertEquals(48.0, mppt48.getBatteryBankVoltage());
+        assertEquals(57.6, mppt48.getAbsorptionVoltage(), 1e-4);
+        assertEquals(54.4, mppt48.getFloatVoltage(), 1e-4);
+
+        // Verify full 3-stage charge cycle on 48V bank
+        // 1. Bulk
+        double vTarget = mppt48.step(100.0, 10.0, 48.0);
+        assertEquals(MPPTLogic.ChargeStage.BULK, mppt48.getStage());
+        assertEquals(57.6, vTarget, 0.01);
+
+        // 2. Transition into Absorption near 57.6V
+        vTarget = mppt48.step(100.0, 5.0, 57.4);
+        assertEquals(MPPTLogic.ChargeStage.ABSORPTION, mppt48.getStage());
+        assertEquals(57.6, vTarget, 0.01);
+
+        // 3. Absorption to Float when current drops
+        vTarget = mppt48.step(100.0, 0.1, 57.6);
+        assertEquals(MPPTLogic.ChargeStage.FLOAT, mppt48.getStage());
+        assertEquals(54.4, vTarget, 0.01);
+
+        // 4. Heavy load pulls 48V bank below float drop limit (54.4 - 2.0 = 52.4V) -> returns to Bulk
+        vTarget = mppt48.step(100.0, 5.0, 51.0);
+        assertEquals(MPPTLogic.ChargeStage.BULK, mppt48.getStage());
+        assertEquals(57.6, vTarget, 0.01);
+    }
+
+    @Test
     @DisplayName("MPPT target freezes while the rail is unsettled, tracks when settled")
     void testMPPTGatedAdaptation() {
         MPPTLogic mppt = new MPPTLogic(24.0);

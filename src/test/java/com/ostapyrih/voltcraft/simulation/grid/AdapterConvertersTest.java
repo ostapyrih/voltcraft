@@ -576,4 +576,51 @@ class AdapterConvertersTest {
             cached, 0.9, false, conv.tele[ConverterElement.TELE_V_IN]);
         assertEquals(cached / 0.9 + 2.0, staged, 1e-9);
     }
+
+    @Test
+    void singleWireInputProducesZeroVoltsTelemetry() {
+        // When only one input terminal is wired to a source (the other input terminal is floating/disconnected),
+        // the differential input voltage must sanitize to 0.0V (no phantom voltage across floating nodes).
+        Staged conv = new Staged();
+        conv.demand[0] = 0.0;
+        conv.emf[0] = 14.4;
+        conv.vnom[0] = 48.0;
+
+        ElectricalKernel k = new ElectricalKernel();
+        // Node 0: Source +
+        // Node 1: Source -
+        // Node 2: Floating Converter input -
+        // Node 3, 4: Converter output + / -
+        k.setNodeCount(5);
+        k.setOmega(0.0);
+        k.setElements(
+            List.of(new TestThevenin(48.0, 0.05), conv.element(), new TestResistor(100.0)),
+            List.of(new int[]{0, 1}, new int[]{0, 2, 3, 4}, new int[]{3, 4}));
+        k.setConductors(List.of());
+        k.tick();
+
+        // Terminal 0 is on source (+), terminal 1 is node 2 (floating).
+        // Since terminal 0 and terminal 1 are not in the same connected component,
+        // sanitizeTerminalVoltages must zero out their differential voltage!
+        assertEquals(0.0, conv.tele[ConverterElement.TELE_V_IN], 1e-9,
+            "Single-wire connection without return path must measure 0.0V");
+
+        // Repeat for negative terminal connected (node 1) and positive terminal floating (node 2)
+        Staged convNeg = new Staged();
+        convNeg.demand[0] = 0.0;
+        convNeg.emf[0] = 14.4;
+        convNeg.vnom[0] = 48.0;
+
+        ElectricalKernel kNeg = new ElectricalKernel();
+        kNeg.setNodeCount(5);
+        kNeg.setOmega(0.0);
+        kNeg.setElements(
+            List.of(new TestThevenin(48.0, 0.05), convNeg.element(), new TestResistor(100.0)),
+            List.of(new int[]{0, 1}, new int[]{2, 1, 3, 4}, new int[]{3, 4}));
+        kNeg.setConductors(List.of());
+        kNeg.tick();
+
+        assertEquals(0.0, convNeg.tele[ConverterElement.TELE_V_IN], 1e-9,
+            "Connecting only negative wire must also measure 0.0V");
+    }
 }

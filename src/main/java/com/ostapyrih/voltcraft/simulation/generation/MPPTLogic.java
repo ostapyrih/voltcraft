@@ -31,7 +31,7 @@ public class MPPTLogic {
     private static final double BULK_TO_ABSORPTION_MARGIN_V = 0.1;
     private static final int ABSORPTION_TIMEOUT_TICKS = 1200;
     private static final double ABSORPTION_EXIT_CURRENT_A = 0.2;
-    private static final double FLOAT_TO_BULK_DROP_V = 1.0;
+    private static final double FLOAT_TO_BULK_DROP_V = 0.5; // V per 12V bank
 
     private ChargeStage stage = ChargeStage.BULK;
     private double targetInputVoltage = DEFAULT_TARGET_INPUT_VOLTAGE;
@@ -183,7 +183,9 @@ public class MPPTLogic {
 
         switch (stage) {
             case BULK -> {
-                if (batteryVoltage >= absorptionV - BULK_TO_ABSORPTION_MARGIN_V) {
+                double margin = (batteryBankVoltage / 12.0) * BULK_TO_ABSORPTION_MARGIN_V;
+                if (batteryVoltage >= absorptionV - margin
+                        && inputCurrent >= ABSORPTION_EXIT_CURRENT_A) {
                     this.stage = ChargeStage.ABSORPTION;
                     this.absorptionTicks = 0;
                 }
@@ -198,7 +200,8 @@ public class MPPTLogic {
                 return absorptionV;
             }
             case FLOAT -> {
-                if (batteryVoltage < floatV - FLOAT_TO_BULK_DROP_V) {
+                double dropLimit = (batteryBankVoltage / 12.0) * FLOAT_TO_BULK_DROP_V;
+                if (batteryVoltage < floatV - dropLimit) {
                     this.stage = ChargeStage.BULK;
                     return absorptionV;
                 }

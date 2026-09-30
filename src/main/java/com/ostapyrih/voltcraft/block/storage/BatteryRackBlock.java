@@ -27,6 +27,7 @@ import net.minecraft.util.ItemScatterer;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
+import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
 
@@ -55,13 +56,15 @@ public class BatteryRackBlock extends AbstractGridBlock {
         return getDefaultState().with(FACING, ctx.getHorizontalPlayerFacing().getOpposite());
     }
 
-    /**
-     * Racks join adjacent cable grids in either placement order, so they stay
-     * through-conductors (as before the consolidation).
-     */
+    @Override
+    public boolean canConnect(BlockView world, BlockPos pos, Direction side, BlockState state) {
+        Direction facing = state.get(FACING);
+        return side == facing || side == facing.getOpposite();
+    }
+
     @Override
     public boolean isThroughConductor() {
-        return true;
+        return false;
     }
 
     @Override

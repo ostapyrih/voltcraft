@@ -66,16 +66,13 @@ public class BatteryBlock extends AbstractGridBlock {
 
     @Override
     public boolean canConnect(BlockView world, BlockPos pos, Direction side, BlockState state) {
-        return true;
+        Direction facing = state.get(FACING);
+        return side == facing || side == facing.getOpposite();
     }
 
-    /**
-     * Batteries join adjacent cable grids in either placement order, so they stay
-     * through-conductors (as before the consolidation).
-     */
     @Override
     public boolean isThroughConductor() {
-        return true;
+        return false;
     }
 
     @Override

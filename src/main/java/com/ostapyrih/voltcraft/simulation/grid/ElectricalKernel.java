@@ -72,6 +72,7 @@ public final class ElectricalKernel {
     private double omega = GridConstants.AC_OMEGA_RAD_PER_S;
     private Complex[] pendingInitialVoltage;
     private Complex[] lastSolution;
+    private int[] lastNodeComponents;
 
     /**
      * Replaces the element topology.
@@ -288,8 +289,11 @@ public final class ElectricalKernel {
             ref = 0;
         }
         boolean[] visited = new boolean[nodeCount];
+        int[] components = new int[nodeCount];
+        int currentComp = 0;
         Deque<Integer> stack = new ArrayDeque<>();
         visited[ref] = true;
+        components[ref] = currentComp;
         stack.push(ref);
         while (!stack.isEmpty()) {
             int i = stack.pop();
@@ -301,6 +305,7 @@ public final class ElectricalKernel {
                 Complex b = y[j][i];
                 if ((a.re != 0.0 || a.im != 0.0) || (b.re != 0.0 || b.im != 0.0)) {
                     visited[j] = true;
+                    components[j] = currentComp;
                     stack.push(j);
                 }
             }
@@ -313,9 +318,11 @@ public final class ElectricalKernel {
             if (visited[i]) {
                 continue;
             }
+            currentComp++;
             List<Integer> component = new ArrayList<>();
             Deque<Integer> work = new ArrayDeque<>();
             visited[i] = true;
+            components[i] = currentComp;
             work.push(i);
             component.add(i);
             while (!work.isEmpty()) {
@@ -328,6 +335,7 @@ public final class ElectricalKernel {
                     Complex w = y[j][a];
                     if ((u.re != 0.0 || u.im != 0.0) || (w.re != 0.0 || w.im != 0.0)) {
                         visited[j] = true;
+                        components[j] = currentComp;
                         work.push(j);
                         component.add(j);
                     }
@@ -344,6 +352,7 @@ public final class ElectricalKernel {
             }
             inj[compRef] = Complex.ZERO;
         }
+        this.lastNodeComponents = components;
     }
 
     /**
@@ -402,6 +411,7 @@ public final class ElectricalKernel {
             for (int j = 0; j < k; j++) {
                 vt[j] = v[terms[j]];
             }
+            sanitizeTerminalVoltages(terms, vt, k);
             Complex[] it = terminalCurrents(idx, v);
             double[] k1 = new double[state.length];
             element.derivatives(k1, state, vt.clone(), it.clone());
@@ -506,6 +516,7 @@ public final class ElectricalKernel {
             }
             vt[j] = Objects.requireNonNull(v[t], "v[" + t + "]");
         }
+        sanitizeTerminalVoltages(terms, vt, k);
         Complex[][] yl = ComplexNodalSolver.zeroMatrix(k);
         Complex[] il = ComplexNodalSolver.zeroVector(k);
         int[] local = new int[k];
@@ -524,6 +535,17 @@ public final class ElectricalKernel {
             it[j] = acc.sub(il[j]);
         }
         return it;
+    }
+
+    private void sanitizeTerminalVoltages(int[] terms, Complex[] vt, int k) {
+        if (lastNodeComponents != null) {
+            if (k >= 2 && terms.length >= 2 && lastNodeComponents[terms[0]] != lastNodeComponents[terms[1]]) {
+                vt[0] = vt[1];
+            }
+            if (k >= 4 && terms.length >= 4 && lastNodeComponents[terms[2]] != lastNodeComponents[terms[3]]) {
+                vt[2] = vt[3];
+            }
+        }
     }
 
     /**

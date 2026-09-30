@@ -92,12 +92,13 @@ public abstract class AbstractGridBlock extends Block implements IElectricalConn
     }
 
     /**
-     * Whether this state holds a grid node. Open switches, tripped breakers, and blown
-     * or missing fuses hold no node: placement seeds nothing and removal removes nothing
-     * (a safe no-op). Closed devices use the default {@code true}.
+     * Whether this state holds a grid node. Only passive conductors (cables, busbars,
+     * junction boxes) and closed switchgear hold a node at pos. Devices with attached block
+     * entities (batteries, generators, loads, converters) communicate solely via their
+     * external terminals; seeding a node at their center would short their own terminals.
      */
     protected boolean shouldSeedNode(BlockState state) {
-        return true;
+        return false;
     }
 
     /**

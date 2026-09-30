@@ -1,3 +1,16 @@
+## [2026-09-30] fix | MPPT floating node phantom input, 13.6V float lock, converter port orientations and textures
+
+* **User Directive:**
+  1. Fix MPPT Solar Charge Controller not charging connected battery and outputting 13.6V instead of ~14.4V.
+  2. Fix phantom single-wire reading: connecting only solar panel minus (`-`) without plus (`+`) to MPPT immediately showed input voltage on MPPT, whereas plus (`+`) alone showed 0V.
+* **Root Causes & Physics Solved:**
+  1. **Floating Node Component Grounding in Solver:** Disconnected nodes in the MNA admittance matrix $Y$ each had an arbitrary reference node set to $0.0\,\text{V}$. When only one solar terminal was connected to MPPT, the unconnected floating terminals both received $0.0\,\text{V}$ reference values, synthesizing a phantom circuit return through the mathematical ground reference. Fixed in `ElectricalKernel.java` by tracking connected components (`lastNodeComponents`) and sanitizing terminal voltage differentials (`sanitizeTerminalVoltages`) to $0.0\,\text{V}$ whenever terminals belong to disconnected subgraphs.
+  2. **MPPT Premature Transition to Float (13.6V) & Multi-Bank Scaling (12V/24V/48V):** When unloaded, the open-circuit output voltage ($14.4\,\text{V}$ / $28.8\,\text{V}$ / $57.6\,\text{V}$) was read as battery voltage reaching absorption threshold, jumping from `BULK` to `ABSORPTION`. Because input current was zero ($<0.2\,\text{A}$), it immediately fell to `FLOAT` ($13.6\,\text{V}$ / $27.2\,\text{V}$ / $54.4\,\text{V}$) on the next tick. Fixed in `MPPTLogic.java` so transitioning to `ABSORPTION` requires active charging current ($\ge 0.2\,\text{A}$), keeping unloaded or early-stage battery output at the full absorption EMF. All absorption, float, hysteresis drop limits, and margin thresholds scale proportionally across 12V, 24V, and 48V battery bank presets.
+  3. **Converter Port Connections & Textures:** `AbstractPowerConverterBlock` previously restricted `canConnect` only to front and back, preventing cables from connecting to left and right faces. Corrected to `side.getAxis().isHorizontal()`. Updated `AbstractGridBlock.shouldSeedNode` default to `false` for multi-terminal attached blocks. Flipped 15 top textures (`*_top.png`) so top edge is Green (Output +) and bottom is Blue (Input +), matching 3D face terminal alignments.
+* **Tests & Verification:**
+  * Added `singleWireInputProducesZeroVoltsTelemetry` in `AdapterConvertersTest`, `testMPPTUnloadedOutputStaysBulk` and `testMPPTBankModes12V24V48V` in `SolarAndGenerationPhysicsTest`.
+  * All unit test suites pass (`./gradlew test`).
+
 ## [2026-09-27] refactor | EU converter rebranded to standard E energy bridge
 
 * **User Directive:** No new block. Change EU converter to a standard every mod can use.
