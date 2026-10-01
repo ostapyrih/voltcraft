@@ -156,10 +156,10 @@ public class GeneratorLoadEuSystemTest {
 
     /**
      * Mock EU bridge mirroring EuConverterBlockEntity logic: 4-terminal converter
-     * with reserved-open output pair (EMF 0) and staged input demand. Production
-     * never feeds terminal measurements into {@link EuConverterLogic} from the
-     * electrical phase (no {@code onPowerReceived} call) and only refreshes demand
-     * from the server tick, so the demand observed here stays at its natural value.
+     * with reserved-open output pair (EMF 0) and staged input demand. Spec: on a
+     * live 230V/50Hz feed with an empty internal battery the bridge must stage
+     * ~805W charge demand (32 EU/t * 25W + 5W quiescent) and the internal battery
+     * must accumulate EU.
      */
     static class EuModel implements KernelAttachedBlock {
         final BlockPos pos;
@@ -413,13 +413,16 @@ public class GeneratorLoadEuSystemTest {
         }
         assertAllFinite("T3", gen.getDeliveredPower(), load.getPowerDrawn(), eu.getInputVoltage());
         assertKernelFinite(m, "T3");
-        // Production wiring never feeds measurements into EuConverterLogic, so its
-        // demand stays 0W and the reserved-open output pair leaves the load dark.
-        assertEquals(0.0, eu.stagedInputDemandWatts, 1e-9,
-            "EU demand stays 0W under production wiring, got " + eu.stagedInputDemandWatts);
+        // Spec: live 230V/50Hz feed, empty internal battery -> ~805W charge demand
+        // (32 EU/t * 25W + 5W quiescent) carried by the generator.
+        assertFalse(eu.logic.isTripped(), "EU bridge must not trip on a healthy 230V feed");
+        assertTrue(eu.stagedInputDemandWatts > 700.0 && eu.stagedInputDemandWatts < 900.0,
+            "EU bridge on live 230V must stage ~805W charge demand while the internal battery fills, got "
+                + eu.stagedInputDemandWatts);
+        assertTrue(gen.getDeliveredPower() > 700.0 && gen.getDeliveredPower() < 900.0,
+            "Generator must carry the ~805W EU charge load, got " + gen.getDeliveredPower());
         assertTrue(load.getPowerDrawn() < 1.0,
             "Load behind the open EU output pair must stay dark, got " + load.getPowerDrawn());
-        assertFalse(eu.logic.isTripped(), "EU bridge must not trip on a healthy 230V feed");
     }
 
     // ------------------------------------------------------------------
@@ -452,8 +455,13 @@ public class GeneratorLoadEuSystemTest {
         assertKernelFinite(m, "T4");
         assertTrue(busLoad.getPowerDrawn() > 400.0,
             "Direct branch must stay powered next to the EU bridge, got " + busLoad.getPowerDrawn());
-        assertTrue(gen.getDeliveredPower() < 1800.0,
-            "Generator must stay within its 1800W rating, got " + gen.getDeliveredPower());
+        // Spec: 500W direct branch + ~805W EU charge demand -> generator carries ~1300W.
+        assertTrue(eu.stagedInputDemandWatts > 700.0 && eu.stagedInputDemandWatts < 900.0,
+            "EU bridge must draw ~805W charge demand next to the direct load, got "
+                + eu.stagedInputDemandWatts);
+        assertTrue(gen.getDeliveredPower() > 1100.0 && gen.getDeliveredPower() < 1500.0,
+            "Generator must carry 500W direct + ~805W EU charge (~1300W total), got "
+                + gen.getDeliveredPower());
         assertTrue(euLoad.getPowerDrawn() < 1.0,
             "Branch behind the EU output must stay dark, got " + euLoad.getPowerDrawn());
     }
@@ -620,5 +628,40 @@ public class GeneratorLoadEuSystemTest {
                 "Direct branch must recover after restoring " + cuts[stage]
                     + ", got " + busLoad.getPowerDrawn());
         }
+    }
+
+    // ------------------------------------------------------------------
+    // 9. Generator overload: load pulls more than the generator can give
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("9. Generator into 2500W overload must not silently exceed surge rating")
+    void genOverloadBeyondRating() {
+        GridManager m = new GridManager();
+        GenModel gen = new GenModel(pos(0, 64, 0), Direction.NORTH, 1.0e6);
+        LoadModel load = new LoadModel(pos(2, 64, 0), Direction.NORTH, 2500.0);
+        m.putAttachedBlock(gen);
+        m.putAttachedBlock(load);
+        connectDirectGenLoad(m, 2);
+
+        for (int t = 1; t <= 8; t++) {
+            m.tick(null);
+            System.out.println("T9 tick " + t + ": GenP=" + gen.getDeliveredPower()
+                + " GenI=" + gen.getDeliveredCurrent()
+                + " LoadP=" + load.getPowerDrawn() + " LoadV=" + load.getTerminalVoltage()
+                + " islands=" + islandsOf(m));
+        }
+        assertAllFinite("T9", gen.getDeliveredPower(), gen.getDeliveredCurrent(),
+            load.getPowerDrawn(), load.getTerminalVoltage());
+        assertKernelFinite(m, "T9");
+        // Spec: 1800W rated / 2200W surge. A 2500W demand must NOT be served
+        // silently at near-nominal voltage: the generator must cap output at
+        // surge and the terminal voltage must sag (brownout), not sit at 230V.
+        assertTrue(gen.getDeliveredPower() <= 2200.0,
+            "Generator must cap output at the 2200W surge rating under 2500W demand, got "
+                + gen.getDeliveredPower());
+        assertTrue(load.getTerminalVoltage() < 207.0,
+            "Terminal voltage must sag below the 207V brownout floor under overload, got "
+                + load.getTerminalVoltage());
     }
 }
