@@ -1203,5 +1203,85 @@ public class SolarMpptBatteryLoadSystemTest {
         assertFalse(mppt.tripped, "BUG DETECTED: MPPT tripped permanently when bus segment was restored!");
         assertTrue(load.getPowerDrawn() > 400.0, "BUG DETECTED: Load failed to resume 500W after bus was reunited! Got: " + load.getPowerDrawn());
     }
+
+    @Test
+    @DisplayName("19. Test Case: Single-wire load disconnect (-) vs (+) must both read ~0W, not freeze at 500W")
+    void testSingleWireLoadDisconnectMinusVsPlus() {
+        connectFullCircuit();
+        load.enabled = true;
+        load.targetWatts = 500.0;
+        stepTicks(5);
+        assertEquals(500.0, load.getPowerDrawn(), 15.0, "Precondition: load initially 500W");
+
+        // --- CUT A: load (-) cable at its own terminal -> open circuit, must read ~0W.
+        manager.removeCable(pos(4, 64, 11));
+        stepTicks(5);
+        System.out.println("T19 MINUS-CUT: LoadP=" + load.getPowerDrawn()
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", BatI=" + battery.getTerminalCurrent()
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", MPPT Iout=" + mppt.outputCurrentAmps);
+        assertTrue(load.getPowerDrawn() < 5.0,
+            "BUG DETECTED: load (-) wire cut, but the load still reports ~500W (frozen telemetry / phantom current)! Got: "
+                + load.getPowerDrawn());
+
+        // --- Restore, back to 500W.
+        manager.putCable(pos(4, 64, 11), ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        assertEquals(500.0, load.getPowerDrawn(), 15.0, "Load must resume 500W after (-) restore");
+
+        // --- CUT B: load (+) cable at its own terminal -> open circuit, must read ~0W.
+        manager.removeCable(pos(4, 64, 13));
+        stepTicks(5);
+        System.out.println("T19 PLUS-CUT: LoadP=" + load.getPowerDrawn()
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", BatI=" + battery.getTerminalCurrent()
+            + ", MPPT Pout=" + mppt.outputPowerWatts
+            + ", MPPT Iout=" + mppt.outputCurrentAmps);
+        assertTrue(load.getPowerDrawn() < 5.0,
+            "BUG DETECTED: load (+) wire cut, but the load still reports power! Got: "
+                + load.getPowerDrawn());
+
+        // --- Restore, back to 500W, MPPT healthy.
+        manager.putCable(pos(4, 64, 13), ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        assertFalse(mppt.tripped, "MPPT must not trip across single-wire load churn");
+        assertTrue(load.getPowerDrawn() > 400.0,
+            "Load must resume 500W after (+) restore, got: " + load.getPowerDrawn());
+    }
+
+    @Test
+    @DisplayName("18. Test Case: Nearly-full battery + 100W load -> MPPT must cover load + keep charging (~140W), not sag to ~40W")
+    void testNearlyFullBatteryLightLoadMpptCoversLoadAndCharging() {
+        // Mirror the player rig: 6S lead-acid bank, nearly full (97% SoC).
+        manager.removeAttachedBlock(battery.pos);
+        battery = new BatteryModel(pos(0, 64, 12), Direction.NORTH, BatteryChemistry.LEAD_ACID, 6, 1);
+        manager.putAttachedBlock(battery);
+        connectFullCircuit();
+        battery.stateArray[BatteryElement.STATE_SOC] = 0.97;
+        load.enabled = true;
+        load.targetWatts = 100.0;
+        for (int t = 1; t <= 10; t++) {
+            manager.tick(null);
+            System.out.println("T18 TICK " + t + ": LoadP=" + load.getPowerDrawn()
+                + ", MPPT Pout=" + mppt.outputPowerWatts
+                + ", Vout=" + mppt.actualOutputVoltage
+                + ", Stage=" + mppt.mpptLogic.getStage()
+                + ", BatV=" + battery.getTerminalVoltage()
+                + ", BatI=" + battery.getTerminalCurrent()
+                + ", SoC=" + battery.stateArray[BatteryElement.STATE_SOC]);
+        }
+
+        assertEquals(100.0, load.getPowerDrawn(), 10.0, "Precondition: load draws ~100W");
+        // Spec: 100W load + ~40W absorption top-up ~= 140W from MPPT while solar
+        // has ~380W headroom. MPPT must load-follow, not collapse to ~40W and let
+        // the nearly-full battery drain into the load.
+        assertTrue(mppt.outputPowerWatts >= 120.0,
+            "BUG DETECTED: MPPT sags to ~40W under 100W load on a nearly-full battery instead of ~140W (load + charging)! Got: "
+                + mppt.outputPowerWatts);
+        assertTrue(battery.getTerminalCurrent() < 0.0,
+            "BUG DETECTED: Battery discharges into a 100W load despite ~380W of solar headroom! BatI: "
+                + battery.getTerminalCurrent());
+    }
 }
 

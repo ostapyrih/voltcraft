@@ -130,6 +130,68 @@ public class SolarMpptGameTests {
         });
     }
 
+    @GameTest(structure = "fabric-gametest-api-v1:empty", skyAccess = true, maxTicks = 80)
+    public void testNearlyFullBatteryLightLoad(TestContext context) {
+        GameTestCircuitBuilder.buildCircuit(context);
+        // Nearly-full bank (97% SoC) + 100W load on full sun. Applied both
+        // synchronously and at tick 5: BE availability right after placement
+        // is not guaranteed, and a silently-skipped setup would make this
+        // test pass vacuously (load dark, MPPT legitimately idle).
+        GameTestCircuitBuilder.setBatterySoc(context, 0.97);
+        GameTestCircuitBuilder.setLoad(context, 100.0);
+
+        // Nearly-full bank (97% SoC) + 100W load on full sun.
+        context.runAtTick(5, () -> {
+            GameTestCircuitBuilder.setBatterySoc(context, 0.97);
+            GameTestCircuitBuilder.setLoad(context, 100.0);
+        });
+
+        java.util.function.IntConsumer busWatch = (tick) -> {
+            var mppt = GameTestCircuitBuilder.getMppt(context);
+            var bat = GameTestCircuitBuilder.getBattery(context);
+            var load = GameTestCircuitBuilder.getLoad(context);
+            System.out.println("GT DIAG T18 t" + tick
+                + ": Vout=" + (mppt == null ? "null" : String.format("%.2f", mppt.getOutputVoltage()))
+                + " Pout=" + (mppt == null ? "null" : String.format("%.1f", mppt.getOutputPowerWatts()))
+                + " tripped=" + (mppt == null ? "null" : mppt.isTripped())
+                + " bms=" + (bat == null ? "null" : bat.isBmsOpen())
+                + " batV=" + (bat == null ? "null" : String.format("%.2f", bat.getLastTerminalVoltage()))
+                + " batI=" + (bat == null ? "null" : String.format("%.2f", bat.getLastCurrentAmps()))
+                + " loadP=" + (load == null ? "null" : String.format("%.1f", load.getLastDeliveredPower()))
+                + " soc=" + (bat == null ? "null" : String.format("%.4f", bat.getStateOfCharge())));
+        };
+        context.runAtTick(30, () -> busWatch.accept(30));
+
+        context.runAtTick(50, () -> {
+            ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
+            BatteryBlockEntity bat = GameTestCircuitBuilder.getBattery(context);
+            var load = GameTestCircuitBuilder.getLoad(context);
+            System.out.println("GT DIAG T18 t50: soc=" + (bat == null ? "null" : bat.getStateOfCharge())
+                + " loadP=" + (load == null ? "null" : load.getLastDeliveredPower())
+                + " mpptVin=" + (mppt == null ? "null" : mppt.getInputVoltage())
+                + " mpptVout=" + (mppt == null ? "null" : mppt.getOutputVoltage())
+                + " mpptPout=" + (mppt == null ? "null" : mppt.getOutputPowerWatts())
+                + " tripped=" + (mppt == null ? "null" : mppt.isTripped())
+                + " batV=" + (bat == null ? "null" : bat.getLastTerminalVoltage())
+                + " batI=" + (bat == null ? "null" : bat.getLastCurrentAmps()));
+            context.assertTrue(mppt != null && bat != null, "MPPT and battery must exist");
+            context.assertFalse(mppt.isTripped(), "MPPT must not trip under a 100W load");
+            double pout = mppt.getOutputPowerWatts();
+            double loadP = load == null ? Double.NaN : load.getLastDeliveredPower();
+            context.assertFalse(bat.isBmsOpen(),
+                "BUG: BMS sits open (false undervoltage trip on unsolved 0V telemetry at tick 1, "
+                    + "then unrecoverable: battery EMF=0 collapses the bus and MPPT foldback traps it at ~0V)");
+            context.assertTrue(loadP > 90.0 && loadP < 110.0,
+                "The enabled 100W load must actually be fed from the bus, got: " + loadP);
+            context.assertTrue(pout >= 120.0,
+                "BUG (user symptom): MPPT must cover the 100W load + keep charging (~140W) on a nearly-full "
+                    + "battery with solar headroom, got: " + pout);
+            context.assertTrue(pout >= 120.0,
+                "MPPT must cover the 100W load + keep charging (~140W) on a nearly-full battery with solar headroom, got: " + pout);
+            context.complete();
+        });
+    }
+
     @GameTest(structure = "fabric-gametest-api-v1:empty", skyAccess = true, maxTicks = 60)
     public void testHeavyLoadColdStartVsSoftStart(TestContext context) {
         GameTestCircuitBuilder.buildCircuit(context);

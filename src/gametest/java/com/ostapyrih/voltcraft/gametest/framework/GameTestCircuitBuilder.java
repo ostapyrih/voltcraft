@@ -11,6 +11,7 @@ import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity;
 import com.ostapyrih.voltcraft.block.generation.SolarPanelBlock;
 import com.ostapyrih.voltcraft.block.storage.BatteryBlock;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeLoadLogic;
+import com.ostapyrih.voltcraft.simulation.electrical.BatteryElement;
 import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.Blocks;
 import net.minecraft.server.world.ServerWorld;
@@ -111,7 +112,6 @@ public class GameTestCircuitBuilder {
         // D. MPPT Out(+) -> Bat(+) and Load(+)
         // (2, 1, 4) -> (0, 1, 4) -> (0, 1, 5..7) -> (1..5, 1, 7)
         setCable(context, MPPT_OUT_PLUS, ConductorType.HEAVY_COPPER);
-        breakCable(context, new BlockPos(1, 1, 4));
         setCable(context, new BlockPos(0, 1, 4), ConductorType.HEAVY_COPPER);
         for (int z = 5; z <= 7; z++) {
             setCable(context, new BlockPos(0, 1, z), ConductorType.HEAVY_COPPER);
@@ -120,7 +120,14 @@ public class GameTestCircuitBuilder {
             setCable(context, new BlockPos(x, 1, 7), ConductorType.HEAVY_COPPER);
         }
 
-        GridManager.get(context.getWorld()).rebuildIslands();
+        GridManager grids = GridManager.get(context.getWorld());
+        for (BlockPos p : new BlockPos[]{SOLAR_POS, MPPT_POS, BATTERY_POS, LOAD_POS}) {
+            var be = context.getWorld().getBlockEntity(context.getAbsolutePos(p));
+            if (be instanceof com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock kab) {
+                grids.putAttachedBlock(kab);
+            }
+        }
+        grids.rebuildIslands();
     }
 
     public static void setCable(TestContext context, BlockPos localPos, ConductorType type) {
@@ -137,8 +144,16 @@ public class GameTestCircuitBuilder {
         setCable(context, localPos, ConductorType.HEAVY_COPPER);
     }
 
-    public static void setLoad(TestContext context, double watts) {
-        CreativeLoadBlockEntity load = getLoad(context);
+    public static void setBatterySoc(TestContext context, double soc) {
+        BatteryBlockEntity bat = getBattery(context);
+        if (bat != null) {
+            double[] s = bat.getStateArray();
+            s[BatteryElement.STATE_SOC] = Math.max(0.0, Math.min(1.0, soc));
+            bat.setStateArray(s);
+        }
+    }
+
+    public static void setLoad(TestContext context, double watts) {        CreativeLoadBlockEntity load = getLoad(context);
         if (load != null) {
             if (watts <= 0.0) {
                 load.setEnabled(false);
