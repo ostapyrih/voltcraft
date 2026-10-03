@@ -1,3 +1,38 @@
+## [2026-10-03] tests-only | Gen+EU crookedness + MPPT minus: research and catching tests (no production changes)
+
+* **User directive:** verify the tests honestly (gen+EU misbehaves in-game), research gen+EU operation,
+  cover with tests so bugs get caught; MPPT minus disconnect still charges — catch that too.
+  Explicitly: no production fixes, tests only.
+* **Findings & new GameTests (all in-engine, real blocks):**
+  1. **`testGenEuOverloadCooks` (FAILS as intended):** 1500W + 1000W direct + EU bridge on an 1800W
+     generator. AVR sags the bus to ~152V (its cap holds, generator fine), but the EU bridge on the
+     brownout bus accumulates ~nothing (32E trickle) while staging full 805W charge demand:
+     `input=805.0W at Vin=151.71V, stored=32E, temp rising`. Catches the missing brownout derate
+     (demand-shed): the bridge cooks itself instead of waiting out the sag.
+  2. **MPPT minus matrix (all radial cases stop correctly, locked):** output-minus and input-minus
+     disconnect-resume GameTests (mirror unit T21/T22) green — a radial minus cut always isolates
+     (kernel port isolation is airtight: decoupled stamps admit no sneak path). Mesh behavior
+     documented by `testMeshedMinusCarriesThroughCut` (tap cut on a looped rail feeds around it —
+     this is almost certainly the in-game "minus cut but current flows": the cut did not isolate).
+     Touching bare terminals conduct via terminal-link (0.1mΩ) — same answer for packed builds.
+  3. **`testBatteryRemovedFeedsLoadDirectly` (FAILS as intended):** battery block removed, MPPT must
+     feed 100W load alone. Catches a solver-robustness gap: without the battery's linear shunt Newton
+     stalls intermittently and telemetry freezes mid-ramp — proven by KCL violation in live telemetry
+     (`MPPT Pout=17.42W vs load 100.0W`, impossible on a converged solve). Also found while writing it:
+     cutting the (0,1,5) mesh node darkens the whole bus instead of isolating the bank (test uses
+     block removal, the honest battery-off procedure).
+  4. **Touching layout (`testSharedPlusTapCutKeepsCharging`, green):** per player screenshot (panels
+     packed against the MPPT): the (2,1,2) cable sits on a node SHARED by solar-plus and MPPT-in-plus
+     terminals, so cutting it removes the visual only and charging continues — correct direct-join
+     physics, not a sneak. Radial minus cuts (output/input tap) do isolate (locked green). Mesh cuts
+     feed around (documented green). I.e. "minus cut but current flows" happens iff the cut did not
+     isolate (shared node / terminal-link touch / looped return / wrong wire).
+  4. **Stiff-source two-phase test** (hotter source on the output bus): early idle ~0A (backfeed
+     blocking holds in-engine), late mismatch-trip on sustained wrong-bank voltage. Plus parallel
+     second-battery health test and an EU live-feed buffer-growth assert.
+* **Verification:** `runGameTest` 24/26 (only the two intended catches fail); unit suite 194/195
+  (only the pre-existing T11 EU-cook catch fails). Zero production diffs this session (3 test files).
+
 ## [2026-10-02] fix | Player-reported: MPPT backfeed, MPPT minus behaviour, EU buffer never fills + overheat
 
 * **User reports (in-game):** (1) second battery on the MPPT output bus: GUI shows 28.1 V / 7.71 A /

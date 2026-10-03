@@ -744,4 +744,50 @@ public class GeneratorLoadEuSystemTest {
         assertTrue(euLoad.getPowerDrawn() < 1.0,
             "Branch behind the EU output must stay dark, got " + euLoad.getPowerDrawn());
     }
+
+    @Test
+    @DisplayName("11. EU bridge under generator overload cooks instead of shedding")
+    void euCooksUnderGeneratorOverload() {
+        // 1500W + 1000W direct + ~805W EU charge = ~3300W demand on an
+        // 1800W/2200W generator. Direct branches go WEST (east rails would
+        // join the EU input-minus column into a near-short loop across the
+        // generator). The AVR sags the bus into the EU brownout window
+        // (<207V): the bridge accumulates nothing yet keeps full charge
+        // demand staged, turning the whole draw into heat.
+        GridManager m = new GridManager();
+        GenModel gen = new GenModel(pos(0, 64, 0), Direction.NORTH, 1.0e6);
+        LoadModel loadA = new LoadModel(pos(-2, 64, 0), Direction.NORTH, 1500.0);
+        LoadModel loadB = new LoadModel(pos(-1, 64, 0), Direction.NORTH, 1000.0);
+        EuModel eu = new EuModel(pos(0, 64, 6), Direction.SOUTH);
+        LoadModel euLoad = new LoadModel(pos(4, 64, 12), Direction.NORTH, 500.0);
+        m.putAttachedBlock(gen);
+        m.putAttachedBlock(loadA);
+        m.putAttachedBlock(loadB);
+        m.putAttachedBlock(eu);
+        m.putAttachedBlock(euLoad);
+        connectDirectGenLoadWest(m);
+        connectEuPlant(m);
+
+        stepTicks(m, 700);
+        System.out.println("T11 overload: GenP=" + gen.getDeliveredPower()
+            + " EuDemand=" + eu.stagedInputDemandWatts
+            + " EuVin=" + eu.getInputVoltage()
+            + " totalEu=" + eu.logic.getTotalEuGenerated()
+            + " temp=" + eu.logic.getTemperatureCelsius()
+            + " tripped=" + eu.logic.isTripped());
+        assertTrue(gen.getDeliveredPower() <= 2200.0,
+            "Generator must cap output at surge even with the EU bridge aboard, got "
+                + gen.getDeliveredPower());
+        assertTrue(eu.logic.getTotalEuGenerated() == 0L,
+            "Browned-out bridge must accumulate nothing, generated: " + eu.logic.getTotalEuGenerated());
+        assertAll(
+            () -> assertTrue(eu.stagedInputDemandWatts < 100.0,
+                "BUG DETECTED: EU bridge draws full charge demand on a brownout bus instead of "
+                    + "shedding it, cooking itself: demand=" + eu.stagedInputDemandWatts
+                    + " Vin=" + eu.getInputVoltage()),
+            () -> assertFalse(eu.logic.isTripped(),
+                "BUG DETECTED: EU bridge thermally tripped under sustained overload instead of "
+                    + "shedding demand: temp=" + eu.logic.getTemperatureCelsius())
+        );
+    }
 }

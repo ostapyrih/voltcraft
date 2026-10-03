@@ -298,4 +298,36 @@ public class GeneratorLoadEuGameTests {
             context.complete();
         });
     }
+
+    @GameTest(structure = "fabric-gametest-api-v1:empty", maxTicks = 80)
+    public void testGenEuOverloadCooks(TestContext context) {
+        GameTestGenCircuitBuilder.buildPlant(context);
+        // 1500W + 1000W direct + ~805W EU charge = ~3300W demand on an
+        // 1800W/2200W generator. The AVR sags the bus into the EU brownout
+        // window (<207V): the bridge accumulates nothing yet keeps full
+        // charge demand staged instead of shedding it, turning the draw
+        // into heat. Catches the missing brownout derate (no production
+        // changes made for this test).
+        GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD2_POS, 1500.0);
+        GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD3_POS, 1000.0);
+        GameTestGenCircuitBuilder.addFuel(context, 1_000_000);
+
+        context.runAtTick(60, () -> {
+            PortableGeneratorBlockEntity gen = GameTestGenCircuitBuilder.getGen(context);
+            EuConverterBlockEntity eu = GameTestGenCircuitBuilder.getEu(context);
+            context.assertTrue(gen != null && eu != null, "Generator and EU bridge must exist");
+            context.assertTrue(gen.getLastDeliveredPowerWatts() <= 2200.0,
+                "Generator must cap output at surge even with the EU bridge aboard, got: "
+                    + gen.getLastDeliveredPowerWatts());
+            context.assertTrue(eu.getTotalEuGenerated() < 200L,
+                "Browned-out bridge must accumulate next to nothing (trickle before the sag is fine), generated: "
+                    + eu.getTotalEuGenerated());
+            context.assertTrue(eu.getInputPowerWatts() < 100.0,
+                "BUG DETECTED: EU bridge draws full charge demand on a brownout bus instead of "
+                    + "shedding it, cooking itself: input=" + eu.getInputPowerWatts()
+                    + "W at Vin=" + eu.getInputVoltage() + "V, stored=" + eu.energyStorage.amount
+                    + "E, temp=" + eu.getTemperatureCelsius() + "C");
+            context.complete();
+        });
+    }
 }
