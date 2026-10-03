@@ -7,6 +7,7 @@ import com.ostapyrih.voltcraft.api.electrical.GridConstants;
 import com.ostapyrih.voltcraft.api.electrical.Stamps;
 import com.ostapyrih.voltcraft.simulation.solver.ComplexNodalSolver;
 import com.ostapyrih.voltcraft.simulation.solver.ComplexNodalSolver.SolveResult;
+import com.ostapyrih.voltcraft.simulation.electrical.GeneratorElement;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -375,13 +376,27 @@ public final class ElectricalKernel {
     /**
      * Advances the simulation by one fixed step ({@link GridConstants#DT}).
      *
-     * <p>Exactly one network solve is performed per tick (item 15). If the
-     * solve reports {@code !converged || singular} this method returns
+     * <p>Exactly one network solve is performed per tick in the healthy case
+     * (item 15); overloaded fuel-generator ticks re-solve up to twice more
+     * (predictor-corrector, same integration gate). If the solve reports {@code !converged || singular} this method returns
      * immediately without integrating any element state or conductor
      * temperature (item 6). The gate deliberately ignores
      * {@code fallbackActive}: whenever {@code converged && !singular} the
      * tick integrates, even on a fallback operating point (the framework
      * does not act on the flag).</p>
+     *
+     * <p>Fuel-generator fast current foldback: the staged AVR
+     * ({@code GeneratorElement.stageEmf}) reacts one tick late, so an overload
+     * staged this tick would otherwise be served silently at near-nominal
+     * voltage for a full tick while observers book healthy energy. After a
+     * converged predictor solve, any fuel generator delivering more than its
+     * surge current has its EMF folded back to {@code surgeI * R_load} (the
+     * same droop law as the slow AVR, but evaluated against the voltages that
+     * will actually be solved) and the network is re-solved within this same
+     * tick. The estimate uses only converged solutions, never unconverged
+     * Newton iterates, so recovery transients cannot misfire it. Transparent
+     * whenever every generator is within rating: no limit binds, no re-solve
+     * happens, and single-solve behavior is unchanged.</p>
      *
      * <p>Both RK2 stages evaluate derivatives at the SAME operating point:
      * the single converged voltage vector {@code V} is shared by
@@ -390,14 +405,65 @@ public final class ElectricalKernel {
      * power are identical in both stages (items 15, 20).</p>
      */
     public KernelSolveResult tick() {
+        for (ElectricalElement element : elements) {
+            if (element instanceof GeneratorElement gen) {
+                gen.clearFastLimitEmf();
+            }
+        }
         KernelSolveResult result = solve();
         if (!result.converged() || result.singular()) {
             return result;
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+            boolean limited = applyGeneratorFastLimits(result.voltage());
+            if (!limited) {
+                break;
+            }
+            KernelSolveResult corrected = solve();
+            if (!corrected.converged() || corrected.singular()) {
+                break;
+            }
+            result = corrected;
         }
         Complex[] V = result.voltage();
         integrateElements(V, GridConstants.DT);
         integrateConductors(V, GridConstants.DT);
         return result;
+    }
+
+    /**
+     * Folds back overloaded fuel generators against a converged operating
+     * point. For each generator whose delivered current exceeds its surge
+     * rating with a live terminal voltage, sets a per-tick EMF limit of
+     * {@code surgeI * R_load} (mirroring {@code GeneratorElement.stageEmf},
+     * which keys on the load resistance as the EMF-invariant quantity).
+     *
+     * @param v converged operating-point voltages
+     * @return true if any limit was newly bound (caller should re-solve)
+     */
+    private boolean applyGeneratorFastLimits(Complex[] v) {
+        boolean limited = false;
+        for (int idx = 0; idx < elements.size(); idx++) {
+            if (!(elements.get(idx) instanceof GeneratorElement gen)) {
+                continue;
+            }
+            int[] t = elementTerminals.get(idx);
+            if (t.length < 2) {
+                continue;
+            }
+            double terminalV = v[t[1]].re - v[t[0]].re;
+            double deliveredAmps = terminalCurrents(idx, v)[0].re;
+            double surgeI = GeneratorElement.surgeCurrentAmps();
+            if (terminalV > 1.0 && deliveredAmps > surgeI) {
+                double eLim = surgeI * (terminalV / deliveredAmps);
+                double staged = gen.getStagedEmfVolts();
+                if (Double.isFinite(eLim) && eLim > 0.0 && eLim < staged) {
+                    gen.setFastLimitEmf(eLim);
+                    limited = true;
+                }
+            }
+        }
+        return limited;
     }
 
     /**

@@ -101,16 +101,27 @@ public class EuConverterLogic {
             tripped = true;
             reportedState = ElectricalState.SURGE;
             euAccumulator = 0.0;
+            // Shed: tripped bridge draws nothing, converts nothing, heats nothing.
+            inputCurrentAmps = 0.0;
+            inputPowerWatts = 0.0;
         } else if (tripped) {
             reportedState = ElectricalState.OFF;
             euAccumulator = 0.0;
+            inputCurrentAmps = 0.0;
+            inputPowerWatts = 0.0;
         } else if (!isAc) {
             // DC voltage or non-AC waveform: strictly reject conversion
             reportedState = ElectricalState.OFF;
             euAccumulator = 0.0;
+            inputCurrentAmps = 0.0;
+            inputPowerWatts = 0.0;
         } else if (!inVoltageWindow) {
             reportedState = terminalVoltage > 1.0 ? ElectricalState.BROWNOUT : ElectricalState.OFF;
             euAccumulator = 0.0;
+            // Brownout shed: demand is shed (see updatePowerDemand), so book
+            // zero draw instead of the full unconverted draw as heat.
+            inputCurrentAmps = 0.0;
+            inputPowerWatts = 0.0;
         } else {
             reportedState = ElectricalState.NOMINAL;
             // Physical Conversion: 25W continuous -> 1 E/t
@@ -132,7 +143,7 @@ public class EuConverterLogic {
         long bufferDeficit = Math.max(0L, capacity - storedEu);
         double neededEu = Math.min(128.0, currentEuOutputRate + Math.min(32.0, (double) bufferDeficit));
 
-        if (tripped || inputVoltage <= 1.0) {
+        if (!isAcOperatingValid()) {
             this.targetDemandWatts = 0.0;
         } else {
             // 25W per EU/tick, plus 5W quiescent idle excitation power
@@ -142,7 +153,10 @@ public class EuConverterLogic {
 
     public void updateThermal(double dt) {
         double ambient = 20.0;
-        double lossWatts = Math.max(0.0, inputPowerWatts - (currentEuOutputRate * WATTS_PER_EU_TICK * 0.95));
+        // Browned-out (or otherwise non-operational) bridge converts nothing:
+        // only quiescent heat, never the full unconverted draw as heat.
+        double effectiveInputWatts = isAcOperatingValid() ? inputPowerWatts : 0.0;
+        double lossWatts = Math.max(0.0, effectiveInputWatts - (currentEuOutputRate * WATTS_PER_EU_TICK * 0.95));
         double deltaT = Math.max(0.0, temperatureCelsius - ambient);
         double coolingWatts = 2.5 * deltaT;
         double deltaTemp = ((lossWatts - coolingWatts) / 200.0) * dt;

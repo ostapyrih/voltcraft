@@ -44,6 +44,7 @@ public final class GeneratorElement implements ElectricalElement {
     private final BooleanSupplier running;
     private final DoubleSupplier stagedEmf;
     private final double[] telemetryCell;
+    private double fastLimitEmf = Double.NaN;
 
     public GeneratorElement(BooleanSupplier running, double[] telemetryCell) {
         this(running, () -> PortableGeneratorBlockEntity.OUTPUT_VOLTAGE_RMS, telemetryCell);
@@ -74,7 +75,7 @@ public final class GeneratorElement implements ElectricalElement {
         if (!running.getAsBoolean()) {
             return;
         }
-        double emf = stagedEmf.getAsDouble();
+        double emf = effectiveEmfVolts();
         if (!(emf > 0.0)) {
             return;
         }
@@ -147,6 +148,39 @@ public final class GeneratorElement implements ElectricalElement {
     public static double surgeCurrentAmps() {
         return PortableGeneratorBlockEntity.SURGE_POWER_WATTS
             / PortableGeneratorBlockEntity.OUTPUT_VOLTAGE_RMS;
+    }
+
+    /**
+     * Evaluates the slow-AVR staged EMF supplier (prime-mover droop from the
+     * previously solved operating point). The kernel's fast foldback compares
+     * against this and only ever binds below it.
+     */
+    public double getStagedEmfVolts() {
+        return stagedEmf.getAsDouble();
+    }
+
+    /**
+     * Per-tick fast current-limit override, applied by the kernel between the
+     * predictor and corrector solves (see {@code ElectricalKernel.tick}).
+     * {@code NaN} (the default) means no override: the stamp follows the
+     * staged value. Never raises the EMF, only lowers it.
+     */
+    public void setFastLimitEmf(double emfVolts) {
+        this.fastLimitEmf = emfVolts;
+    }
+
+    /** Clears the per-tick fast-limit override (back to staged-only). */
+    public void clearFastLimitEmf() {
+        this.fastLimitEmf = Double.NaN;
+    }
+
+    /** Stamp EMF: staged value, possibly folded back by the per-tick limit. */
+    double effectiveEmfVolts() {
+        double staged = stagedEmf.getAsDouble();
+        if (Double.isNaN(fastLimitEmf)) {
+            return staged;
+        }
+        return Math.min(staged, fastLimitEmf);
     }
 
     public static double[] newStateArray() {
