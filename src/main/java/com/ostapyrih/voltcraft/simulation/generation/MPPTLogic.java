@@ -31,7 +31,15 @@ public class MPPTLogic {
     private static final double BULK_TO_ABSORPTION_MARGIN_V = 0.1;
     private static final int ABSORPTION_TIMEOUT_TICKS = 1200;
     private static final double ABSORPTION_EXIT_CURRENT_A = 0.2;
-    private static final double FLOAT_TO_BULK_DROP_V = 1.0;
+    /**
+     * Absorption-exit debounce: a single low-current tick happens on every
+     * topology transient (reconnect restrike, cable churn) when demand
+     * momentarily collapses; ending absorption on it strands the charger in
+     * float with no recovery path (float re-entry sits above the stalled bus).
+     * The taper must persist this many consecutive ticks, like real
+     * absorption termination.
+     */
+    static final int ABSORPTION_EXIT_DEBOUNCE_TICKS = 40;
 
     private ChargeStage stage = ChargeStage.BULK;
     private double targetInputVoltage = DEFAULT_TARGET_INPUT_VOLTAGE;
@@ -39,6 +47,7 @@ public class MPPTLogic {
     private double previousVoltage = DEFAULT_TARGET_INPUT_VOLTAGE;
     private double stepSize = DEFAULT_STEP_SIZE;
     private int absorptionTicks = 0;
+    private int absorptionLowCurrentTicks = 0;
     private boolean initialized = false;
 
     // Configurable battery bank nominal voltage (12, 24, or 48V)
@@ -183,23 +192,40 @@ public class MPPTLogic {
 
         switch (stage) {
             case BULK -> {
-                if (batteryVoltage >= absorptionV - BULK_TO_ABSORPTION_MARGIN_V) {
+                double margin = (batteryBankVoltage / 12.0) * BULK_TO_ABSORPTION_MARGIN_V;
+                if (batteryVoltage >= absorptionV - margin
+                        && inputCurrent >= ABSORPTION_EXIT_CURRENT_A) {
                     this.stage = ChargeStage.ABSORPTION;
                     this.absorptionTicks = 0;
+                    this.absorptionLowCurrentTicks = 0;
                 }
                 return absorptionV;
             }
             case ABSORPTION -> {
                 this.absorptionTicks++;
-                if (absorptionTicks > ABSORPTION_TIMEOUT_TICKS || inputCurrent < ABSORPTION_EXIT_CURRENT_A) {
+                if (inputCurrent < ABSORPTION_EXIT_CURRENT_A) {
+                    this.absorptionLowCurrentTicks++;
+                } else {
+                    this.absorptionLowCurrentTicks = 0;
+                }
+                if (absorptionTicks > ABSORPTION_TIMEOUT_TICKS
+                    || absorptionLowCurrentTicks >= ABSORPTION_EXIT_DEBOUNCE_TICKS) {
                     this.stage = ChargeStage.FLOAT;
+                    this.absorptionLowCurrentTicks = 0;
                     return floatV;
                 }
                 return absorptionV;
             }
             case FLOAT -> {
-                if (batteryVoltage < floatV - FLOAT_TO_BULK_DROP_V) {
+                // Re-bulk as soon as the rail sits below absorption again
+                // (charge opportunity after dawn, recovery, or load): waiting
+                // for a deep sag below float strand the charger in float with
+                // the follow pinning EMF at the bus and zero current forever.
+                double bulkReturnV = absorptionV - (batteryBankVoltage / 12.0) * BULK_TO_ABSORPTION_MARGIN_V;
+                if (batteryVoltage < bulkReturnV) {
                     this.stage = ChargeStage.BULK;
+                    this.absorptionTicks = 0;
+                    this.absorptionLowCurrentTicks = 0;
                     return absorptionV;
                 }
                 return floatV;

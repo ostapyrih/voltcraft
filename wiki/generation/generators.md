@@ -36,6 +36,12 @@ Dynamos and portable generators convert mechanical rotation into clean electrica
 * **Continuous Rated Output:** $1800\text{ W}$ ($1.8\text{ kW}$).
 * **Surge / Peak Output:** $2200\text{ W}$ ($2.2\text{ kW}$, $\approx 9.56\text{ A}$ current limit).
 * **Output Characteristics (Front socket only — `canConnect` = facing face):** Single-phase $230\text{V}$ AC at $50\text{Hz}$ pure sine, $R_{\text{int}} = 0.15\,\Omega$.
+* **Prime-mover limit (AVR droop, `GeneratorElement.stageEmf`):** the staged EMF holds $230\text{ V}$
+  while delivered current stays within the surge rating and sags to
+  $I_{\text{surge}} \times R_{\text{load}}$ under overload (keyed on load *resistance*, a load
+  property invariant under EMF changes, so staging converges in one step with no limit-cycle).
+  Overload therefore brownouts the bus and caps output at surge instead of serving arbitrary
+  demand silently at nominal voltage. Unloaded/shorted reads stage full/zero volts respectively.
 * **Fuel Ingestion (exact, `PortableGeneratorBlock`):** accepts **any** `FuelRegistry` fuel
   (vanilla + modded) at its registry burn ticks (`fuelTicks / 20` = displayed seconds, lava bucket
   returns its remainder). Examples at vanilla defaults: coal/charcoal $\approx 1600$ ticks ($80$ s),

@@ -25,6 +25,13 @@ fabricApi {
     configureDataGeneration {
         client = true
     }
+    configureTests {
+        createSourceSet = true
+        modId = "voltcraft-test"
+        enableGameTests = true
+        enableClientGameTests = false
+        eula = true
+    }
 }
 
 repositories {
@@ -55,6 +62,12 @@ test {
         events "passed", "skipped", "failed"
         showStandardStreams = true
     }
+}
+
+tasks.register("gameTest") {
+    group = "verification"
+    description = "Runs in-engine headless Minecraft GameTest server for VoltCraft."
+    dependsOn "runGameTest"
 }
 
 processResources {

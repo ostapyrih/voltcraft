@@ -9,7 +9,6 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
-import net.minecraft.world.World;
 
 /**
  * 6-sided internal terminal junction block that routes cables cleanly.
@@ -34,6 +33,11 @@ public class JunctionBoxBlock extends AbstractGridBlock {
 
     @Override
     public boolean isThroughConductor() {
+        return true;
+    }
+
+    @Override
+    protected boolean shouldSeedNode(BlockState state) {
         return true;
     }
 

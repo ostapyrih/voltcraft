@@ -6,14 +6,19 @@ import com.ostapyrih.voltcraft.block.cable.CableBlock;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.block.entity.storage.BatteryRackBlockEntity;
 import com.ostapyrih.voltcraft.item.battery.BatteryCellItem;
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityTicker;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.BlockItem;
+import net.minecraft.item.ItemPlacementContext;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.state.StateManager;
+import net.minecraft.state.property.EnumProperty;
+import net.minecraft.state.property.Properties;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Formatting;
@@ -21,6 +26,8 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.ItemScatterer;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,17 +39,32 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BatteryRackBlock extends AbstractGridBlock {
 
+    public static final EnumProperty<Direction> FACING = Properties.HORIZONTAL_FACING;
+
     public BatteryRackBlock(Settings settings) {
         super(settings);
+        setDefaultState(this.stateManager.getDefaultState().with(FACING, Direction.NORTH));
     }
 
-    /**
-     * Racks join adjacent cable grids in either placement order, so they stay
-     * through-conductors (as before the consolidation).
-     */
+    @Override
+    protected void appendProperties(StateManager.Builder<Block, BlockState> builder) {
+        builder.add(FACING);
+    }
+
+    @Override
+    public BlockState getPlacementState(ItemPlacementContext ctx) {
+        return getDefaultState().with(FACING, ctx.getHorizontalPlayerFacing().getOpposite());
+    }
+
+    @Override
+    public boolean canConnect(BlockView world, BlockPos pos, Direction side, BlockState state) {
+        Direction facing = state.get(FACING);
+        return side == facing || side == facing.getOpposite();
+    }
+
     @Override
     public boolean isThroughConductor() {
-        return true;
+        return false;
     }
 
     @Override

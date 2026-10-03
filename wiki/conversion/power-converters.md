@@ -86,6 +86,17 @@ $$\frac{V_s}{V_p} = \frac{N_s}{N_p} = a \qquad \frac{I_s}{I_p} = \frac{1}{a}$$
 * **Conversion:** $25\text{ W} \to 1\text{ E/tick}$ ($P/25.0$ E/t, fractional accumulator),
   buffer $10{,}000\text{ E}$, extraction $\le 512\text{ E/t}$ on non-input faces.
   Idle demand $= (\text{needed E} \times 25.0) + 5.0\text{ W}$ (needed capped at $128\text{ E/t}$).
+* **Single source of truth (fixed 2026-10):** converted energy lands in the TR storage buffer
+  (capacity-clamped; overgeneration past full is lost as heat), and the logic counter mirrors it.
+  Previously conversion accumulated in a logic-side counter that the vanilla tick clobbered back
+  to the buffer level every tick: the buffer never filled, demand never tapered, total grew while
+  stored stayed $0$, and the bridge cooked itself on $805\text{ W}$ of unrelenting loss.
+* **Kernel measurement seam (fixed 2026-10):** input power/current/frequency are fed into the
+  logic from the previously solved operating point inside `tickElectrical` (AC frequency resolved
+  from the owning island's $\omega$; unknown island reads as DC → rejected), then demand/thermal
+  update and the next demand is staged. Previously `onPowerReceived` was never called, so demand
+  sat at $0\text{ W}$ forever on a live feed. Vanilla `tick()` now only moves TR energy and hands
+  over the moved volume; all electrical discrete updates live in the kernel seam.
 * **Recipe** (`converter_eu.json`, pattern `GMG/TLT/IRI`): gold bus cable + MOSFET +
   laminated core + heavy copper cable + iron + redstone → 1x.
 

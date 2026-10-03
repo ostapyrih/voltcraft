@@ -1,10 +1,13 @@
 package com.ostapyrih.voltcraft.block.entity.creative;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricSource;
+import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
+import com.ostapyrih.voltcraft.api.electrical.GridConstants;
+import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.CreativeGeneratorScreenHandler;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeGeneratorLogic;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
@@ -13,18 +16,28 @@ import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.screen.PropertyDelegate;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import com.ostapyrih.voltcraft.block.creative.CreativeGeneratorBlock;
+
+import com.ostapyrih.voltcraft.simulation.electrical.CreativeGeneratorElement;
 
 /**
- * Creative-only power generator for testing grid networks, converters, cables, and loads.
- * Provides freely configurable voltage, max current, internal resistance, and DC/AC frequency.
+ * Creative-only configurable voltage source (ideal Thevenin, south-positive).
+ * Disabled or non-positive EMF stamps open circuit; holds no kernel state.
+ * Frequency selects island AC/DC class; the stamp itself is waveform-agnostic.
  */
-public class CreativeGeneratorBlockEntity extends BlockEntity implements IElectricSource, ExtendedScreenHandlerFactory<BlockPos> {
+public class CreativeGeneratorBlockEntity extends BlockEntity implements KernelAttachedBlock, ExtendedScreenHandlerFactory<BlockPos> {
+
 
     private final CreativeGeneratorLogic logic;
+    private final double[] telemetryCell = new double[2];
+    private final double[] stateArray = CreativeGeneratorElement.newStateArray();
+    private final ElectricalElement element;
 
     private final PropertyDelegate propertyDelegate = new PropertyDelegate() {
         @Override
@@ -67,6 +80,9 @@ public class CreativeGeneratorBlockEntity extends BlockEntity implements IElectr
     public CreativeGeneratorBlockEntity(BlockPos pos, BlockState state) {
         super(VoltcraftBlockEntityTypes.CREATIVE_GENERATOR_BLOCK_ENTITY, pos, state);
         this.logic = new CreativeGeneratorLogic(pos);
+        this.element = new CreativeGeneratorElement(
+            () -> logic.isEnabled(), () -> logic.getElectromotiveForce(),
+            () -> logic.getInternalResistance(), telemetryCell);
     }
 
     public PropertyDelegate getPropertyDelegate() {
@@ -179,11 +195,41 @@ public class CreativeGeneratorBlockEntity extends BlockEntity implements IElectr
         return f;
     }
 
-    // Grid participation is handled centrally by ElectricalGrid.refreshParticipants,
-    // which discovers this source via world.getBlockEntity(nodePos) every tick.
-    // No per-block tick, registration cache, or removal hook is needed here.
+    // ==================== KernelAttachedBlock ====================
 
-    // ==================== IElectricComponent ====================
+    @Override
+    public ElectricalElement getElement() {
+        return element;
+    }
+
+    @Override
+    public BlockPos[] getTerminalPositions() {
+        return CreativeGeneratorElement.resolveTerminals(pos, readFacing());
+    }
+
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(CreativeGeneratorBlock.FACING)) {
+                Direction facing = cached.get(CreativeGeneratorBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return Direction.NORTH;
+    }
+
+    @Override
+    public double[] getStateArray() {
+        return CreativeGeneratorElement.snapshotState(stateArray);
+    }
+
+    @Override
+    public void setStateArray(double[] state) {
+        CreativeGeneratorElement.assignState(stateArray, state);
+    }
 
     @Override
     public BlockPos getPos() {
@@ -191,33 +237,45 @@ public class CreativeGeneratorBlockEntity extends BlockEntity implements IElectr
     }
 
     @Override
+    public boolean isActiveSource() {
+        return CreativeGeneratorElement.isActiveSource(logic.isEnabled(), logic.getElectromotiveForce());
+    }
+
+    @Override
+    public boolean isACSource() {
+        return CreativeGeneratorElement.isACSource(logic.getFrequency());
+    }
+
+    @Override
+    public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
+        logic.onPowerDrawn(telemetryCell[CreativeGeneratorElement.TELE_I], GridConstants.DT);
+    }
+
+    // ==================== Config hooks (plain methods, no grid role) ====================
+
     public ElectricalState getElectricalState() {
         return logic.getElectricalState();
     }
 
-    @Override
     public void setElectricalState(ElectricalState state) {
         logic.setElectricalState(state);
     }
 
-    // ==================== IElectricSource ====================
-
-    @Override
     public double getElectromotiveForce() {
         return logic.getElectromotiveForce();
     }
 
-    @Override
     public double getInternalResistance() {
         return logic.getInternalResistance();
     }
 
-    @Override
     public double getMaxOutputCurrent() {
         return logic.getMaxOutputCurrent();
     }
 
-    @Override
     public void onPowerDrawn(double currentAmps, double durationSeconds) {
         logic.onPowerDrawn(currentAmps, durationSeconds);
     }

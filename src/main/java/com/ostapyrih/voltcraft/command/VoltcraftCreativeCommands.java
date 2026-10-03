@@ -32,8 +32,8 @@ public class VoltcraftCreativeCommands {
                                          CommandManager.RegistrationEnvironment environment) {
         dispatcher.register(
             CommandManager.literal("voltcraft")
-                .requires(ServerCommandSource::isExecutedByPlayer)
                 .then(CommandManager.literal("generator")
+                    .requires(ServerCommandSource::isExecutedByPlayer)
                     .then(CommandManager.argument("voltage", DoubleArgumentType.doubleArg(0.0, 1_000_000.0))
                         .executes(ctx -> configureGenerator(ctx, DoubleArgumentType.getDouble(ctx, "voltage"), null, null))
                         .then(CommandManager.argument("max_current", DoubleArgumentType.doubleArg(0.0, 1_000_000.0))
@@ -45,6 +45,7 @@ public class VoltcraftCreativeCommands {
                     )
                 )
                 .then(CommandManager.literal("load")
+                    .requires(ServerCommandSource::isExecutedByPlayer)
                     .then(CommandManager.literal("resistance")
                         .then(CommandManager.argument("ohms", DoubleArgumentType.doubleArg(0.0001, 10_000_000.0))
                             .executes(ctx -> configureLoad(ctx, CreativeLoadLogic.LoadMode.CONSTANT_RESISTANCE, DoubleArgumentType.getDouble(ctx, "ohms")))

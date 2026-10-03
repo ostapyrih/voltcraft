@@ -1,10 +1,12 @@
 package com.ostapyrih.voltcraft.block.entity.generation;
 
-import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricSource;
+import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
+import com.ostapyrih.voltcraft.api.electrical.GridConstants;
+import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.generation.SolarPanelBlock;
 import com.ostapyrih.voltcraft.simulation.generation.SolarIrradianceSimulation;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import com.ostapyrih.voltcraft.simulation.generation.SolarPanelType;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
@@ -12,25 +14,39 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+
+import com.ostapyrih.voltcraft.simulation.electrical.SolarElement;
 
 /**
- * BlockEntity for Photovoltaic Solar Panels.
- * Exposes solar-generated DC EMF and dynamic current into the electrical grid.
+ * Photovoltaic solar panel kernel adapter (DC).
+ * Daytime stages EMF/resistance from sky irradiance and stamps a Thevenin source;
+ * night (EMF 0) stamps open circuit. Kernel state is {@code [temperatureC]}.
  */
-public class SolarPanelBlockEntity extends BlockEntity implements IElectricSource {
+public class SolarPanelBlockEntity extends BlockEntity implements KernelAttachedBlock {
+
+
 
     private final SolarPanelType panelType;
+
+    private final double[] stateArray = SolarElement.newStateArray();
+    private final double[] telemetryCell = new double[2];
+
+    // Discrete staging inputs: set by tickElectrical, read by the stamp.
     private double currentIrradiance = 0.0;
     private double electromotiveForce = 0.0;
     private double internalResistance = 1.0;
     private double maxOutputCurrent = 0.0;
     private double peakPowerAvailable = 0.0;
-    private double lastDrawnCurrent = 0.0;
     private double totalEnergyGeneratedJoules = 0.0;
+
+    private final ElectricalElement element;
 
     public SolarPanelBlockEntity(BlockPos pos, BlockState state, SolarPanelType panelType) {
         super(VoltcraftBlockEntityTypes.SOLAR_PANEL_BLOCK_ENTITY, pos, state);
         this.panelType = panelType;
+        this.element = new SolarElement(() -> electromotiveForce, () -> internalResistance,
+            () -> currentIrradiance, telemetryCell);
     }
 
     public SolarPanelBlockEntity(BlockPos pos, BlockState state) {
@@ -54,31 +70,62 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
     }
 
     public double getLastDrawnCurrent() {
-        return lastDrawnCurrent;
+        return telemetryCell[SolarElement.TELE_I];
     }
 
     public double getTotalEnergyGeneratedJoules() {
         return totalEnergyGeneratedJoules;
     }
 
-    /**
-     * Recomputes irradiance and panel characteristics. Grid participation is handled
-     * centrally by {@code ElectricalGrid.refreshParticipants} — no registration here.
-     */
-    public void tick(ServerWorld world) {
-        // 1. Calculate celestial solar irradiance and electrical characteristics
-        this.currentIrradiance = SolarIrradianceSimulation.calculateIrradiance(world, pos, panelType);
-        SolarIrradianceSimulation.SolarOutput output = SolarIrradianceSimulation.computeSolarOutput(
-            panelType, currentIrradiance, 20.0
-        );
-
-        this.electromotiveForce = output.electromotiveForce();
-        this.internalResistance = output.internalResistanceOhms();
-        this.maxOutputCurrent = output.maxCurrentAmps();
-        this.peakPowerAvailable = output.peakPowerAvailableWatts();
+    public double getElectromotiveForce() {
+        return electromotiveForce;
     }
 
-    // ==================== IElectricComponent ====================\
+    public double getInternalResistance() {
+        return internalResistance;
+    }
+
+    public double getMaxOutputCurrent() {
+        return maxOutputCurrent;
+    }
+
+    public void tick(ServerWorld world) {
+        tickElectrical(world);
+    }
+
+    @Override
+    public ElectricalElement getElement() {
+        return element;
+    }
+
+    @Override
+    public BlockPos[] getTerminalPositions() {
+        return SolarElement.resolveTerminals(pos, readFacing());
+    }
+
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(SolarPanelBlock.FACING)) {
+                Direction facing = cached.get(SolarPanelBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return Direction.NORTH;
+    }
+
+    @Override
+    public double[] getStateArray() {
+        return SolarElement.snapshotState(stateArray);
+    }
+
+    @Override
+    public void setStateArray(double[] state) {
+        SolarElement.assignState(stateArray, state);
+    }
 
     @Override
     public BlockPos getPos() {
@@ -86,58 +133,55 @@ public class SolarPanelBlockEntity extends BlockEntity implements IElectricSourc
     }
 
     @Override
-    public ElectricalState getElectricalState() {
-        return currentIrradiance > 5.0 ? ElectricalState.NOMINAL : ElectricalState.OFF;
+    public boolean isActiveSource() {
+        return SolarElement.isActiveSource(electromotiveForce);
     }
 
     @Override
-    public void setElectricalState(ElectricalState state) {}
-
-    // ==================== IElectricSource ====================\
-
-    @Override
-    public double getElectromotiveForce() {
-        return electromotiveForce;
+    public boolean isACSource() {
+        return false;
     }
 
     @Override
-    public double getInternalResistance() {
-        return internalResistance;
+    public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
+        if (world != null) {
+            this.currentIrradiance = SolarIrradianceSimulation.calculateIrradiance(world, pos, panelType);
+            SolarIrradianceSimulation.SolarOutput output = SolarIrradianceSimulation.computeSolarOutput(
+                panelType, currentIrradiance, 20.0
+            );
+            this.electromotiveForce = output.electromotiveForce();
+            this.internalResistance = output.internalResistanceOhms();
+            this.maxOutputCurrent = output.maxCurrentAmps();
+            this.peakPowerAvailable = output.peakPowerAvailableWatts();
+        }
+        double v = telemetryCell[SolarElement.TELE_V];
+        double i = telemetryCell[SolarElement.TELE_I];
+        if (v > 0.0 && i > 0.0) {
+            this.totalEnergyGeneratedJoules += v * i * GridConstants.DT;
+        }
     }
 
-    @Override
-    public double getMaxOutputCurrent() {
-        return maxOutputCurrent;
+    public void writeStateData(WriteView view) {
+        SolarElement.writeNbt(view, stateArray[SolarElement.STATE_TEMP], totalEnergyGeneratedJoules);
     }
 
-    @Override
-    public double getAvailableOutputCurrent() {
-        return maxOutputCurrent;
-    }
-
-    @Override
-    public double getFrequency() {
-        return 0.0; // Solar PV is purely DC
-    }
-
-    @Override
-    public void onPowerDrawn(double currentAmps, double durationSeconds) {
-        this.lastDrawnCurrent = currentAmps;
-        double powerWatts = electromotiveForce * currentAmps;
-        this.totalEnergyGeneratedJoules += powerWatts * durationSeconds;
-    }
-
-    // ==================== Serialization ====================\
-
-    @Override
-    protected void readData(ReadView view) {
-        super.readData(view);
-        this.totalEnergyGeneratedJoules = view.getDouble("total_energy_generated", 0.0);
+    public void readStateData(ReadView view) {
+        SolarElement.assignState(stateArray, SolarElement.readNbtState(view));
+        this.totalEnergyGeneratedJoules = SolarElement.readNbtTotalEnergy(view);
     }
 
     @Override
     protected void writeData(WriteView view) {
         super.writeData(view);
-        view.putDouble("total_energy_generated", this.totalEnergyGeneratedJoules);
+        writeStateData(view);
+    }
+
+    @Override
+    protected void readData(ReadView view) {
+        super.readData(view);
+        readStateData(view);
     }
 }

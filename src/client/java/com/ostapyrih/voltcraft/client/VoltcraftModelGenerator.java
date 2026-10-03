@@ -75,13 +75,34 @@ public class VoltcraftModelGenerator extends FabricModelProvider {
         VoltcraftBlocks.ALL_BLOCKS.values().forEach(block -> {
             String name = Registries.BLOCK.getId(block).getPath();
 
-            if (block instanceof AbstractPowerConverterBlock || block instanceof EuConverterBlock || block instanceof HandCrankGeneratorBlock || block instanceof PortableGeneratorBlock) {
-                // Directional power converter / generator:
-                // Front / North = Output Port (Green OUT)
-                // Back / South = Input Port (Blue IN)
-                // East / West = Side (Heatsink fins / exhaust)
-                // Up = Top (Ventilation mesh / fuel cap / crank)
+            if (block instanceof AbstractPowerConverterBlock || block instanceof EuConverterBlock) {
+                // 4-Terminal Directional Power Converter:
+                // Front / North = Output Port 1 (+ / L)
+                // Back / South = Input Port 1 (+ / L)
+                // West = Left = Input Port 2 (- / N)
+                // East = Right = Output Port 2 (- / N)
+                // Up = Top (Top-down wiring diagram & vents)
                 // Down = Bottom (Base plate)
+                TextureMap textureMap = new TextureMap()
+                    .put(TextureKey.NORTH, Identifier.of(Voltcraft.MOD_ID, "block/" + name + "_front"))
+                    .put(TextureKey.SOUTH, Identifier.of(Voltcraft.MOD_ID, "block/" + name + "_back"))
+                    .put(TextureKey.EAST, Identifier.of(Voltcraft.MOD_ID, "block/" + name + "_right"))
+                    .put(TextureKey.WEST, Identifier.of(Voltcraft.MOD_ID, "block/" + name + "_left"))
+                    .put(TextureKey.UP, Identifier.of(Voltcraft.MOD_ID, "block/" + name + "_top"))
+                    .put(TextureKey.DOWN, Identifier.of(Voltcraft.MOD_ID, "block/" + name + "_bottom"))
+                    .put(TextureKey.PARTICLE, Identifier.of(Voltcraft.MOD_ID, "block/" + name + "_front"));
+
+                Identifier modelId = DIRECTIONAL_CONVERTER_MODEL.upload(block, textureMap, blockStateModelGenerator.modelCollector);
+                WeightedVariant variant = BlockStateModelGenerator.createWeightedVariant(modelId);
+
+                blockStateModelGenerator.blockStateCollector.accept(
+                    VariantsBlockModelDefinitionCreator.of(block, variant).apply(HORIZONTAL_ROTATION_OPERATIONS)
+                );
+                blockStateModelGenerator.itemModelOutput.accept(block.asItem(), ItemModels.basic(modelId));
+            } else if (block instanceof HandCrankGeneratorBlock || block instanceof PortableGeneratorBlock) {
+                // 2-Terminal Directional Generator:
+                // Front / North & Back / South = Terminals
+                // East / West = Side
                 TextureMap textureMap = new TextureMap()
                     .put(TextureKey.NORTH, Identifier.of(Voltcraft.MOD_ID, "block/" + name + "_front"))
                     .put(TextureKey.SOUTH, Identifier.of(Voltcraft.MOD_ID, "block/" + name + "_back"))
@@ -110,7 +131,7 @@ public class VoltcraftModelGenerator extends FabricModelProvider {
                 WeightedVariant variant = BlockStateModelGenerator.createWeightedVariant(modelId);
 
                 blockStateModelGenerator.blockStateCollector.accept(
-                    BlockStateModelGenerator.createSingletonBlockState(block, variant)
+                    VariantsBlockModelDefinitionCreator.of(block, variant).apply(HORIZONTAL_ROTATION_OPERATIONS)
                 );
                 blockStateModelGenerator.itemModelOutput.accept(block.asItem(), ItemModels.basic(modelId));
             } else if (block instanceof BatteryBlock || block instanceof BatteryRackBlock ||
@@ -126,7 +147,7 @@ public class VoltcraftModelGenerator extends FabricModelProvider {
                 WeightedVariant variant = BlockStateModelGenerator.createWeightedVariant(modelId);
 
                 blockStateModelGenerator.blockStateCollector.accept(
-                    BlockStateModelGenerator.createSingletonBlockState(block, variant)
+                    VariantsBlockModelDefinitionCreator.of(block, variant).apply(HORIZONTAL_ROTATION_OPERATIONS)
                 );
                 blockStateModelGenerator.itemModelOutput.accept(block.asItem(), ItemModels.basic(modelId));
             } else {

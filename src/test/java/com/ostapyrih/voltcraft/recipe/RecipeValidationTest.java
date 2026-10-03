@@ -120,7 +120,7 @@ public class RecipeValidationTest {
             "copper_magnet_wire.json",
             "transformer_core_laminated.json",
             "bms_logic_board.json",
-            // Phase 4: Portable Battery Cells
+            // Portable battery cells
             "battery_18650_li_ion.json",
             "battery_21700_high_drain.json",
             "battery_cell_alkaline.json",
@@ -129,7 +129,7 @@ public class RecipeValidationTest {
             "battery_cell_lisocl2.json",
             "battery_cell_nicd.json",
             "battery_cell_nimh.json",
-            // Phase 4: Stationary Energy Storage Blocks (BESS)
+            // Stationary energy storage blocks (BESS)
             "battery_block_lifepo4.json",
             "battery_block_lead_acid.json",
             "battery_block_lto.json",

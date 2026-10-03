@@ -55,8 +55,25 @@ Requires an unobstructed sky view above (`world.isSkyVisible(pos.up())`):
   (servo band $+0.5\text{ V}$, demand deadband $\max(2\text{ W}, 5\%)$).
 * **3-Stage Battery Charging State Machine (exact thresholds):**
   1. **Bulk:** Constant current injection at maximum available solar power until absorption voltage threshold is reached.
-  2. **Absorption:** $14.4\text{ V}$ per 12 V bank ($28.8\text{ V}$ @ 24 V, $57.6\text{ V}$ @ 48 V) until current tapers $< 0.2\text{ A}$ or $1200$-tick timeout.
+  2. **Absorption:** $14.4\text{ V}$ per 12 V bank ($28.8\text{ V}$ @ 24 V, $57.6\text{ V}$ @ 48 V) until current tapers $< 0.2\text{ A}$ sustained 40 consecutive ticks (debounced: single-tick dips from cable churn/reconnect restrikes ride through) or $1200$-tick timeout.
   3. **Float:** $13.6\text{ V}$ per 12 V bank ($27.2\text{ V}$ @ 24 V, $54.4\text{ V}$ @ 48 V); returns to Bulk if rail sags $> 1.0\text{ V}$ below float.
+* **Charge-voltage compensation (terminal side):** the staged target is the stage voltage plus
+  wiring headroom $0.3\text{ V} \times \min(1, I_{\text{out}} / 5\text{ A})$ plus lagged cable
+  compensation $\min(I_{\text{out}} \times 0.03\,\Omega, 0.8\text{ V})$, so the *battery* sees
+  absorption through bus drops while a resting full bank still sees pure chemistry voltage
+  (no overcharge push). Loop gain $< 1$ by construction (converges, never hunts).
+* **CC/CV output regulation:** while output current stays below what the sun sustains
+  ($I_{\text{cap}} = \min(60\text{ A}, P_{\text{sun}} \cdot \eta / V_{\text{target}})$) the charger
+  regulates constant voltage; above it the staged EMF hugs the rail at exactly the solar
+  current, so output power tracks input power (no over-unity from the decoupled stamp).
+  Mode switches with a deadband (engage above $I_{\text{cap}}$, release below $0.8 \times I_{\text{cap}}$
+  or on 5 consecutive ticks of genuine input headroom while sourcing); the rail hug applies
+  only on a formed rail ($> 1\text{ V}$) so a dead bus bootstraps instead of pinning near zero.
+* **Backfeed blocking / ideal-diode OR-ing (fixed 2026-10):** in CV mode the staged EMF is
+  $\max(E_{\text{CV}}, V_{\text{bus}})$ — a hotter bank (or any stiffer source) on the output bus
+  leaves the charger idling at $\approx 0\text{ A}$ with honest $0\text{ W}$ telemetry, instead of
+  sinking pack current backwards while the GUI shows $0\text{ W}$ at several amps. Sustained
+  wrong-bank voltage still latches the mismatch trip (debounced).
 * **Bank presets & protection:** `[12V Bank]` / `[24V Bank]` / `[48V Bank]` (snap $\le 15\text{ V} \to 12$, $\le 30\text{ V} \to 24$, else $48$).
   Nominal-mismatch ($> 18\text{ V}$ on 12 V bank, outside $18\text{--}36\text{ V}$ on 24 V, $< 36\text{ V}$ on 48 V)
   or live-rail mismatch trips output to $0\text{ A}$. Zero solar ($0\text{ W}$ / $V_{\text{in}} \le 1\text{ V}$)

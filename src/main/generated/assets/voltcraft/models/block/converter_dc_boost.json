@@ -2,11 +2,11 @@
   "parent": "minecraft:block/cube",
   "textures": {
     "down": "voltcraft:block/converter_dc_boost_bottom",
-    "east": "voltcraft:block/converter_dc_boost_side",
+    "east": "voltcraft:block/converter_dc_boost_right",
     "north": "voltcraft:block/converter_dc_boost_front",
     "particle": "voltcraft:block/converter_dc_boost_front",
     "south": "voltcraft:block/converter_dc_boost_back",
     "up": "voltcraft:block/converter_dc_boost_top",
-    "west": "voltcraft:block/converter_dc_boost_side"
+    "west": "voltcraft:block/converter_dc_boost_left"
   }
 }

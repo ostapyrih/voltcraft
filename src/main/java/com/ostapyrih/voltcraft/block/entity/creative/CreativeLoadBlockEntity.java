@@ -1,10 +1,13 @@
 package com.ostapyrih.voltcraft.block.entity.creative;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricConsumer;
+import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
+import com.ostapyrih.voltcraft.api.electrical.GridConstants;
+import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.CreativeLoadScreenHandler;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeLoadLogic;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeLoadLogic.LoadMode;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
@@ -14,19 +17,39 @@ import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.screen.PropertyDelegate;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.text.Text;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import com.ostapyrih.voltcraft.block.creative.CreativeLoadBlock;
+
+import com.ostapyrih.voltcraft.simulation.electrical.CreativeLoadElement;
 
 /**
- * Creative-only electrical load block for testing circuit behavior, voltage drops,
- * transformer loading, inverter THD and overcurrent trips.
- * Supports Constant Resistance, Constant Power, and Constant Current modes.
+ * Creative-only test load (constant resistance / power / current).
+ * Disabled or non-positive targets stamp open circuit; holds no kernel state.
+ * Sign convention is T0-referenced: {@code V = Vt[0] - Vt[1]}.
  */
-public class CreativeLoadBlockEntity extends BlockEntity implements IElectricConsumer, ExtendedScreenHandlerFactory<BlockPos> {
+public class CreativeLoadBlockEntity extends BlockEntity implements KernelAttachedBlock, ExtendedScreenHandlerFactory<BlockPos> {
+
 
     private final CreativeLoadLogic logic;
+    private final double[] telemetryCell = new double[2];
+    private final double[] stateArray = CreativeLoadElement.newStateArray();
+    private final ElectricalElement element;
+    /**
+     * Brownout dropout latch (transient): a constant-power/current load with
+     * no return through a live bus drags a source-limited rail into a
+     * collapse spiral instead of halting like real hardware. While set, the
+     * load stays open; drops when terminal voltage falls below
+     * {@link #DROPOUT_VOLTS}, picks back up above {@link #PICKUP_VOLTS}.
+     * Resistance mode (linear, no spiral) is exempt.
+     */
+    public static final double DROPOUT_VOLTS = 6.0;
+    public static final double PICKUP_VOLTS = 10.0;
+    private boolean droppedOut = false;
 
     private final PropertyDelegate propertyDelegate = new PropertyDelegate() {
         @Override
@@ -70,6 +93,17 @@ public class CreativeLoadBlockEntity extends BlockEntity implements IElectricCon
     public CreativeLoadBlockEntity(BlockPos pos, BlockState state) {
         super(VoltcraftBlockEntityTypes.CREATIVE_LOAD_BLOCK_ENTITY, pos, state);
         this.logic = new CreativeLoadLogic(pos);
+        this.element = new CreativeLoadElement(
+            () -> logic.getMode().ordinal(), () -> logic.getTargetValue(),
+            this::isEffectivelyEnabled, () -> logic.getNominalVoltage(), telemetryCell);
+    }
+
+    /**
+     * Enabled for discharge only when configured on and not dropped out on
+     * brownout. Read by the kernel stamp.
+     */
+    private boolean isEffectivelyEnabled() {
+        return logic.isEnabled() && !droppedOut;
     }
 
     public PropertyDelegate getPropertyDelegate() {
@@ -164,11 +198,41 @@ public class CreativeLoadBlockEntity extends BlockEntity implements IElectricCon
         return val;
     }
 
-    // Grid participation is handled centrally by ElectricalGrid.refreshParticipants,
-    // which discovers this consumer via world.getBlockEntity(nodePos) every tick.
-    // No per-block tick, registration cache, or removal hook is needed here.
+    // ==================== KernelAttachedBlock ====================
 
-    // ==================== IElectricComponent ====================
+    @Override
+    public ElectricalElement getElement() {
+        return element;
+    }
+
+    @Override
+    public BlockPos[] getTerminalPositions() {
+        return CreativeLoadElement.resolveTerminals(pos, readFacing());
+    }
+
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(CreativeLoadBlock.FACING)) {
+                Direction facing = cached.get(CreativeLoadBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return Direction.NORTH;
+    }
+
+    @Override
+    public double[] getStateArray() {
+        return CreativeLoadElement.snapshotState(stateArray);
+    }
+
+    @Override
+    public void setStateArray(double[] state) {
+        CreativeLoadElement.assignState(stateArray, state);
+    }
 
     @Override
     public BlockPos getPos() {
@@ -176,43 +240,60 @@ public class CreativeLoadBlockEntity extends BlockEntity implements IElectricCon
     }
 
     @Override
+    public boolean isActiveSource() {
+        return CreativeLoadElement.isActiveSource();
+    }
+
+    @Override
+    public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
+        double teleV = telemetryCell[CreativeLoadElement.TELE_V];
+        LoadMode mode = logic.getMode();
+        if (mode != LoadMode.CONSTANT_RESISTANCE) {
+            if (!droppedOut && teleV < DROPOUT_VOLTS) {
+                droppedOut = true;
+            } else if (droppedOut && teleV > PICKUP_VOLTS) {
+                droppedOut = false;
+            }
+        } else {
+            droppedOut = false;
+        }
+        logic.onPowerReceived(telemetryCell[CreativeLoadElement.TELE_V],
+            telemetryCell[CreativeLoadElement.TELE_I], GridConstants.DT);
+    }
+
+    // ==================== Config hooks (plain methods, no grid role) ====================
+
     public ElectricalState getElectricalState() {
         return logic.getElectricalState();
     }
 
-    @Override
     public void setElectricalState(ElectricalState state) {
         logic.setElectricalState(state);
     }
 
-    // ==================== IElectricConsumer ====================
-
-    @Override
     public double getNominalPowerDemand() {
         return logic.getNominalPowerDemand();
     }
 
-    @Override
     public double getNominalVoltage() {
         return logic.getNominalVoltage();
     }
 
-    @Override
     public double getMinOperatingVoltage() {
         return logic.getMinOperatingVoltage();
     }
 
-    @Override
     public double getMaxOperatingVoltage() {
         return logic.getMaxOperatingVoltage();
     }
 
-    @Override
     public double getEquivalentResistance() {
         return logic.getEquivalentResistance();
     }
 
-    @Override
     public void onPowerReceived(double terminalVoltage, double deliveredCurrent, double durationSeconds) {
         logic.onPowerReceived(terminalVoltage, deliveredCurrent, durationSeconds);
     }

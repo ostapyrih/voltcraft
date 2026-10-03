@@ -1,14 +1,18 @@
 package com.ostapyrih.voltcraft.simulation.creative;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricSource;
 import net.minecraft.util.math.BlockPos;
 
 /**
  * Pure simulation logic for the Creative Generator.
  * Decoupled from Minecraft BlockEntity lifecycle for unit testability and MNA grid solving.
+ *
+ * <p>Kernel-side: the legacy source grid contract is deleted. This class
+ * is a plain configuration/telemetry holder (voltage/current/frequency presets plus
+ * delivered-energy bookkeeping); the kernel-side stamp lives in
+ * {@code CreativeGeneratorBlockEntity.CreativeGeneratorElement}.</p>
  */
-public class CreativeGeneratorLogic implements IElectricSource {
+public class CreativeGeneratorLogic {
 
     public static final double[] VOLTAGE_PRESETS = { 5.0, 12.0, 24.0, 48.0, 120.0, 230.0, 400.0, 1000.0, 10000.0 };
     public static final double[] CURRENT_PRESETS = { 1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 500.0, 1000.0, 10000.0 };
@@ -139,39 +143,34 @@ public class CreativeGeneratorLogic implements IElectricSource {
         return this.frequency;
     }
 
-    // ==================== IElectricComponent ====================
+    // ==================== Legacy grid hooks (now plain methods) ====================
+    // Formerly legacy component/source overrides; kept without an interface
+    // for the GUI/config path. The kernel reads staged values through the BE element.
 
-    @Override
     public BlockPos getPos() {
         return this.pos;
     }
 
-    @Override
     public ElectricalState getElectricalState() {
         return enabled ? ElectricalState.NOMINAL : ElectricalState.OFF;
     }
 
-    @Override
     public void setElectricalState(ElectricalState state) {}
 
-    // ==================== IElectricSource ====================
+    // ==================== Source ratings (now plain methods) ====================
 
-    @Override
     public double getElectromotiveForce() {
         return enabled ? voltage : 0.0;
     }
 
-    @Override
     public double getInternalResistance() {
         return internalResistance;
     }
 
-    @Override
     public double getMaxOutputCurrent() {
         return enabled ? maxCurrent : 0.0;
     }
 
-    @Override
     public void onPowerDrawn(double currentAmps, double durationSeconds) {
         this.lastDeliveredCurrent = currentAmps;
         this.lastDeliveredPower = voltage * currentAmps;

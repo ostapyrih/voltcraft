@@ -1,6 +1,7 @@
 package com.ostapyrih.voltcraft.block;
 
 import com.ostapyrih.voltcraft.api.grid.IElectricalConnectable;
+import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.cable.ConductorType;
 import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.minecraft.block.Block;
@@ -15,6 +16,9 @@ import net.minecraft.util.shape.VoxelShape;
 import net.minecraft.util.shape.VoxelShapes;
 import net.minecraft.world.BlockView;
 import net.minecraft.world.World;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.util.math.random.Random;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -68,6 +72,33 @@ public abstract class AbstractGridBlock extends Block implements IElectricalConn
             GridManager.get((ServerWorld) world).onConductorPlaced(
                 (ServerWorld) world, pos, getPlacementConductorType());
         }
+        if (!world.isClient() && world instanceof ServerWorld sw) {
+            sw.scheduleBlockTick(pos, this, 1);
+            BlockEntity be = sw.getBlockEntity(pos);
+            if (be instanceof KernelAttachedBlock kab) {
+                GridManager.get(sw).putAttachedBlock(kab);
+            }
+        }
+    }
+
+    @Override
+    public void onPlaced(World world, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack itemStack) {
+        super.onPlaced(world, pos, state, placer, itemStack);
+        if (!world.isClient() && world instanceof ServerWorld sw) {
+            BlockEntity be = sw.getBlockEntity(pos);
+            if (be instanceof KernelAttachedBlock kab) {
+                GridManager.get(sw).putAttachedBlock(kab);
+            }
+        }
+    }
+
+    @Override
+    protected void scheduledTick(BlockState state, ServerWorld world, BlockPos pos, Random random) {
+        super.scheduledTick(state, world, pos, random);
+        BlockEntity be = world.getBlockEntity(pos);
+        if (be instanceof KernelAttachedBlock kab) {
+            GridManager.get(world).putAttachedBlock(kab);
+        }
     }
 
     @Override
@@ -75,22 +106,26 @@ public abstract class AbstractGridBlock extends Block implements IElectricalConn
         if (!state.isOf(world.getBlockState(pos).getBlock()) && shouldSeedNode(state)) {
             GridManager.get(world).onConductorRemoved(world, pos);
         }
+        // Item 1: unconditional detach; safe no-op when no BE was registered.
+        GridManager.get(world).removeAttachedBlock(pos);
         super.onStateReplaced(state, world, pos, moved);
     }
 
     /**
-     * Whether this state holds a grid node. Open switches, tripped breakers, and blown
-     * or missing fuses hold no node: placement seeds nothing and removal removes nothing
-     * (a safe no-op). Closed devices use the default {@code true}.
+     * Whether this state holds a grid node. Only passive conductors (cables, busbars,
+     * junction boxes) and closed switchgear hold a node at pos. Devices with attached block
+     * entities (batteries, generators, loads, converters) communicate solely via their
+     * external terminals; seeding a node at their center would short their own terminals.
      */
     protected boolean shouldSeedNode(BlockState state) {
-        return true;
+        return false;
     }
 
     /**
-     * Conductor type used to seed the node on placement. Only the thermal spec and ampacity
-     * matter for a block's own node; the graph edges between adjacent blocks are constructed
-     * by {@code GridManager.linkNeighborsWithConductors}. Override to use a heavier gauge.
+     * Conductor type used when a cable block reports its placement to the island index.
+     * Only the thermal spec and ampacity matter for a block's own node; the graph edges
+     * between adjacent blocks are derived from adjacency at island rebuild.
+     * Override to use a heavier gauge.
      */
     protected ConductorType getPlacementConductorType() {
         return ConductorType.INSULATED_COPPER;

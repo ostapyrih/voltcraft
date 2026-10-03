@@ -1,42 +1,29 @@
 package com.ostapyrih.voltcraft.block.entity.conversion;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricSource;
 import com.ostapyrih.voltcraft.block.conversion.InverterBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.simulation.conversion.InverterType;
-import com.ostapyrih.voltcraft.simulation.grid.ElectricalGrid;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import net.minecraft.block.BlockState;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
-
-import java.util.List;
+import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
 
 /**
- * Block entity for DC-AC inverters (Square Wave, Modified Sine, Pure Sine SPWM, Grid-Tie, Hybrid ESS).
- *
- * <p>Overload protection uses a three-state machine: NORMAL, WARN, TRIPPED. Sustained overload
- * drives the inverter into a latched TRIPPED state with a cooldown before auto-retry, mirroring
- * how a real inverter behaves instead of oscillating between full output and zero every few ticks.</p>
+ * Block entity for DC-AC inverters (square, modified-sine, pure-sine, grid-tie, hybrid).
+ * Overload protection latches TRIPPED with a cooldown before auto-retry.
  */
 public class InverterBlockEntity extends AbstractPowerConverterBlockEntity {
 
-    // --- Overload protection ---
-    /** Sustained overload grace before latching a trip. ~3 s at 20 tps. */
     private static final int OVERLOAD_GRACE_TICKS = 60;
-    /** Off-time after a trip before auto-retry. ~10 s at 20 tps. */
     private static final int TRIP_COOLDOWN_TICKS = 200;
-    /** Voltage sag fraction above which we consider the output severely overloaded → immediate trip. */
     private static final double SEVERE_SAG_FRACTION = 0.10;
-    /** Voltage sag fraction above which we consider the output mildly overloaded → WARN. */
     private static final double MILD_SAG_FRACTION = 0.03;
-    /** Output current at or above this fraction of rated counts as "at cap". */
     private static final double AT_CAP_CURRENT_FRACTION = 0.98;
 
-    /** Low-battery cutoffs per DC input class. Inverter refuses to run below these. */
     private static final double LOW_BATTERY_V_12 = 10.5;
     private static final double LOW_BATTERY_V_24 = 21.0;
     private static final double LOW_BATTERY_V_48 = 42.0;
@@ -97,11 +84,7 @@ public class InverterBlockEntity extends AbstractPowerConverterBlockEntity {
         this.overloadTicks = 0;
         this.cooldownTicks = 0;
         if (inverterType.hasAutomaticTransferSwitch()) {
-            if (world instanceof ServerWorld sw) {
-                this.atsIslandMode = !isExternalGridPresent(sw);
-            } else {
-                this.atsIslandMode = true;
-            }
+            this.atsIslandMode = true;
         }
     }
 
@@ -110,24 +93,13 @@ public class InverterBlockEntity extends AbstractPowerConverterBlockEntity {
         return super.isTripped() || inverterTripped;
     }
 
-    private boolean isExternalGridPresent(ServerWorld world) {
-        BlockPos outPos = pos.offset(getOutputPortDirection());
-        ElectricalGrid outGrid = GridManager.get(world).getGridAt(outPos);
-        if (outGrid == null) {
-            return false;
+    @Override
+    public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
         }
-
-        for (List<IElectricSource> list : outGrid.getSources().values()) {
-            for (IElectricSource src : list) {
-                if (src == this.outputSource) {
-                    continue;
-                }
-                if (src.getElectromotiveForce() >= 20.0 && src.getFrequency() > 0.001) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        super.doTickElectrical(world);
+        updateKernelInverterProtection();
     }
 
     @Override
@@ -147,7 +119,67 @@ public class InverterBlockEntity extends AbstractPowerConverterBlockEntity {
 
     @Override
     public int getTypeKind() {
-        return 1; // Inverter
+        return 1;
+    }
+
+    @Override
+    public boolean isACSource() {
+        return ConverterElement.isACOutput(getTypeKind());
+    }
+
+    @Override
+    public boolean isActiveSource() {
+        return ConverterElement.isActiveSource(isTripped(), stagedOutputEmf);
+    }
+
+    private void updateKernelInverterProtection() {
+        if (inverterTripped) {
+            if (cooldownTicks > 0) {
+                cooldownTicks--;
+            } else {
+                inverterTripped = false;
+                overloadTicks = 0;
+            }
+            return;
+        }
+
+        if (isLowBattery()) {
+            inverterTripped = true;
+            cooldownTicks = TRIP_COOLDOWN_TICKS;
+            overloadTicks = 0;
+            return;
+        }
+
+        double ratedCurrent = getMaxOutputCurrent();
+        if (ratedCurrent <= 0.0 || targetOutputVoltage <= 1.0) {
+            return;
+        }
+
+        if (outputCurrentAmps < ratedCurrent * AT_CAP_CURRENT_FRACTION) {
+            overloadTicks = Math.max(0, overloadTicks - 2);
+            return;
+        }
+
+        double voltageRatio = actualOutputVoltage / targetOutputVoltage;
+        double sag = Math.max(0.0, 1.0 - voltageRatio);
+
+        if (sag > SEVERE_SAG_FRACTION) {
+            inverterTripped = true;
+            cooldownTicks = TRIP_COOLDOWN_TICKS;
+            overloadTicks = 0;
+            return;
+        }
+
+        if (sag > MILD_SAG_FRACTION) {
+            overloadTicks++;
+            if (overloadTicks > OVERLOAD_GRACE_TICKS) {
+                inverterTripped = true;
+                cooldownTicks = TRIP_COOLDOWN_TICKS;
+                overloadTicks = 0;
+            }
+        } else {
+            overloadTicks = Math.max(0, overloadTicks - 2);
+        }
     }
 
     @Override
@@ -189,24 +221,6 @@ public class InverterBlockEntity extends AbstractPowerConverterBlockEntity {
         return inverterType.getTotalHarmonicDistortionPercent();
     }
 
-    @Override
-    public void tick(ServerWorld world) {
-        // Hybrid ESS ATS logic (unchanged)
-        if (inverterType.hasAutomaticTransferSwitch()) {
-            boolean extGrid = isExternalGridPresent(world);
-            if (!extGrid) {
-                this.atsIslandMode = true;
-                this.antiIslandingTicks = 0;
-            } else {
-                this.atsIslandMode = false;
-            }
-        }
-
-        super.tick(world);
-
-        updateInverterProtection();
-    }
-
     private boolean isLowBattery() {
         return inputVoltage > 1.0 && inputVoltage < getLowBatteryCutoff();
     }
@@ -215,74 +229,6 @@ public class InverterBlockEntity extends AbstractPowerConverterBlockEntity {
         if (nominalInputVoltage <= 15.0) return LOW_BATTERY_V_12;
         if (nominalInputVoltage <= 30.0) return LOW_BATTERY_V_24;
         return LOW_BATTERY_V_48;
-    }
-
-    /**
-     * Overload and low-battery protection state machine. Runs AFTER super.tick so that
-     * outputCurrentAmps, actualOutputVoltage, and inputVoltage are freshly updated.
-     *
-     * <p>Behaviour:</p>
-     * <ul>
-     *   <li>Severe overload (output voltage sag &gt; {@link #SEVERE_SAG_FRACTION}) → immediate trip.</li>
-     *   <li>Mild overload (sag &gt; {@link #MILD_SAG_FRACTION} and current at cap) → WARN; trip
-     *       after {@link #OVERLOAD_GRACE_TICKS} sustained ticks.</li>
-     *   <li>Low DC input below the class cutoff → immediate trip.</li>
-     *   <li>On trip: output latched to zero for {@link #TRIP_COOLDOWN_TICKS}, then auto-retry.</li>
-     * </ul>
-     */
-    private void updateInverterProtection() {
-        if (inverterTripped) {
-            if (cooldownTicks > 0) {
-                cooldownTicks--;
-            } else {
-                inverterTripped = false;
-                overloadTicks = 0;
-            }
-            return;
-        }
-
-        // Low DC input is a hard stop: no output until voltage recovers.
-        if (isLowBattery()) {
-            inverterTripped = true;
-            cooldownTicks = TRIP_COOLDOWN_TICKS;
-            overloadTicks = 0;
-            return;
-        }
-
-        double ratedCurrent = getMaxOutputCurrent();
-        if (ratedCurrent <= 0.0 || targetOutputVoltage <= 1.0) {
-            return;
-        }
-
-        // No load (or below the current cap) means no sag to evaluate. Idle current is drawn
-        // by the input stage regardless of output, so a 0 A output is NOT an overload — it
-        // just means nothing is plugged in yet.
-        if (outputCurrentAmps < ratedCurrent * AT_CAP_CURRENT_FRACTION) {
-            overloadTicks = Math.max(0, overloadTicks - 2);
-            return;
-        }
-
-        // Only now, with current at cap, does a sag mean anything.
-        double voltageRatio = actualOutputVoltage / targetOutputVoltage;
-        double sag = Math.max(0.0, 1.0 - voltageRatio);
-
-        if (sag > SEVERE_SAG_FRACTION) {
-            inverterTripped = true;
-            cooldownTicks = TRIP_COOLDOWN_TICKS;
-            overloadTicks = 0;
-            return;
-        }
-
-        if (sag > MILD_SAG_FRACTION) {
-            overloadTicks++;
-            if (overloadTicks > OVERLOAD_GRACE_TICKS) {
-                inverterTripped = true;
-                cooldownTicks = TRIP_COOLDOWN_TICKS;
-                overloadTicks = 0;
-            }
-        } else {
-            overloadTicks = Math.max(0, overloadTicks - 2);
-        }
     }
 
     @Override

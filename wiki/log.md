@@ -1,3 +1,152 @@
+## [2026-10-03] docs | Grid-rehaul reconciliation: README + wiki + docs/kernel aligned with kernel islands
+
+* **Scope:** documentation only, no `.java` touched (`git status` shows only `Readme.md`, `wiki/*`, `docs/kernel.md`).
+* **Re-audit (all numbers from code):** 56 blocks (`VoltcraftBlocks`: 56 `public static final Block ... = register(` fields), 91 items (`VoltcraftItems`: 56 `registerBlockItem` fields + 35 `registerItem` fields), 19 `BlockEntityType`s (`VoltcraftBlockEntityTypes`: 19 `public static final BlockEntityType` fields — banner previously said 13), 103 generated recipes (`src/main/generated/data/voltcraft/recipe/*.json`: 57 `crafting_shaped`, 10 `crafting_shapeless`, 18 `smelting` + 18 `blasting`), 3 item groups (`VoltcraftItemGroups`), 5 `DataComponentTypes` (`VoltcraftDataComponents`); 9 `ConductorType`s, 11 `BatteryChemistry` entries, 4/5/4 converter/inverter/solar-panel types.
+* **Kernel constants from `GridConstants.java`:** `DT = 0.05`, `NEWTON_TOL = 1e-6`, `NEWTON_MAX_ITER = 40`, `NEWTON_MAX_STEP = 50.0`, `NEWTON_RESIDUAL_FLOOR = 1e-10`, `LINEAR_RESIDUAL_TOL = 1e-9`, `AMBIENT_C = 20.0`, `AC 50 Hz` (`2π·50`); conductor floor `1e-4 Ω` on `ElectricalKernel`. `KernelSolveResult` has 7 components.
+* **Fixes:** `Readme.md` simulation section rewritten (phasor/islands/kernel/MPPT foldback/EU bridge) + architecture/API/test/layout stale refs removed; `wiki/index.md` banner re-dated 2026-09-28 → 2026-10-03 with 19 BETs + kernel-island note; `wiki/core-idea.md` §3/§5 rewritten (islands, omega policy, Thevenin/converter elements, cables-only persistence, ✅/⚠️/❌ tags incl. stale `KernelAttachedBlock` javadoc); `wiki/implementation-plan.md` grid-rehaul section added + MNA line marked historical; `docs/kernel.md` GMIN-shunt fiction replaced with the shipped per-component unit-row reference (no `GMIN` exists in code).
+
+## [2026-10-03] tests-only | Gen+EU crookedness + MPPT minus: research and catching tests (no production changes)
+
+* **User directive:** verify the tests honestly (gen+EU misbehaves in-game), research gen+EU operation,
+  cover with tests so bugs get caught; MPPT minus disconnect still charges — catch that too.
+  Explicitly: no production fixes, tests only.
+* **Findings & new GameTests (all in-engine, real blocks):**
+  1. **`testGenEuOverloadCooks` (FAILS as intended):** 1500W + 1000W direct + EU bridge on an 1800W
+     generator. AVR sags the bus to ~152V (its cap holds, generator fine), but the EU bridge on the
+     brownout bus accumulates ~nothing (32E trickle) while staging full 805W charge demand:
+     `input=805.0W at Vin=151.71V, stored=32E, temp rising`. Catches the missing brownout derate
+     (demand-shed): the bridge cooks itself instead of waiting out the sag.
+  2. **MPPT minus matrix (all radial cases stop correctly, locked):** output-minus and input-minus
+     disconnect-resume GameTests (mirror unit T21/T22) green — a radial minus cut always isolates
+     (kernel port isolation is airtight: decoupled stamps admit no sneak path). Mesh behavior
+     documented by `testMeshedMinusCarriesThroughCut` (tap cut on a looped rail feeds around it —
+     this is almost certainly the in-game "minus cut but current flows": the cut did not isolate).
+     Touching bare terminals conduct via terminal-link (0.1mΩ) — same answer for packed builds.
+  3. **`testBatteryRemovedFeedsLoadDirectly` (FAILS as intended):** battery block removed, MPPT must
+     feed 100W load alone. Catches a solver-robustness gap: without the battery's linear shunt Newton
+     stalls intermittently and telemetry freezes mid-ramp — proven by KCL violation in live telemetry
+     (`MPPT Pout=17.42W vs load 100.0W`, impossible on a converged solve). Also found while writing it:
+     cutting the (0,1,5) mesh node darkens the whole bus instead of isolating the bank (test uses
+     block removal, the honest battery-off procedure).
+  4. **Touching layout (`testSharedPlusTapCutKeepsCharging`, green):** per player screenshot (panels
+     packed against the MPPT): the (2,1,2) cable sits on a node SHARED by solar-plus and MPPT-in-plus
+     terminals, so cutting it removes the visual only and charging continues — correct direct-join
+     physics, not a sneak. Radial minus cuts (output/input tap) do isolate (locked green). Mesh cuts
+     feed around (documented green). I.e. "minus cut but current flows" happens iff the cut did not
+     isolate (shared node / terminal-link touch / looped return / wrong wire).
+  4. **Stiff-source two-phase test** (hotter source on the output bus): early idle ~0A (backfeed
+     blocking holds in-engine), late mismatch-trip on sustained wrong-bank voltage. Plus parallel
+     second-battery health test and an EU live-feed buffer-growth assert.
+* **Verification:** `runGameTest` 24/26 (only the two intended catches fail); unit suite 194/195
+  (only the pre-existing T11 EU-cook catch fails). Zero production diffs this session (3 test files).
+
+## [2026-10-02] fix | Player-reported: MPPT backfeed, MPPT minus behaviour, EU buffer never fills + overheat
+
+* **User reports (in-game):** (1) second battery on the MPPT output bus: GUI shows 28.1 V / 7.71 A /
+  0.0 W — current flows backwards with power clamped to zero (dishonest telemetry); (2) MPPT minus
+  disconnect: current keeps flowing — catch both with tests; (3) generator-fed EU bridge: internal
+  buffer never fills, only the total counter grows, bridge overheats.
+* **Root Causes & Fixes (production):**
+  1. **MPPT backfeed** (`ChargeControllerBlockEntity`): bidirectional Thevenin output sinks pack
+     current whenever the bus outranks the charge target; telemetry clamps negative power to 0,
+     producing the 0 W-at-7 A lie. Fix: ideal-diode OR-ing — CV mode stages
+     `max(E_CV, V_bus)` (lagged one tick like all staging; stable, no loop), so a hotter bank leaves
+     the charger idling at ~0 A with honest zeros. CC engages on signed forward current only
+     (magnitude-based engage latched the limiter on reverse transients into an over-unity leak);
+     short-guard and mismatch-trip take precedence appropriately. Caught by unit T20 (7S bank vs
+     12V MPPT: 15.7 A sink → 0.003 A) and a two-phase GameTest (idle-then-trip on a stiff bus).
+  2. **EU buffer/thermal** (`EuConverterBlockEntity`): conversion accumulated into a logic-side counter
+     that the vanilla tick clobbered back to the (always-zero) TR buffer level every tick — buffer never
+     filled, demand never tapered off 805 W, all 805 W became heat → overheat trip. Fix: converted
+     energy lands in the TR storage (single source of truth, capacity-clamped); logic counter mirrors
+     it. Buffer fills in ~312 ticks, demand tapers to ~5 W, generator unloads, peak ~74 °C. Caught by
+     unit T10 (fill + taper + thermal + dark branch) and a buffer-growth assert in the live-feed GameTest.
+  3. **Double-ticked discrete phase** (new `simulation/grid/ElectricalTickDedupe.java`): every grid BE ran
+     `tickElectrical` twice per server tick (vanilla block ticker + kernel pre-tick), doubling all counters
+     (absorption/float timeouts and debounce windows halved, thermal/energy meters doubled). Exactly-once
+     claim per (block, world-tick), world-free harnesses unaffected. Base converter staging split into
+     guard-wrapper + `doTickElectrical` so overrides route correctly (a naive guard in both silently
+     skipped base staging entirely — caught immediately by 5 baseline GameTest failures).
+* **Tests:** unit T20 (backfeed), T21/T22 (MPPT output/input minus disconnect — both already clean,
+  kept as regression locks), unit T10 (EU buffer/taper/thermal); GameTests: EU live-feed buffer assert,
+  MPPT output/input minus disconnect-resume, parallel second battery health, stiff-source blocking +
+  late mismatch-trip two-phase, registration-retry helper for placed test blocks. Full unit suite green,
+  `runGameTest` 22/22 green three consecutive runs.
+* **Wiki:** `generation/solar-panels.md` (backfeed blocking), `conversion/power-converters.md` §4.3
+  (single source of truth), `tools/creative-testing.md` (dropout/open-port, earlier).
+
+## [2026-10-02] fix | GameTest failures: architectural root causes (BMS latch, MPPT traps, EU dead seam, generator no-limit, shorted test rig)
+
+* **User Directive:** GameTests catch interesting bugs — fix them architecturally (root causes, not surface patches).
+* **Failures in (`runGameTest`, 6/18):** BMS latched open (3 solar tests), MPPT pinned ~0 V / Pout 0–7 W (T18),
+  heavy-load cold-start BMS trip, EU bridge 0 W demand on live feed (2 tests), generator serving 2500 W
+  silently (no surge cap), cable-churn BMS latch.
+* **Root Causes & Fixes (production):**
+  1. **BMS false-trip latch** (`BatteryBlockEntity`, `BatteryRackBlockEntity`): protection tripped on
+     terminal undervoltage including pre-bootstrap 0 V telemetry and load-induced sag, then could never
+     reclose (open terminal follows the dead bus). Now depletion-anchored: healthy SoC-based pack EMF
+     forces closed/reclose (black-start capable); terminal-based `bmsNext` applies only when EMF itself
+     is below recovery (true depletion); overtemperature still forces open. `bmsNext` contract unchanged.
+  2. **MPPT foldback trap** (`ChargeControllerBlockEntity`): output foldback capped EMF from live bus
+     voltage, ratcheting collapse to ~0.1 V with no recovery, and the rating foldback had no bootstrap
+     gate. Both gated on a formed rail; plus CC/CV regulation (deadband latch + debounced headroom
+     release), solar current ceiling keyed on the CV target (lagged-bus keying overshoots on rising bus),
+     cable-compensated charge voltage (+0.3 V current-gated headroom + contraction-limited lagged comp),
+     absorption-exit debounce (40 ticks) in `MPPTLogic`, mismatch-trip debounce (20 ticks), FLOAT
+     re-bulk on charge opportunity (a float-stranded charger with the follow pinning EMF at the bus
+     could never recover).
+  3. **EU bridge dead seam** (`EuConverterBlockEntity`): `onPowerReceived` was never called, so charge
+     demand sat at 0 W forever. Measurement seam wired into `tickElectrical` (input power/current from
+     staged demand, frequency from island omega, demand/thermal update); vanilla `tick()` keeps only TR
+     moves + hands over moved volume.
+  4. **Generator prime-mover limit** (`GeneratorElement.stageEmf`, BE staging): ideal 230 V source served
+     any overload silently. Staged EMF holds nominal within surge current, sags to
+     `surgeI * R_load` under overload (resistance-keyed: one-step contraction, no limit cycle).
+  5. **Open-ported load Newton stall** (`ElectricalElement.requiresReturnPath`, kernel shorting/zeroing
+     mirroring the 4-terminal convention): single-wire-cut constant-power loads stalled Newton (40 iters,
+     residual floor) freezing telemetry at pre-fault values; now stamp open, telemetry settles 0 W.
+  6. **Load brownout dropout** (`CreativeLoadBlockEntity`, staged flag 6 V/10 V hysteresis, P/I modes):
+     source-limited rails spiraled into collapse instead of honest hiccup (Law #6 brownout→halt).
+  7. **Warm-start across rebuilds** (`GridManager.rebuildIslands`): solved voltages snapshot by position
+     and re-staged as new kernels' initial iterate (unknown nodes take island mean), gated on islands
+     that retain an active source (seeding a sourceless island sustains phantom nonzero equilibria —
+     caught as a hot-swap/fuel-exhaustion regression); rebuilds no longer throw Newton back to the
+     loads-open bias lottery.
+  8. **AC load nominal fixed 230 V** (`CreativeLoadLogic`): measured-following nominal turned AC loads
+     into disguised constant-power, defeating source current limiting; fixed-R is correct resistive physics.
+* **Test-harness/spec corrections (not production):** `GameTestCircuitBuilder` output bus was hard-shorted
+  (both rails through x=0 column + adjacent cross-net pairs; battery dumped ~940 A into 6.6 mΩ) — rewired
+  to provably separated rails (battery moved to (0,1,6), minus rail hops the gap at y=2/y=3); unit T15
+  cold-start circuits use heavy copper like the rig (thin wire caps that run at ~930 W Pmax — physically
+  undeliverable); T17 cuts the minus rail (a single (+) cut on a ring bus islands nothing); gen
+  two-loads test uses 500 W + 400 W (the working EU bridge legitimately draws ~805 W beside them);
+  two `SolarAndGenerationPhysicsTest` absorption-exit cases loop past the new 40-tick debounce.
+* **Tests & Verification:** full unit suite green (190+); `runGameTest` **22/22 green, three
+  consecutive runs** (was 12/18 at start).
+  Wiki pages updated: `generation/solar-panels.md` (CC/CV, compensation, debounce),
+  `generation/generators.md` (AVR droop), `storage/battery-blocks.md` (BMS philosophy),
+  `conversion/power-converters.md` §4.3 (EU seam), `tools/creative-testing.md` (dropout/open-port).
+
+## [2026-09-30] fix | MPPT power output foldback, Newton solver convergence lockup, and single-wire return path verification
+
+* **User Directive:**
+  1. Fix MPPT output showing >400W (e.g. 500W–600W+) on a 400W solar panel when connected to a 12V battery and a parallel 2500W load.
+  2. Fix circuit lockup/freeze: turning off the 2500W load dropped telemetry to 30W, but turning it back on caused it not to draw any load (0W) until the MPPT was disconnected.
+  3. Fix MPPT operating when only the solar panel positive wire (`+`) or negative wire (`-`) was connected without a return wire.
+* **Root Causes & Physics Solved:**
+  1. **MPPT Power Overdemand & Output Foldback:**
+     - In `ConverterElement.stamp`, MPPT output was stamped as an unconstrained Thevenin source ($R=0.05\,\Omega, V_{\text{emf}}=14.4\,\text{V}$). Under heavy parallel load on a 12V bus, current soared to $>50\,\text{A}$ ($>600\,\text{W}$). `AbstractPowerConverterBlockEntity.tickElectrical` previously staged upstream demand as $P_{\text{out}} / \eta + 2.0\,\text{W}$ without capping to available solar generation ($P_{\text{solar}}$), demanding impossible power from a 400W panel.
+     - Demanding a 600W constant-power load on a 400W source has no real mathematical solution. Newton-Raphson in `ElectricalKernel.solve()` diverged (`converged = false`), which caused `ElectricalKernel.tick()` to skip element state/telemetry integration, freezing the 2500W load telemetry at 0W until the MPPT was detached.
+     - Fixed in [`ChargeControllerBlockEntity.java`](file:///home/ostapyrih/Projects/voltcraft/src/main/java/com/ostapyrih/voltcraft/block/entity/generation/ChargeControllerBlockEntity.java):
+       - Dynamically fold back output EMF: $P_{\text{out,max}} = P_{\text{solar}} \times \eta$, $I_{\text{max}} = \min(60\,\text{A}, P_{\text{out,max}} / V_{\text{bus}})$, $V_{\text{target}} = \min(V_{\text{absorption}}, V_{\text{bus}} + I_{\text{max}} \cdot R_{\text{source}})$. Heavy parallel loads now draw extra current from the battery instead of collapsing the solar panel.
+       - Clamped `stagedInputDemandWatts` to `availSolar`.
+  2. **Topological Return Path Verification (Single-Wire Phantom Current):**
+     - When only one wire was connected between a solar panel and MPPT, the internal admittances formed an open chain. In MNA, grounding an arbitrary node in that component destroyed current conservation on Norton injections, driving phantom current through the ground reference.
+     - Added `hasReturnPath(termA, termB, excludeElementIndex, excludePort)` in [`ElectricalKernel.java`](file:///home/ostapyrih/Projects/voltcraft/src/main/java/com/ostapyrih/voltcraft/simulation/grid/ElectricalKernel.java) to verify topological return circuits. If a 4-terminal converter's input port has no closed return path, Port 0 degenerates its stamp and clamps input voltages and currents to 0.0, strictly enforcing cut-set laws.
+* **Tests & Verification:**
+  * Added `testMPPTOutputFoldbackUnderHeavyParallelLoad` in [`AdapterConvertersTest.java`](file:///home/ostapyrih/Projects/voltcraft/src/test/java/com/ostapyrih/voltcraft/simulation/grid/AdapterConvertersTest.java).
+  * Full test suite green (162/162 tests pass cleanly).
+
 ## [2026-09-27] refactor | EU converter rebranded to standard E energy bridge
 
 * **User Directive:** No new block. Change EU converter to a standard every mod can use.

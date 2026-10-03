@@ -15,6 +15,12 @@ import com.ostapyrih.voltcraft.block.entity.generation.PortableGeneratorBlockEnt
 import com.ostapyrih.voltcraft.block.entity.generation.SolarPanelBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.storage.BatteryRackBlockEntity;
+import com.ostapyrih.voltcraft.block.entity.switchgear.CircuitBreakerBlockEntity;
+import com.ostapyrih.voltcraft.block.entity.switchgear.ContactorRelayBlockEntity;
+import com.ostapyrih.voltcraft.block.entity.switchgear.CopperBusbarBlockEntity;
+import com.ostapyrih.voltcraft.block.entity.switchgear.FuseBoxBlockEntity;
+import com.ostapyrih.voltcraft.block.entity.switchgear.JunctionBoxBlockEntity;
+import com.ostapyrih.voltcraft.block.entity.switchgear.KnifeSwitchBlockEntity;
 import net.fabricmc.fabric.api.object.builder.v1.block.entity.FabricBlockEntityTypeBuilder;
 import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.registry.Registries;
@@ -156,6 +162,62 @@ public class VoltcraftBlockEntityTypes {
         FabricBlockEntityTypeBuilder.create(
             CreativeLoadBlockEntity::new,
             VoltcraftBlocks.CREATIVE_LOAD
+        ).build()
+    );
+
+    // --- Static switchgear adapters (kernel-attached, no wire ticking) ---
+
+    public static final BlockEntityType<KnifeSwitchBlockEntity> KNIFE_SWITCH_BLOCK_ENTITY = Registry.register(
+        Registries.BLOCK_ENTITY_TYPE,
+        Identifier.of(Voltcraft.MOD_ID, "knife_switch_block_entity"),
+        FabricBlockEntityTypeBuilder.create(
+            KnifeSwitchBlockEntity::new,
+            VoltcraftBlocks.KNIFE_SWITCH
+        ).build()
+    );
+
+    public static final BlockEntityType<ContactorRelayBlockEntity> CONTACTOR_RELAY_BLOCK_ENTITY = Registry.register(
+        Registries.BLOCK_ENTITY_TYPE,
+        Identifier.of(Voltcraft.MOD_ID, "contactor_relay_block_entity"),
+        FabricBlockEntityTypeBuilder.create(
+            ContactorRelayBlockEntity::new,
+            VoltcraftBlocks.CONTACTOR_RELAY
+        ).build()
+    );
+
+    public static final BlockEntityType<CopperBusbarBlockEntity> COPPER_BUSBAR_BLOCK_ENTITY = Registry.register(
+        Registries.BLOCK_ENTITY_TYPE,
+        Identifier.of(Voltcraft.MOD_ID, "copper_busbar_block_entity"),
+        FabricBlockEntityTypeBuilder.create(
+            CopperBusbarBlockEntity::new,
+            VoltcraftBlocks.COPPER_BUSBAR
+        ).build()
+    );
+
+    public static final BlockEntityType<JunctionBoxBlockEntity> JUNCTION_BOX_BLOCK_ENTITY = Registry.register(
+        Registries.BLOCK_ENTITY_TYPE,
+        Identifier.of(Voltcraft.MOD_ID, "junction_box_block_entity"),
+        FabricBlockEntityTypeBuilder.create(
+            JunctionBoxBlockEntity::new,
+            VoltcraftBlocks.JUNCTION_BOX
+        ).build()
+    );
+
+    public static final BlockEntityType<CircuitBreakerBlockEntity> CIRCUIT_BREAKER_BLOCK_ENTITY = Registry.register(
+        Registries.BLOCK_ENTITY_TYPE,
+        Identifier.of(Voltcraft.MOD_ID, "circuit_breaker_block_entity"),
+        FabricBlockEntityTypeBuilder.create(
+            CircuitBreakerBlockEntity::new,
+            VoltcraftBlocks.CIRCUIT_BREAKER
+        ).build()
+    );
+
+    public static final BlockEntityType<FuseBoxBlockEntity> FUSE_BOX_BLOCK_ENTITY = Registry.register(
+        Registries.BLOCK_ENTITY_TYPE,
+        Identifier.of(Voltcraft.MOD_ID, "fuse_box_block_entity"),
+        FabricBlockEntityTypeBuilder.create(
+            FuseBoxBlockEntity::new,
+            VoltcraftBlocks.FUSE_BOX
         ).build()
     );
 

@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "voltcraft-test",
+  "version": "1.0.0",
+  "name": "VoltCraft Integration Tests",
+  "entrypoints": {
+    "fabric-gametest": [
+      "com.ostapyrih.voltcraft.gametest.cases.SolarMpptGameTests",
+      "com.ostapyrih.voltcraft.gametest.cases.GeneratorLoadEuGameTests"
+    ],
+    "main": [
+      "com.ostapyrih.voltcraft.gametest.VoltcraftGameTestMod"
+    ]
+  },
+  "depends": {
+    "voltcraft": "*"
+  }
+}

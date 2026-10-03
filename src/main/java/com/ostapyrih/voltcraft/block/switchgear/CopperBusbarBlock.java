@@ -57,6 +57,11 @@ public class CopperBusbarBlock extends AbstractGridBlock {
     }
 
     @Override
+    protected boolean shouldSeedNode(BlockState state) {
+        return true;
+    }
+
+    @Override
     protected ConductorType getPlacementConductorType() {
         return ConductorType.HEAVY_COPPER;
     }

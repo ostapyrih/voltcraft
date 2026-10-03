@@ -1,7 +1,7 @@
 package com.ostapyrih.voltcraft.block.entity.generation;
 
-import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricSource;
+import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
+import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
@@ -9,62 +9,92 @@ import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
 import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
+import com.ostapyrih.voltcraft.block.generation.HandCrankGeneratorBlock;
+
+import com.ostapyrih.voltcraft.simulation.electrical.CrankElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 
 /**
- * BlockEntity for the 100W Hand-Crank Dynamo.
- * Converts mechanical flywheel inertia into 12V DC power.
+ * 100 W hand-crank dynamo kernel adapter (12 V DC).
+ * Stamps a Thevenin source scaled by flywheel speed; open circuit when still.
+ * Kernel state is {@code [flywheelSpeed, totalEnergyJoules]}; crank strokes arrive
+ * via player interaction while spindown runs in kernel derivatives.
  */
-public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElectricSource {
+public class HandCrankGeneratorBlockEntity extends BlockEntity implements KernelAttachedBlock {
 
-    private double flywheelSpeed = 0.0; // 0.0 to 1.0 normalized rotational speed
-    private double electromotiveForce = 0.0;
-    private double lastDrawnCurrent = 0.0;
-    private double totalEnergyJoules = 0.0;
+
+
+    private final double[] stateArray = CrankElement.newStateArray();
+    private final double[] telemetryCell = new double[2];
+
+    private final ElectricalElement element;
 
     public HandCrankGeneratorBlockEntity(BlockPos pos, BlockState state) {
         super(VoltcraftBlockEntityTypes.HAND_CRANK_GENERATOR_BLOCK_ENTITY, pos, state);
+        this.element = new CrankElement(telemetryCell);
     }
 
-    /**
-     * Called when a player right-clicks the dynamo.
-     */
     public void crank() {
-        this.flywheelSpeed = Math.min(1.0, this.flywheelSpeed + 0.35);
+        this.stateArray[CrankElement.STATE_SPEED] = CrankElement.crankNext(this.stateArray[CrankElement.STATE_SPEED]);
+        markDirty();
+    }
+
+    public void addSpeed(double delta) {
+        this.stateArray[CrankElement.STATE_SPEED] =
+            Math.max(0.0, Math.min(1.0, this.stateArray[CrankElement.STATE_SPEED] + delta));
         markDirty();
     }
 
     public double getFlywheelSpeed() {
-        return flywheelSpeed;
+        return stateArray[CrankElement.STATE_SPEED];
     }
 
     public double getLastDrawnCurrent() {
-        return lastDrawnCurrent;
+        return telemetryCell[CrankElement.TELE_I];
     }
 
     public double getTotalEnergyJoules() {
-        return totalEnergyJoules;
+        return stateArray[CrankElement.STATE_ENERGY];
     }
 
-    /**
-     * Spins the flywheel down and recomputes EMF. Grid participation is handled
-     * centrally by {@code ElectricalGrid.refreshParticipants} — no registration here.
-     */
     public void tick(ServerWorld world) {
-        // 1. Mechanical flywheel decay & electrical generation
-        if (flywheelSpeed > 0.001) {
-            // Voltage proportional to angular velocity: up to 13.8V open-circuit (12V nominal)
-            this.electromotiveForce = flywheelSpeed * 13.8;
-
-            // Mechanical friction decay (0.97 per tick = ~2 seconds spindown from 1.0)
-            double mechanicalDecay = 0.97;
-            this.flywheelSpeed *= mechanicalDecay;
-        } else {
-            this.flywheelSpeed = 0.0;
-            this.electromotiveForce = 0.0;
-        }
+        tickElectrical(world);
     }
 
-    // ==================== IElectricComponent ====================
+    @Override
+    public ElectricalElement getElement() {
+        return element;
+    }
+
+    @Override
+    public BlockPos[] getTerminalPositions() {
+        return CrankElement.resolveTerminals(pos, readFacing());
+    }
+
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(HandCrankGeneratorBlock.FACING)) {
+                Direction facing = cached.get(HandCrankGeneratorBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return Direction.NORTH;
+    }
+
+    @Override
+    public double[] getStateArray() {
+        return CrankElement.snapshotState(stateArray);
+    }
+
+    @Override
+    public void setStateArray(double[] state) {
+        CrankElement.assignState(stateArray, state);
+    }
 
     @Override
     public BlockPos getPos() {
@@ -72,59 +102,39 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements IElect
     }
 
     @Override
-    public ElectricalState getElectricalState() {
-        return flywheelSpeed > 0.05 ? ElectricalState.NOMINAL : ElectricalState.OFF;
+    public boolean isActiveSource() {
+        return CrankElement.isActiveSource(stateArray[CrankElement.STATE_SPEED]);
     }
 
     @Override
-    public void setElectricalState(ElectricalState state) {}
-
-    // ==================== IElectricSource ====================
-
-    @Override
-    public double getElectromotiveForce() {
-        return electromotiveForce;
+    public boolean isACSource() {
+        return false;
     }
 
     @Override
-    public double getInternalResistance() {
-        return 0.15; // 150 mOhm internal winding resistance
+    public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
     }
 
-    @Override
-    public double getMaxOutputCurrent() {
-        return 8.33; // 8.33A rating (100W at 12V)
+    public void writeStateData(WriteView view) {
+        CrankElement.writeNbt(view, stateArray[CrankElement.STATE_SPEED], stateArray[CrankElement.STATE_ENERGY]);
     }
 
-    @Override
-    public double getFrequency() {
-        return 0.0; // DC output
-    }
-
-    @Override
-    public void onPowerDrawn(double currentAmps, double durationSeconds) {
-        this.lastDrawnCurrent = currentAmps;
-        double powerW = electromotiveForce * currentAmps;
-        this.totalEnergyJoules += powerW * durationSeconds;
-
-        // Electromagnetic counter-torque (back-EMF damping slows the flywheel faster under load)
-        double backEmfDamping = (powerW / 100.0) * 0.05;
-        this.flywheelSpeed = Math.max(0.0, this.flywheelSpeed - backEmfDamping);
-    }
-
-    // ==================== Serialization ====================
-
-    @Override
-    protected void readData(ReadView view) {
-        super.readData(view);
-        this.flywheelSpeed = view.getDouble("flywheel_speed", 0.0);
-        this.totalEnergyJoules = view.getDouble("total_energy_joules", 0.0);
+    public void readStateData(ReadView view) {
+        CrankElement.assignState(stateArray, CrankElement.readNbtState(view));
     }
 
     @Override
     protected void writeData(WriteView view) {
         super.writeData(view);
-        view.putDouble("flywheel_speed", this.flywheelSpeed);
-        view.putDouble("total_energy_joules", this.totalEnergyJoules);
+        writeStateData(view);
+    }
+
+    @Override
+    protected void readData(ReadView view) {
+        super.readData(view);
+        readStateData(view);
     }
 }

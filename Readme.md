@@ -37,10 +37,15 @@ No magic FE/RF buffers. VoltCraft simulates real Voltage (V), Current (I), Resis
 
 **Materials & worldgen** — Bauxite, Galena, Sphalerite, Spodumene, Pentlandite, High-Purity Quartz (stone + deepslate variants), with smelting into Al / Pb / Zn / Li / Ni / Ag, plus Nichrome, fuse alloy, rubber, and full semiconductor chain: boule → wafer → doped P/N → PV cell → MOSFET / Schottky / capacitor / BMS board.
 
-**Simulation engine**
-- Modified Nodal Analysis (DC) + AC phasor solver, thermal equilibrium solver
-- Centralized `ElectricalGrid.tick()` — wires never tick (see Architecture below)
-- Brownout / Surge / Overcurrent failure modes with fire, arcs, fuse pops
+**Simulation engine** ✅ kernel islands (grid-rehaul)
+- Single solve point `simulation/grid/ElectricalKernel.java` — Newton solve over the complex nodal system `Y·V = I`, returning `KernelSolveResult` (`voltage`, `converged`, `singular`, `residual`, `newtonIterations`, `linearEliminationSteps`, `fallbackActive`); one `tick()` = exactly one solve + RK2 integration at `DT = 0.05 s`, gated on `converged && !singular`
+- AC in the complex domain: `api/electrical/Complex.java` + `api/data/Phasor.java` (magnitude + phase); per-island `omega` is `0` for DC and `2π·50` (`AC_FREQUENCY_HZ = 50.0`) when an active AC source is present — see `GridConstants.java`
+- Islands, not one grid: `simulation/grid/GridManager.java` builds deterministic electrical islands (union-find over cable adjacency + same-block terminal ownership, `POS_ORDER` node/element ordering, islands ordered by minimum node). DC-only stamps (`constantPower`, `constantCurrent`, `oneWayThevenin` in `api/electrical/Stamps.java`) throw on AC islands, so converter inputs / creative loads stamp a resistive approximation (`R = Vnom²/P`) there
+- Elements are stateless descriptors; the kernel owns all `double[]` state. `BatteryElement` is a Thevenin equivalent (`V_term = V_emf(SoC) − I·R_pack`, `[SoC, T, health]` state, open-BMS `1 MΩ`, trip `60 °C` / reclose `55 °C`). `ConverterElement` is 4-terminal (staged demand on the input pair, staged EMF on the output pair, `0.05 Ω` source R, UVLO/thermal/overvoltage trip latches)
+- MPPT is a real P&O tracker (`simulation/generation/MPPTLogic.java`) with Bulk/Absorption/Float and output-current foldback (`P_out,max = P_solar·η`, `I_max = min(60 A, P_out,max/V_bus)`), so overloaded chargers sag honestly instead of diverging the solver
+- Energy Bridge `converter_eu`: 230 V AC (`207–253 V`, `f ≥ 40 Hz`) ↔ E (`25 W → 1 E/t`, `10 000 E` buffer, `512 E/t` max push) via `simulation/conversion/EuConverterLogic.java`
+- Wires never tick; melts (`T > melt`, strict) only queue cable breaks applied at the next rebuild boundary. Exactly-once discrete phase per tick via `ElectricalTickDedupe.java`. See Architecture below and `docs/kernel.md`
+- Brownout / Surge / Overcurrent failure modes with fire, arcs, fuse pops (unchanged)
 
 ## Physics
 
@@ -83,7 +88,7 @@ Defined in `gradle.properties`.
 ./gradlew build        # output in build/libs/
 ./gradlew runClient    # test client
 ./gradlew runServer    # test server
-./gradlew test         # JUnit 5 physics tests (MNA, AC, thermal, converters, grid topology)
+./gradlew test         # JUnit 5 physics tests (kernel Newton, complex nodal, thermal, converters, islands)
 ```
 
 Resources use `fabric.mod.json` expansion (`src/main/resources/fabric.mod.json`). Client datagen entrypoint: `com.ostapyrih.voltcraft.client.VoltcraftDataGenerator`.
@@ -99,9 +104,9 @@ Recipes and constants: `wiki/` catalog, start at `wiki/index.md`.
 
 ## Architecture
 
-1. **No wire ticking:** `CableBlock` / wire BlockEntities never tick. All Ohm/thermal math runs centrally in `simulation/grid/ElectricalGrid.java` — one tick per independent network. Merge on place, BFS split on break (`GridTopologyHelper.java`).
+1. **No wire ticking:** `CableBlock` / wire BlockEntities never tick. All nodal/thermal math runs centrally in `simulation/grid/ElectricalKernel.java` (one Newton solve per island per tick) under `simulation/grid/GridManager.java` — islands discovered by union-find over 6-neighbor cable adjacency plus same-block terminal ownership, rebuilt only when dirty (place/break hooks, chunk load/unload scans; no per-tick full scan). Conductors are mechanical `CableConductorAdapter` branches (cable R per `ConductorType`, averaged for mixed gauges, `0.001 Ω` default; terminal links `0.0001 Ω`, never melt).
 2. **Server-authoritative:** physics, grid management, fire/destruction run on the logical server only. Client gets sync packets (active state, smoke, glow/spark).
-3. **Persistence:** grids survive reboots via `PersistentState`; nodes in unloaded chunks suspend without tearing down topology (`GridManager.java`).
+3. **Persistence:** cables-only `PersistentState` (`GridManager`: `PERSISTENCE_KEY = "voltcraft_power_grids"`); kernel voltages and element states are transient (re-seeded from BlockEntities after each rebuild, with a position-matched warm-start carryover for islands that retain an active source). Nodes in unloaded chunks are excluded from the rebuild without tearing down the persisted cable index (`GridManager.java`).
 4. **Item vs Block storage:** portable cells (`item/battery/BatteryCellItem.java` + `VoltcraftDataComponents.java`) vs stationary BESS (`block/entity/storage/`). Racks/benches bridge the two.
 5. **Tools:** powered tools are unpowered chassis + swappable bays (1×18650 / 2×Alkaline / 3×NiMH, 3.0–4.2 V rail).
 
@@ -109,11 +114,12 @@ Recipes and constants: `wiki/` catalog, start at `wiki/index.md`.
 
 Contracts live in `src/main/java/com/ostapyrih/voltcraft/api/` and avoid leaking internals:
 
-- `grid/IElectricalGrid.java`, `IGridNode.java`, `IGridConductor.java`, `IElectricalConnectable.java`
-- `energy/IElectricComponent.java`, `IElectricSource.java`, `IElectricConsumer.java`, `IElectricStorage.java`, `IElectricConverter.java`
+- `electrical/ElectricalElement.java`, `Conductor.java`, `Complex.java`, `Stamps.java`, `GridConstants.java`
 - `data/ElectricalState.java`, `Phasor.java`, `BatteryCellSpec.java`
+- `grid/KernelAttachedBlock.java`, `IElectricalConnectable.java`
+- ❌ `api/energy/*` is an empty legacy directory — no contracts live there; the kernel islands are the single subsystem (legacy `ElectricalGrid` / `GridNode` / `GridConductor` / `GridTopologyHelper` / `ModifiedNodalAnalysis` / `ACSolver` types are deleted)
 
-Implement the interfaces on your BlockEntities and connect via cables/busbars — the grid discovers and ticks you.
+Implement `KernelAttachedBlock` on your BlockEntities and expose terminals via world positions — `GridManager` discovers and ticks you.
 
 ## Docs
 
@@ -128,11 +134,11 @@ Implement the interfaces on your BlockEntities and connect via cables/busbars �
 ```
 src/main/java/com/ostapyrih/voltcraft/
   api/            # public contracts (grid, energy, data)
-  simulation/     # grid, solver (MNA/AC/thermal), chemistry, conversion, generation, creative
+  simulation/     # grid (kernel/islands: ElectricalKernel, GridManager, IslandContext, CableConductorAdapter, ElectricalTickDedupe), solver (complex nodal/thermal), chemistry, conversion, generation, creative
   block/          # cables, switchgear, storage, conversion, generation, creative
   block/entity/   # BlockEntities (converters, batteries, solar, generators)
   item/  component/  screen/  network/  command/  world/
-src/test/java/... # CircuitDynamicsRealismTest, ACSolverTest, BatteryGridIntegrationTest, etc.
+src/test/java/... # LinearCircuitTest, NonlinearElementTest, KernelRobustnessTest, Adapter* (sources/converters/switchgear/topology/cleanup/integration), SolarMpptBatteryLoadSystemTest, GeneratorLoadEuSystemTest, etc.
 wiki/ raw/ core-idea.md
 ```
 

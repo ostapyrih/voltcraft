@@ -1,7 +1,8 @@
 package com.ostapyrih.voltcraft.block.entity.generation;
 
-import com.ostapyrih.voltcraft.api.data.ElectricalState;
-import com.ostapyrih.voltcraft.api.energy.IElectricSource;
+import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
+import com.ostapyrih.voltcraft.api.electrical.GridConstants;
+import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.generation.PortableGeneratorBlock;
 import net.minecraft.block.BlockState;
@@ -12,57 +13,65 @@ import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
+import com.ostapyrih.voltcraft.simulation.electrical.GeneratorElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
+
 /**
- * BlockEntity for the 1.8-2.2 kW Portable Inverter Generator.
- * Provides 230V 50Hz pure sine AC power with load-dependent eco-throttle fuel consumption.
+ * 1.8-2.2 kW portable inverter generator kernel adapter (230 V 50 Hz).
+ * Running stamps a Thevenin source; dry tank stamps open circuit.
+ * Kernel state is {@code [temperatureC, remainingFuelTicks]} with eco-throttle burn;
+ * the discrete phase mirrors the RUNNING blockstate and books delivered energy.
  */
-public class PortableGeneratorBlockEntity extends BlockEntity implements IElectricSource {
+public class PortableGeneratorBlockEntity extends BlockEntity implements KernelAttachedBlock {
 
     public static final double RATED_POWER_WATTS = 1800.0;
     public static final double SURGE_POWER_WATTS = 2200.0;
     public static final double OUTPUT_VOLTAGE_RMS = 230.0;
 
-    private static final double INTERNAL_RESISTANCE_OHM = 0.15; // 150 mOhm inverter bridge internal resistance
-    private static final double OUTPUT_FREQUENCY_HZ = 50.0; // 50 Hz Pure Sine Wave AC
 
-    // Eco-throttle fuel burn: idle consumes IDLE_FUEL_BURN_RATIO, 100% rated load consumes 1.0x.
-    private static final double IDLE_FUEL_BURN_RATIO = 0.25;
-    private static final double LOAD_FUEL_BURN_RATIO = 0.75;
 
     private static final int BLOCKSTATE_UPDATE_FLAGS = 3; // notify neighbors + sync to client
 
-    private double remainingFuelTicks = 0.0;
-    private double lastDeliveredCurrentAmps = 0.0;
-    private double lastDeliveredPowerWatts = 0.0;
+    private final double[] stateArray = GeneratorElement.newStateArray();
+    private final double[] telemetryCell = new double[2];
     private double totalEnergyJoules = 0.0;
+    /** Staged output EMF in volts (prime-mover current limit), read by the stamp. */
+    private double stagedEmf = OUTPUT_VOLTAGE_RMS;
+
+    private final ElectricalElement element;
 
     public PortableGeneratorBlockEntity(BlockPos pos, BlockState state) {
         super(VoltcraftBlockEntityTypes.PORTABLE_GENERATOR_BLOCK_ENTITY, pos, state);
+        this.element = new GeneratorElement(this::isRunning, () -> stagedEmf, telemetryCell);
     }
 
     public void addFuel(int ticks) {
-        this.remainingFuelTicks += ticks;
+        this.stateArray[GeneratorElement.STATE_FUEL] = Math.max(0.0, this.stateArray[GeneratorElement.STATE_FUEL] + ticks);
         markDirty();
     }
 
     public double getRemainingFuelTicks() {
-        return remainingFuelTicks;
+        return stateArray[GeneratorElement.STATE_FUEL];
     }
 
     public boolean isRunning() {
-        return remainingFuelTicks > 0.0;
+        return stateArray[GeneratorElement.STATE_FUEL] > 0.0;
     }
 
     public double getLastDeliveredCurrentAmps() {
-        return lastDeliveredCurrentAmps;
+        return telemetryCell[GeneratorElement.TELE_I];
     }
 
     public double getLastDeliveredPowerWatts() {
-        return lastDeliveredPowerWatts;
+        return telemetryCell[GeneratorElement.TELE_P];
     }
 
     public double getTotalEnergyJoules() {
         return totalEnergyJoules;
+    }
+
+    public double getTemperatureCelsius() {
+        return stateArray[GeneratorElement.STATE_TEMP];
     }
 
     public Direction getOutputFacing() {
@@ -77,35 +86,43 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements IElectr
         return pos.offset(getOutputFacing());
     }
 
-    /**
-     * Burns fuel with eco-throttle and syncs the RUNNING blockstate. Grid participation
-     * is handled centrally by {@code ElectricalGrid.refreshParticipants} — the source
-     * is discovered at this block's own grid node, no registration here.
-     */
     public void tick(ServerWorld world) {
-        boolean wasRunning = getCachedState().get(PortableGeneratorBlock.RUNNING);
-        boolean running = isRunning();
-
-        // 1. Eco-throttle fuel consumption
-        if (running) {
-            double loadRatio = Math.min(1.0, lastDeliveredPowerWatts / RATED_POWER_WATTS);
-            double burnRate = IDLE_FUEL_BURN_RATIO + (LOAD_FUEL_BURN_RATIO * loadRatio);
-            this.remainingFuelTicks = Math.max(0.0, this.remainingFuelTicks - burnRate);
-            if (this.remainingFuelTicks <= 0.0) {
-                running = false;
-            }
-        } else {
-            this.lastDeliveredCurrentAmps = 0.0;
-            this.lastDeliveredPowerWatts = 0.0;
-        }
-
-        // Sync blockstate RUNNING property
-        if (wasRunning != running) {
-            world.setBlockState(pos, getCachedState().with(PortableGeneratorBlock.RUNNING, running), BLOCKSTATE_UPDATE_FLAGS);
-        }
+        tickElectrical(world);
     }
 
-    // ==================== IElectricComponent ====================
+    @Override
+    public ElectricalElement getElement() {
+        return element;
+    }
+
+    @Override
+    public BlockPos[] getTerminalPositions() {
+        return GeneratorElement.resolveTerminals(pos, readFacing());
+    }
+
+    private Direction readFacing() {
+        try {
+            BlockState cached = getCachedState();
+            if (cached != null && cached.contains(PortableGeneratorBlock.FACING)) {
+                Direction facing = cached.get(PortableGeneratorBlock.FACING);
+                if (facing != null) {
+                    return facing;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return Direction.NORTH;
+    }
+
+    @Override
+    public double[] getStateArray() {
+        return GeneratorElement.snapshotState(stateArray);
+    }
+
+    @Override
+    public void setStateArray(double[] state) {
+        GeneratorElement.assignState(stateArray, state);
+    }
 
     @Override
     public BlockPos getPos() {
@@ -113,55 +130,65 @@ public class PortableGeneratorBlockEntity extends BlockEntity implements IElectr
     }
 
     @Override
-    public ElectricalState getElectricalState() {
-        return isRunning() ? ElectricalState.NOMINAL : ElectricalState.OFF;
+    public boolean isActiveSource() {
+        return GeneratorElement.isActiveSource(isRunning());
     }
 
     @Override
-    public void setElectricalState(ElectricalState state) {}
-
-    // ==================== IElectricSource ====================
-
-    @Override
-    public double getElectromotiveForce() {
-        return isRunning() ? OUTPUT_VOLTAGE_RMS : 0.0;
+    public boolean isACSource() {
+        return true;
     }
 
     @Override
-    public double getInternalResistance() {
-        return INTERNAL_RESISTANCE_OHM;
+    public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
+        // Stage the prime-mover limit from the previously solved operating
+        // point before the kernel builds the next system.
+        double teleI = telemetryCell[GeneratorElement.TELE_I];
+        double teleP = telemetryCell[GeneratorElement.TELE_P];
+        double teleV = teleI > 1e-6 ? teleP / teleI : 0.0;
+        boolean running = isRunning();
+        stagedEmf = GeneratorElement.stageEmf(running, teleV, teleI);
+        if (!running) {
+            telemetryCell[GeneratorElement.TELE_I] = 0.0;
+            telemetryCell[GeneratorElement.TELE_P] = 0.0;
+        } else {
+            double p = telemetryCell[GeneratorElement.TELE_P];
+            if (p > 0.0) {
+                this.totalEnergyJoules += p * GridConstants.DT;
+            }
+        }
+        if (world != null) {
+            BlockState cached = getCachedState();
+            if (cached.contains(PortableGeneratorBlock.RUNNING)
+                    && cached.get(PortableGeneratorBlock.RUNNING) != running) {
+                world.setBlockState(pos, cached.with(PortableGeneratorBlock.RUNNING, running),
+                    BLOCKSTATE_UPDATE_FLAGS);
+            }
+        }
     }
 
-    @Override
-    public double getMaxOutputCurrent() {
-        return SURGE_POWER_WATTS / OUTPUT_VOLTAGE_RMS; // ~9.56 A surge limit
+    public void writeStateData(WriteView view) {
+        GeneratorElement.writeNbt(view, stateArray[GeneratorElement.STATE_TEMP], stateArray[GeneratorElement.STATE_FUEL],
+            totalEnergyJoules);
     }
 
-    @Override
-    public double getFrequency() {
-        return OUTPUT_FREQUENCY_HZ;
-    }
-
-    @Override
-    public void onPowerDrawn(double currentAmps, double durationSeconds) {
-        this.lastDeliveredCurrentAmps = currentAmps;
-        this.lastDeliveredPowerWatts = OUTPUT_VOLTAGE_RMS * currentAmps;
-        this.totalEnergyJoules += lastDeliveredPowerWatts * durationSeconds;
-    }
-
-    // ==================== Serialization ====================
-
-    @Override
-    protected void readData(ReadView view) {
-        super.readData(view);
-        this.remainingFuelTicks = view.getDouble("remaining_fuel_ticks", 0.0);
-        this.totalEnergyJoules = view.getDouble("total_energy_joules", 0.0);
+    public void readStateData(ReadView view) {
+        GeneratorElement.assignState(stateArray, GeneratorElement.readNbtState(view));
+        this.totalEnergyJoules = GeneratorElement.readNbtTotalEnergy(view);
     }
 
     @Override
     protected void writeData(WriteView view) {
         super.writeData(view);
-        view.putDouble("remaining_fuel_ticks", this.remainingFuelTicks);
-        view.putDouble("total_energy_joules", this.totalEnergyJoules);
+        writeStateData(view);
+    }
+
+    @Override
+    protected void readData(ReadView view) {
+        super.readData(view);
+        readStateData(view);
     }
 }

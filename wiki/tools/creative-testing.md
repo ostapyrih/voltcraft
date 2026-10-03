@@ -67,6 +67,16 @@ The dummy load operates in three distinct physical modes:
 2. **Constant Current ($I$ Mode):** Simulates an active electronic current sink pulling fixed amperage ($P = V \cdot I$).
 3. **Constant Power ($P$ Mode):** Simulates a switch-mode power supply or inverter load where $I = P/V$ (negative incremental impedance).
 
+### 3.3 Brownout Dropout & Open-Port Behavior (fixed 2026-10)
+* **Dropout (P/I modes):** like real hardware, the load halts below $6\text{ V}$ terminal and
+  picks back up above $10\text{ V}$ (staged hysteresis flag, evaluated pre-solve so the Newton
+  loop always sees a fixed mode). Without it a source-limited rail spirals into collapse instead
+  of honest hiccup. Resistance mode (linear) is exempt; AC operation sags resistively and never
+  reaches the floor except on a dead bus.
+* **Open port:** a load with no conductive return path through the rest of the grid stamps open
+  (`requiresReturnPath`), reports $0\text{ V} / 0\text{ A}$ instead of freezing pre-fault telemetry.
+  Sources instead correctly hold open-circuit voltage at open terminals.
+
 ### 3.3 Graphical Interface (GUI Dashboard)
 Right-clicking the dummy load with an empty hand opens the test bench dashboard ($300 \times 210\text{ px}$):
 * **Live Status Badge:** `ACTIVE` (green) or `DISABLED` (red).

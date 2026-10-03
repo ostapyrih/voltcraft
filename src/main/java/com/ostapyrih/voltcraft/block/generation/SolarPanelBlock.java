@@ -81,18 +81,13 @@ public class SolarPanelBlock extends AbstractGridBlock {
      */
     @Override
     public boolean canConnect(BlockView world, BlockPos pos, Direction side, BlockState state) {
-        return side != Direction.UP;
+        Direction facing = state.get(FACING);
+        return side == facing || side == facing.getOpposite();
     }
 
-    /**
-     * Panels are electrically continuous endpoints: the panel's own node hosts its Thevenin
-     * source, and any cable that terminates on the panel should join that node. Returning
-     * {@code true} here lets {@code GridManager.onConductorPlaced} see the panel as a valid
-     * neighbour when a cable is placed adjacent to it, which is what triggers the grid merge.
-     */
     @Override
     public boolean isThroughConductor() {
-        return true;
+        return false;
     }
 
     // ==================== Lifecycle ====================

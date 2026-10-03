@@ -5,6 +5,7 @@ import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.simulation.conversion.RectifierType;
 import net.minecraft.block.BlockState;
 import net.minecraft.util.math.BlockPos;
+import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
 
 /**
  * Block entity for AC-DC rectifiers (Bridge Rectifier, Active Synchronous Rectifier).
@@ -44,6 +45,11 @@ public class RectifierBlockEntity extends AbstractPowerConverterBlockEntity {
     @Override
     public int getTypeKind() {
         return 3; // Rectifier
+    }
+
+    @Override
+    public boolean isACSource() {
+        return ConverterElement.isACOutput(getTypeKind());
     }
 
     @Override

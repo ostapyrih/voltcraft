@@ -48,9 +48,8 @@ public abstract class AbstractPowerConverterBlock extends AbstractGridBlock {
 
     @Override
     public boolean canConnect(BlockView world, BlockPos pos, Direction side, BlockState state) {
-        Direction facing = state.get(FACING);
-        // Connects to input (back) and output (front)
-        return side == facing || side == facing.getOpposite();
+        // Connects to all 4 horizontal ports (Input: Back+, Left-; Output: Front+, Right-)
+        return side.getAxis().isHorizontal();
     }
 
     @Override
@@ -93,7 +92,7 @@ public abstract class AbstractPowerConverterBlock extends AbstractGridBlock {
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(World world, BlockState state, BlockEntityType<T> type) {
         return world.isClient() ? null : (w, p, s, be) -> {
             if (be instanceof AbstractPowerConverterBlockEntity converter) {
-                converter.tick((ServerWorld) w);
+                converter.tickElectrical((ServerWorld) w);
             }
         };
     }

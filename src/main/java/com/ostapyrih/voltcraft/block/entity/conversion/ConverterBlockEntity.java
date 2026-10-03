@@ -5,6 +5,7 @@ import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.simulation.conversion.ConverterType;
 import net.minecraft.block.BlockState;
 import net.minecraft.util.math.BlockPos;
+import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
 
 /**
  * Block entity for DC-DC switched-mode converters (Buck, Boost, Buck-Boost) and linear LDO regulators.
@@ -49,6 +50,11 @@ public class ConverterBlockEntity extends AbstractPowerConverterBlockEntity {
     @Override
     public int getTypeKind() {
         return 0; // DC-DC
+    }
+
+    @Override
+    public boolean isACSource() {
+        return ConverterElement.isACOutput(getTypeKind());
     }
 
     @Override
