@@ -4,6 +4,7 @@ import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.block.conversion.InverterBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.simulation.conversion.InverterType;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import net.minecraft.block.BlockState;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.storage.ReadView;
@@ -94,7 +95,10 @@ public class InverterBlockEntity extends AbstractPowerConverterBlockEntity {
 
     @Override
     public void tickElectrical(ServerWorld world) {
-        super.tickElectrical(world);
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
+        super.doTickElectrical(world);
         updateKernelInverterProtection();
     }
 

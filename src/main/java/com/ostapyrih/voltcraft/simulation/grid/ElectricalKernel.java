@@ -287,6 +287,14 @@ public final class ElectricalKernel {
                     active = t.clone();
                     active[0] = active[1] = t[0];
                 }
+            } else if (t.length == 2 && elements.get(idx).requiresReturnPath()
+                && !hasReturnPath(t[0], t[1], idx, 0)) {
+                // Open-ported load: shorting both terminals onto one node
+                // neutralizes any stamp (admittance and injection self-cancel),
+                // so the element draws nothing instead of stalling Newton on
+                // the constant-power fallback kink of a stub node.
+                active = t.clone();
+                active[0] = active[1] = t[0];
             }
             elements.get(idx).stamp(y, inj, active, v, elementStates.get(idx), omega);
         }
@@ -538,8 +546,10 @@ public final class ElectricalKernel {
         Complex[] it = new Complex[k];
         boolean port0Open = k >= 4 && !hasReturnPath(terms[0], terms[1], elementIndex, 0);
         boolean port1Open = k >= 4 && !hasReturnPath(terms[2], terms[3], elementIndex, 1);
+        boolean loadOpen = k == 2 && element.requiresReturnPath()
+            && !hasReturnPath(terms[0], terms[1], elementIndex, 0);
         for (int j = 0; j < k; j++) {
-            if ((j < 2 && port0Open) || (j >= 2 && port1Open)) {
+            if ((j < 2 && port0Open) || (j >= 2 && port1Open) || loadOpen) {
                 it[j] = Complex.ZERO;
                 continue;
             }
@@ -610,6 +620,12 @@ public final class ElectricalKernel {
                 vt[0] = Complex.ZERO;
                 vt[1] = Complex.ZERO;
             }
+        } else if (k == 2 && terms.length >= 2 && elements.get(elemIdx).requiresReturnPath()
+            && !hasReturnPath(terms[0], terms[1], elemIdx, 0)) {
+            // Open-ported load: report 0 V so telemetry settles at 0 W
+            // instead of freezing at pre-fault values.
+            vt[0] = Complex.ZERO;
+            vt[1] = Complex.ZERO;
         }
     }
 

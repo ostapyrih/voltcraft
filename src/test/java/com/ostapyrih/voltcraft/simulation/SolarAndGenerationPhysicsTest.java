@@ -115,8 +115,12 @@ public class SolarAndGenerationPhysicsTest {
         assertEquals(MPPTLogic.ChargeStage.ABSORPTION, mppt.getStage());
         assertEquals(28.8, vTarget, 0.01);
 
-        // 3. Absorption completes when current tapers (< 0.2A) -> transitions to Float
-        vTarget = mppt.step(60.0, 0.15, 28.8);
+        // 3. Absorption completes when current tapers (< 0.2A) -> transitions to Float.
+        // The taper must persist through the absorption-exit debounce (short
+        // transients ride through); loop past it.
+        for (int i = 0; i < 45; i++) {
+            vTarget = mppt.step(60.0, 0.15, 28.8);
+        }
         assertEquals(MPPTLogic.ChargeStage.FLOAT, mppt.getStage());
         assertEquals(27.2, vTarget, 0.01); // Drops to float maintenance voltage
 
@@ -175,8 +179,10 @@ public class SolarAndGenerationPhysicsTest {
         assertEquals(MPPTLogic.ChargeStage.ABSORPTION, mppt48.getStage());
         assertEquals(57.6, vTarget, 0.01);
 
-        // 3. Absorption to Float when current drops
-        vTarget = mppt48.step(100.0, 0.1, 57.6);
+        // 3. Absorption to Float when current drops (sustained taper past the debounce)
+        for (int i = 0; i < 45; i++) {
+            vTarget = mppt48.step(100.0, 0.1, 57.6);
+        }
         assertEquals(MPPTLogic.ChargeStage.FLOAT, mppt48.getStage());
         assertEquals(54.4, vTarget, 0.01);
 

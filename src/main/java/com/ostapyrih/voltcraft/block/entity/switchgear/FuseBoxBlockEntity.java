@@ -15,6 +15,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
 import com.ostapyrih.voltcraft.simulation.electrical.FuseElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 
 /**
  * Sacrificial cartridge-fuse kernel adapter.
@@ -110,6 +111,9 @@ public class FuseBoxBlockEntity extends BlockEntity implements KernelAttachedBlo
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
         if (FuseElement.blowCheck(stateArray[FuseElement.STATE_INTEGRITY], blown) && !blown) {
             blown = true;
             markDirty();

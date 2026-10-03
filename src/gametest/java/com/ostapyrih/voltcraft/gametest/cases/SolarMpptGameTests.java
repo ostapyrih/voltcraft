@@ -1,10 +1,18 @@
 package com.ostapyrih.voltcraft.gametest.cases;
 
+import com.ostapyrih.voltcraft.block.VoltcraftBlocks;
 import com.ostapyrih.voltcraft.block.entity.generation.ChargeControllerBlockEntity;
+import com.ostapyrih.voltcraft.block.entity.generation.SolarPanelBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity;
+import com.ostapyrih.voltcraft.block.generation.SolarPanelBlock;
+import com.ostapyrih.voltcraft.block.storage.BatteryBlock;
 import com.ostapyrih.voltcraft.gametest.framework.GameTestCircuitBuilder;
+import com.ostapyrih.voltcraft.simulation.electrical.BatteryElement;
+import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.test.TestContext;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Direction;
 
 /**
  * Native Minecraft Fabric GameTests for the Solar -> MPPT -> Battery -> Load circuit.
@@ -205,6 +213,182 @@ public class SolarMpptGameTests {
             BatteryBlockEntity bat = GameTestCircuitBuilder.getBattery(context);
             context.assertTrue(bat != null, "Battery must exist");
             context.assertFalse(bat.isBmsOpen(), "Battery BMS must not trip into protection on 1000W load");
+            context.complete();
+        });
+    }
+
+    @GameTest(structure = "fabric-gametest-api-v1:empty", skyAccess = true, maxTicks = 80)
+    public void testMpptOutputMinusDisconnect(TestContext context) {
+        GameTestCircuitBuilder.buildCircuit(context);
+        // Partly discharged bank (mirrors the unit rig): demanding charge
+        // power from a 100% full bank with no headroom is physically vacuous
+        // (correct Pout ~0), so the resume assert needs somewhere to push.
+        GameTestCircuitBuilder.setBatterySoc(context, 0.8);
+        GameTestCircuitBuilder.setLoad(context, 500.0);
+        context.runAtTick(5, () -> GameTestCircuitBuilder.setBatterySoc(context, 0.8));
+
+        context.runAtTick(15, () -> {
+            GameTestCircuitBuilder.breakCable(context, GameTestCircuitBuilder.MPPT_OUT_MINUS);
+        });
+
+        context.runAtTick(30, () -> {
+            ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
+            var load = GameTestCircuitBuilder.getLoad(context);
+            var bat = GameTestCircuitBuilder.getBattery(context);
+            context.assertTrue(mppt != null && load != null && bat != null, "Blocks must exist");
+            context.assertTrue(mppt.getOutputPowerWatts() < 5.0,
+                "BUG: MPPT output-minus cut, but the charger still delivers power, got: "
+                    + mppt.getOutputPowerWatts());
+            context.assertTrue(load.getLastDeliveredPower() > 400.0,
+                "Battery must carry the 500W load alone while MPPT output is open, got: "
+                    + load.getLastDeliveredPower());
+            context.assertFalse(mppt.isTripped(), "MPPT must not trip on output wire loss");
+        });
+
+        context.runAtTick(45, () -> {
+            GameTestCircuitBuilder.restoreCable(context, GameTestCircuitBuilder.MPPT_OUT_MINUS);
+        });
+
+        context.runAtTick(65, () -> {
+            ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
+            context.assertTrue(mppt != null && mppt.getOutputPowerWatts() > 50.0,
+                "MPPT must resume after output-minus restore, got: "
+                    + (mppt == null ? "null" : mppt.getOutputPowerWatts()));
+            context.complete();
+        });
+    }
+
+    @GameTest(structure = "fabric-gametest-api-v1:empty", skyAccess = true, maxTicks = 80)
+    public void testMpptInputMinusDisconnect(TestContext context) {
+        GameTestCircuitBuilder.buildCircuit(context);
+        GameTestCircuitBuilder.setBatterySoc(context, 0.8);
+        context.runAtTick(5, () -> GameTestCircuitBuilder.setBatterySoc(context, 0.8));
+
+        context.runAtTick(15, () -> {
+            GameTestCircuitBuilder.breakCable(context, GameTestCircuitBuilder.SOLAR_MINUS_CABLE);
+        });
+
+        context.runAtTick(30, () -> {
+            ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
+            context.assertTrue(mppt != null, "MPPT must exist");
+            context.assertTrue(mppt.getInputVoltage() < 1.0,
+                "Input voltage must be ~0V without the solar return, got: " + mppt.getInputVoltage());
+            context.assertTrue(mppt.getOutputPowerWatts() < 1.0,
+                "Output must be dark without the solar return, got: " + mppt.getOutputPowerWatts());
+            context.assertFalse(mppt.isTripped(), "MPPT must not trip on input wire loss");
+        });
+
+        context.runAtTick(45, () -> {
+            GameTestCircuitBuilder.restoreCable(context, GameTestCircuitBuilder.SOLAR_MINUS_CABLE);
+        });
+
+        context.runAtTick(65, () -> {
+            ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
+            context.assertTrue(mppt != null && mppt.getOutputPowerWatts() > 50.0,
+                "MPPT must resume after input-minus restore, got: "
+                    + (mppt == null ? "null" : mppt.getOutputPowerWatts()));
+            context.complete();
+        });
+    }
+
+    @GameTest(structure = "fabric-gametest-api-v1:empty", skyAccess = true, maxTicks = 100)
+    public void testSecondBatteryParallel(TestContext context) {
+        GameTestCircuitBuilder.buildCircuit(context);
+        GameTestCircuitBuilder.setLoad(context, 100.0);
+
+        // Player parallels a second, half-empty bank at (4,1,6): both
+        // terminals land on the shared rails, no new cables needed.
+        BlockPos bat2Local = new BlockPos(4, 1, 6);
+        context.runAtTick(5, () -> {
+            context.setBlockState(bat2Local, VoltcraftBlocks.BATTERY_BLOCK_LEAD_ACID.getDefaultState()
+                .with(BatteryBlock.FACING, Direction.NORTH));
+            GameTestCircuitBuilder.registerAttached(context, bat2Local);
+            var be = context.getWorld().getBlockEntity(context.getAbsolutePos(bat2Local));
+            if (be instanceof BatteryBlockEntity bat2) {
+                double[] s = bat2.getStateArray();
+                s[BatteryElement.STATE_SOC] = 0.5;
+                bat2.setStateArray(s);
+            }
+        });
+        for (int t = 6; t <= 12; t++) {
+            context.runAtTick(t, () -> GameTestCircuitBuilder.registerAttached(context, bat2Local));
+        }
+
+        context.runAtTick(70, () -> {
+            ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
+            BatteryBlockEntity bat = GameTestCircuitBuilder.getBattery(context);
+            var load = GameTestCircuitBuilder.getLoad(context);
+            var be2 = context.getWorld().getBlockEntity(context.getAbsolutePos(bat2Local));
+            context.assertTrue(mppt != null && bat != null && load != null
+                && be2 instanceof BatteryBlockEntity, "All blocks must exist");
+            BatteryBlockEntity bat2 = (BatteryBlockEntity) be2;
+            context.assertFalse(mppt.isTripped(), "MPPT must not trip with two banks in parallel");
+            context.assertFalse(bat.isBmsOpen(), "First BMS must stay closed");
+            context.assertFalse(bat2.isBmsOpen(), "Second BMS must stay closed");
+            context.assertTrue(load.getLastDeliveredPower() > 90.0,
+                "100W load must stay fed with two banks, got: " + load.getLastDeliveredPower());
+            context.assertTrue(mppt.getOutputCurrentAmps() > -2.0,
+                "BUG: MPPT must not sink pack current backwards, got: " + mppt.getOutputCurrentAmps());
+            context.complete();
+        });
+    }
+
+    @GameTest(structure = "fabric-gametest-api-v1:empty", skyAccess = true, maxTicks = 100)
+    public void testStiffSourceOnOutputBus(TestContext context) {
+        GameTestCircuitBuilder.buildCircuit(context);
+        GameTestCircuitBuilder.setLoad(context, 100.0);
+
+        // A stiff 48 V source (second panel) straight across the 12 V output
+        // bus at (4,1,6): the bus outranks the ~14.7 V charge target, so the
+        // charger must idle at ~0 A (ideal-diode OR-ing), not backfeed pack
+        // current while reporting an honest 0 W at ~0 A. The battery is
+        // removed first: a stiff 12 V bank would clamp the bus near 14.6 V
+        // and no backfeed could develop; floating, the bus rises to the panel.
+        BlockPos stiffLocal = new BlockPos(4, 1, 6);
+        context.runAtTick(5, () -> {
+            context.getWorld().breakBlock(
+                context.getAbsolutePos(GameTestCircuitBuilder.BATTERY_POS), false);
+            BlockPos absStiff = context.getAbsolutePos(stiffLocal);
+            for (int y = absStiff.getY() + 1; y <= 320; y++) {
+                context.getWorld().setBlockState(
+                    new BlockPos(absStiff.getX(), y, absStiff.getZ()),
+                    net.minecraft.block.Blocks.AIR.getDefaultState(), 2);
+            }
+            context.setBlockState(stiffLocal, VoltcraftBlocks.SOLAR_PANEL_MONOCRYSTALLINE.getDefaultState()
+                .with(SolarPanelBlock.FACING, Direction.NORTH));
+            GameTestCircuitBuilder.registerAttached(context, stiffLocal);
+        });
+        // Registration retry: the block entity may not materialize on the
+        // placement tick; putAttachedBlock is idempotent, so re-assert until
+        // the bus is provably hot (bounds join timing for the trip asserts).
+        for (int t = 6; t <= 12; t++) {
+            final int tick = t;
+            context.runAtTick(t, () -> {
+                GameTestCircuitBuilder.registerAttached(context, stiffLocal);
+                if (tick == 12) {
+                    var be = context.getWorld().getBlockEntity(context.getAbsolutePos(stiffLocal));
+                    context.assertTrue(be instanceof SolarPanelBlockEntity,
+                        "Stiff panel block entity must exist by tick 12");
+                }
+            });
+        }
+
+        // Early: charger idles instead of backfeeding (mismatch protection
+        // needs ~60 ticks to latch, so this window isolates blocking).
+        context.runAtTick(30, () -> {
+            ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
+            context.assertTrue(mppt != null, "MPPT must exist");
+            context.assertFalse(mppt.isTripped(), "MPPT must not trip instantly on a hot bus");
+            context.assertTrue(Math.abs(mppt.getOutputCurrentAmps()) < 5.0,
+                "BUG: charger backfeeds into the hotter bus instead of idling, got: "
+                    + mppt.getOutputCurrentAmps());
+        });
+
+        // Late: sustained 48 V on a 12 V bank is genuinely wrong and must trip.
+        context.runAtTick(85, () -> {
+            ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
+            context.assertTrue(mppt != null && mppt.isTripped(),
+                "MPPT must latch on a sustained wrong-bank bus");
             context.complete();
         });
     }

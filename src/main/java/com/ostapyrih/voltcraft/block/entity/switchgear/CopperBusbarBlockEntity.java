@@ -14,6 +14,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
 import com.ostapyrih.voltcraft.simulation.electrical.BusbarElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 
 /**
  * High-ampacity (500 A) copper busbar kernel adapter.
@@ -76,6 +77,9 @@ public class CopperBusbarBlockEntity extends BlockEntity implements KernelAttach
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
     }
 
     public void writeStateData(WriteView view) {

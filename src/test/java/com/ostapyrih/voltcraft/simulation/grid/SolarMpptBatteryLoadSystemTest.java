@@ -113,6 +113,8 @@ public class SolarMpptBatteryLoadSystemTest {
         double targetOutputVoltage = 12.0; // 12V bank preset
         double stagedInputDemandWatts = 0.0;
         double stagedOutputEmf = 0.0;
+        boolean ccMode = false;
+        int ccHeadroomTicks = 0;
 
         double inputVoltage = 0.0;
         double inputCurrentAmps = 0.0;
@@ -205,14 +207,47 @@ public class SolarMpptBatteryLoadSystemTest {
                 } else {
                     rawTarget = mpptLogic.getFloatVoltage();
                 }
+                // Compensated charge voltage: mirrors ChargeControllerBlockEntity.
+                double iPrev = Math.max(0.0, outputCurrentAmps);
+                rawTarget += 0.3 * Math.min(1.0, iPrev / 5.0)
+                    + Math.min(iPrev * 0.03, 0.8);
 
-                // Solar foldback: exactly matching ChargeControllerBlockEntity.java:262-270
+                // Solar CC/CV regulation: mirrors ChargeControllerBlockEntity.
+                // CV stages the full charge target; CC (output current above
+                // what the sun sustains) hugs the rail at exactly the solar
+                // current so output tracks input. Rail-hug only on a formed
+                // rail so a dead bus bootstraps instead of pinning near zero.
                 double availSolar = getAvailableSolarWatts();
-                if (availSolar > 0.0 && actualOutputVoltage > 1.0) {
-                    double pOutMax = availSolar * 0.95;
-                    double iMax = Math.min(30.0, pOutMax / Math.max(1.0, actualOutputVoltage));
-                    double vMaxFoldback = actualOutputVoltage + iMax * ConverterElement.SOURCE_R_OHM;
+                double iCap = availSolar > 0.0
+                    ? Math.min(30.0, availSolar * 0.95 / Math.max(1.0, rawTarget))
+                    : 0.0;
+                if (!ccMode && iCap > 0.0 && telemetry[ConverterElement.TELE_P_OUT] > 0.0
+                    && outputCurrentAmps > iCap) {
+                    ccMode = true;
+                    ccHeadroomTicks = 0;
+                } else if (ccMode) {
+                    if (outputCurrentAmps < 0.8 * iCap) {
+                        ccMode = false;
+                        ccHeadroomTicks = 0;
+                    } else if (telemetry[ConverterElement.TELE_P_OUT] > 0.0
+                        && stagedInputDemandWatts < 0.95 * availSolar) {
+                        if (++ccHeadroomTicks >= 5) {
+                            ccMode = false;
+                            ccHeadroomTicks = 0;
+                        }
+                    } else {
+                        ccHeadroomTicks = 0;
+                    }
+                }
+                if (ccMode && actualOutputVoltage > 1.0) {
+                    double vMaxFoldback = actualOutputVoltage + iCap * ConverterElement.SOURCE_R_OHM;
                     rawTarget = Math.min(rawTarget, vMaxFoldback);
+                } else {
+                    // Ideal-diode OR-ing: mirrors ChargeControllerBlockEntity.
+                    rawTarget = Math.max(rawTarget, actualOutputVoltage);
+                }
+                if (actualOutputVoltage <= 1.0 && outputCurrentAmps > 30.0) {
+                    rawTarget = 0.0;
                 }
             }
 
@@ -225,14 +260,25 @@ public class SolarMpptBatteryLoadSystemTest {
                 this.stagedInputDemandWatts = Math.min(this.stagedInputDemandWatts, availSolar);
             }
             this.lastDemandWatts = stagedInputDemandWatts;
+            if (false) {
+                System.out.println("MPPT t: Vin=" + String.format("%.1f", inputVoltage)
+                    + " Vout=" + String.format("%.2f", actualOutputVoltage)
+                    + " Pout=" + String.format("%.0f", outputPowerWatts)
+                    + " Iout=" + String.format("%.1f", outputCurrentAmps)
+                    + " dem=" + String.format("%.0f", stagedInputDemandWatts)
+                    + " emf=" + String.format("%.2f", stagedOutputEmf)
+                    + " cc=" + ccMode + " stage=" + mpptLogic.getStage());
+            }
 
             // Output current foldback (hiccup, non-latching), mirroring
             // AbstractPowerConverterBlockEntity: sag EMF to current-limit instead
             // of latching a trip; recovers automatically once overload clears.
-            // UVLO is a non-latching brownout (output gates on minVin via
+            // Gated on a formed rail so an unformed bus stages raw target and
+            // can bootstrap instead of pinning near zero. UVLO is a
+            // non-latching brownout (output gates on minVin via
             // stageEmf), so the rail recovers by itself.
             double maxOut = 30.0;
-            if (!tripped && teleIOut > maxOut) {
+            if (!tripped && teleVOut > 1.0 && teleIOut > maxOut) {
                 double currentLimitEmf = Math.max(0.0, teleVOut)
                     + maxOut * ConverterElement.SOURCE_R_OHM;
                 if (stagedOutputEmf > currentLimitEmf) {
@@ -301,8 +347,23 @@ public class SolarMpptBatteryLoadSystemTest {
             if (!Double.isFinite(telemetry[BatteryElement.TELE_V])) {
                 return;
             }
-            boolean next = BatteryElement.bmsNext(bmsOpen, telemetry[BatteryElement.TELE_V],
-                stateArray[BatteryElement.STATE_TEMP], BatteryElement.packMinVoltage(chemistry, seriesCount), seriesCount);
+            // Mirrors BatteryBlockEntity: healthy charge forces closed so
+            // load-induced sag and pre-bootstrap artifacts never latch.
+            double minPackV = BatteryElement.packMinVoltage(chemistry, seriesCount);
+            double recoverV = minPackV + Math.max(1, seriesCount)
+                * BatteryElement.BMS_RECOVERY_HYST_V_PER_CELL;
+            double emf = BatteryElement.packEmf(chemistry, seriesCount,
+                stateArray[BatteryElement.STATE_SOC]);
+            double tempC = stateArray[BatteryElement.STATE_TEMP];
+            boolean next;
+            if (tempC > BatteryElement.BMS_OVERTEMP_OPEN_C) {
+                next = true;
+            } else if (emf > recoverV && tempC < BatteryElement.BMS_OVERTEMP_CLOSE_C) {
+                next = false;
+            } else {
+                next = BatteryElement.bmsNext(bmsOpen, telemetry[BatteryElement.TELE_V],
+                    tempC, minPackV, seriesCount);
+            }
             if (next != bmsOpen) {
                 bmsOpen = next;
             }
@@ -325,6 +386,7 @@ public class SolarMpptBatteryLoadSystemTest {
         final double[] telemetry = new double[2];
         boolean enabled = false;
         double targetWatts = 2500.0;
+        boolean droppedOut = false;
         final CreativeLoadElement element;
 
         LoadModel(BlockPos pos, Direction facing) {
@@ -333,7 +395,7 @@ public class SolarMpptBatteryLoadSystemTest {
             this.element = new CreativeLoadElement(
                 () -> CreativeLoadElement.MODE_POWER,
                 () -> targetWatts,
-                () -> enabled,
+                () -> enabled && !droppedOut,
                 () -> 12.0,
                 telemetry
             );
@@ -357,7 +419,15 @@ public class SolarMpptBatteryLoadSystemTest {
         public void setStateArray(double[] s) {}
 
         @Override
-        public void tickElectrical(ServerWorld world) {}
+        public void tickElectrical(ServerWorld world) {
+            // Mirrors CreativeLoadBlockEntity brownout dropout (6 V / 10 V).
+            double teleV = telemetry[CreativeLoadElement.TELE_V];
+            if (!droppedOut && teleV < 6.0) {
+                droppedOut = true;
+            } else if (droppedOut && teleV > 10.0) {
+                droppedOut = false;
+            }
+        }
 
         @Override
         public boolean isActiveSource() { return false; }
@@ -992,6 +1062,10 @@ public class SolarMpptBatteryLoadSystemTest {
         }
 
         // --- CASE B: Cold Start directly at 1000W ---
+        // NOTE: heavy-gauge bus, mirroring the in-engine rig. Thin insulated
+        // wire (6.8 mOhm/segment) caps this run at ~930 W of maximum power
+        // transfer, so 1000 W is physically undeliverable there no matter the
+        // numerics; the rig under test uses heavy copper.
         GridManager cold1000Manager = new GridManager();
         BatteryModel coldBattery1000 = new BatteryModel(pos(0, 64, 12), Direction.NORTH, BatteryChemistry.LEAD_ACID, 6, 1);
         LoadModel coldLoad1000 = new LoadModel(pos(3, 64, 12), Direction.NORTH);
@@ -1002,8 +1076,8 @@ public class SolarMpptBatteryLoadSystemTest {
         cold1000Manager.putAttachedBlock(coldLoad1000);
 
         for (int x = 0; x <= 3; x++) {
-            cold1000Manager.putCable(pos(x, 64, 11), ConductorType.INSULATED_COPPER);
-            cold1000Manager.putCable(pos(x, 64, 13), ConductorType.INSULATED_COPPER);
+            cold1000Manager.putCable(pos(x, 64, 11), ConductorType.HEAVY_COPPER);
+            cold1000Manager.putCable(pos(x, 64, 13), ConductorType.HEAVY_COPPER);
         }
 
         for (int i = 0; i < 5; i++) {
@@ -1026,8 +1100,8 @@ public class SolarMpptBatteryLoadSystemTest {
         cold1500Manager.putAttachedBlock(coldLoad1500);
 
         for (int x = 0; x <= 3; x++) {
-            cold1500Manager.putCable(pos(x, 64, 11), ConductorType.INSULATED_COPPER);
-            cold1500Manager.putCable(pos(x, 64, 13), ConductorType.INSULATED_COPPER);
+            cold1500Manager.putCable(pos(x, 64, 11), ConductorType.HEAVY_COPPER);
+            cold1500Manager.putCable(pos(x, 64, 13), ConductorType.HEAVY_COPPER);
         }
 
         for (int i = 0; i < 5; i++) {
@@ -1172,12 +1246,17 @@ public class SolarMpptBatteryLoadSystemTest {
         stepTicks(10);
         assertEquals(500.0, load.getPowerDrawn(), 15.0, "Circuit fully running at 500W");
 
-        // Cut the bus between Battery/MPPT and Load on positive rail: pos(2, 64, 13)
-        // Bat(+) is at x=0, Load(+) is at x=4. Cutting x=2 splits into:
-        // Island A: Solar + MPPT + Battery
-        // Island B: Load alone (no source)
-        BlockPos busMidPlus = pos(2, 64, 13);
-        manager.removeCable(busMidPlus);
+        // Sectionalize the MINUS rail between Battery/MPPT and Load: cutting
+        // pos(2, 64, 11) leaves the load (+) lead live off the ring bus but
+        // with no return, so the open-ported load draws nothing, while the
+        // MPPT -> battery loop (output (+) via the ring, output (-) via the
+        // intact left minus segment) keeps charging in the source island.
+        // NOTE: cutting the (+) rail instead would strand Battery(+) on a
+        // stub and stop charging; a single (+) cut on this ring bus does not
+        // island anything at all (feeds around), so minus-rail sectionalizing
+        // is the physically meaningful split here.
+        BlockPos busMidMinus = pos(2, 64, 11);
+        manager.removeCable(busMidMinus);
         stepTicks(5);
 
         System.out.println("BUS CUT (Split Islands): LoadP=" + load.getPowerDrawn()
@@ -1190,8 +1269,8 @@ public class SolarMpptBatteryLoadSystemTest {
         assertTrue(battery.getTerminalCurrent() < -1.0, "Battery should be charging from MPPT in Island A");
         assertFalse(mppt.tripped, "MPPT should not trip when load branch is separated");
 
-        // Reconnect bus segment pos(2, 64, 13) to reunite islands
-        manager.putCable(busMidPlus, ConductorType.HEAVY_COPPER);
+        // Reconnect bus segment pos(2, 64, 11) to reunite islands
+        manager.putCable(busMidMinus, ConductorType.HEAVY_COPPER);
         stepTicks(5);
 
         System.out.println("BUS RESTORED (Reunited): LoadP=" + load.getPowerDrawn()
@@ -1282,6 +1361,91 @@ public class SolarMpptBatteryLoadSystemTest {
         assertTrue(battery.getTerminalCurrent() < 0.0,
             "BUG DETECTED: Battery discharges into a 100W load despite ~380W of solar headroom! BatI: "
                 + battery.getTerminalCurrent());
+    }
+
+    @Test
+    @DisplayName("20. Test Case: hotter bank on the output bus must not backfeed the MPPT")
+    void testHotterBankDoesNotBackfeedMppt() {
+        // Player rig: a second, fuller bank (7S lead, OCV ~16.7V) holds the
+        // 12V-bank MPPT output bus ABOVE the charge target (~14.7V). A buck
+        // charger must idle (ideal-diode OR-ing), not sink pack current
+        // backwards while the GUI reports an honest 0W at ~0A (not 0W at 7+A).
+        manager.removeAttachedBlock(battery.pos);
+        battery = new BatteryModel(pos(0, 64, 12), Direction.NORTH, BatteryChemistry.LEAD_ACID, 7, 1);
+        manager.putAttachedBlock(battery);
+        connectFullCircuit();
+        battery.stateArray[BatteryElement.STATE_SOC] = 0.97;
+        load.enabled = true;
+        load.targetWatts = 100.0;
+        stepTicks(10);
+        System.out.println("T20 BACKFEED: MPPT Iout=" + mppt.outputCurrentAmps
+            + ", Pout=" + mppt.outputPowerWatts
+            + ", Vout=" + mppt.actualOutputVoltage
+            + ", BatV=" + battery.getTerminalVoltage()
+            + ", BatI=" + battery.getTerminalCurrent()
+            + ", LoadP=" + load.getPowerDrawn());
+        assertTrue(mppt.outputCurrentAmps < 1.0,
+            "BUG DETECTED: hotter bank backfeeds the MPPT output, charger sinks pack current! Iout: "
+                + mppt.outputCurrentAmps);
+        assertTrue(mppt.outputPowerWatts < 15.0,
+            "MPPT must idle honestly near 0W when the bus outranks its target, got: "
+                + mppt.outputPowerWatts);
+        assertFalse(mppt.tripped, "MPPT must not trip on a hotter bus, it must idle");
+    }
+
+    @Test
+    @DisplayName("21. Test Case: MPPT output-minus disconnect must stop MPPT contribution")
+    void testMpptOutputMinusDisconnect() {
+        connectFullCircuit();
+        load.enabled = true;
+        load.targetWatts = 500.0;
+        stepTicks(5);
+        assertEquals(500.0, load.getPowerDrawn(), 15.0, "Precondition: load initially 500W");
+
+        // Cut MPPT Out(-) at its own terminal: output loop opens, MPPT must
+        // contribute nothing (no sneak current through the other leg).
+        manager.removeCable(pos(-1, 64, 6));
+        stepTicks(5);
+        System.out.println("T21 OUT-MINUS-CUT: MPPT Pout=" + mppt.outputPowerWatts
+            + ", Iout=" + mppt.outputCurrentAmps
+            + ", LoadP=" + load.getPowerDrawn()
+            + ", BatI=" + battery.getTerminalCurrent());
+        assertTrue(mppt.outputPowerWatts < 5.0,
+            "BUG DETECTED: MPPT output-minus cut, but the charger still delivers power! Got: "
+                + mppt.outputPowerWatts);
+        assertTrue(load.getPowerDrawn() > 400.0,
+            "Battery must carry the 500W load alone while MPPT output is open, got: "
+                + load.getPowerDrawn());
+
+        manager.putCable(pos(-1, 64, 6), ConductorType.HEAVY_COPPER);
+        stepTicks(5);
+        assertFalse(mppt.tripped, "MPPT must not trip across output-minus churn");
+        assertTrue(mppt.outputPowerWatts > 50.0,
+            "MPPT must resume after output-minus restore, got: " + mppt.outputPowerWatts);
+    }
+
+    @Test
+    @DisplayName("22. Test Case: MPPT input-minus disconnect must stop the charger")
+    void testMpptInputMinusDisconnect() {
+        connectFullCircuit();
+        stepTicks(5);
+        assertTrue(mppt.outputPowerWatts > 50.0, "Precondition: charging");
+
+        // Cut solar return at (1, 64, 6): input loop opens, charger must go
+        // fully dark (no input, no output, no phantom).
+        manager.removeCable(pos(1, 64, 6));
+        stepTicks(5);
+        System.out.println("T22 IN-MINUS-CUT: Vin=" + mppt.inputVoltage
+            + ", Pin=" + mppt.inputPowerWatts
+            + ", Pout=" + mppt.outputPowerWatts);
+        assertEquals(0.0, mppt.inputVoltage, 1e-6, "Input voltage must be 0V without return");
+        assertEquals(0.0, mppt.outputPowerWatts, 1e-6, "Output must be 0W without solar return");
+
+        manager.putCable(pos(1, 64, 6), ConductorType.INSULATED_COPPER);
+        stepTicks(5);
+        assertFalse(mppt.tripped, "MPPT must not trip across input-minus churn");
+        assertTrue(mppt.outputPowerWatts > 50.0,
+            "MPPT must resume after input-minus restore, got: " + mppt.outputPowerWatts);
     }
 }
 

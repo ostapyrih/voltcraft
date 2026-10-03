@@ -38,4 +38,25 @@ public interface ElectricalElement {
      * @param it terminal currents (positive into the element)
      */
     void derivatives(double[] dxdt, double[] state, Complex[] vt, Complex[] it);
+
+    /**
+     * Whether this element needs a conductive return path through the rest of
+     * the grid to operate. When true and no return path exists between its
+     * first two terminals (excluding the element itself), the kernel shorts
+     * the terminal pair for the system build, which neutralizes any stamp
+     * (admittance and injection self-cancel on a single node), zeroes the
+     * reported terminal currents, and lets telemetry settle at 0 V / 0 A.
+     *
+     * <p>Loads set this: an open-ported constant-power stamp is a nonsmooth
+     * kink (resistive fallback below {@code vMin}) on a stub node with no
+     * return, which stalls the Newton loop (residual floor above tolerance,
+     * iteration budget exhausted) and freezes telemetry at pre-fault values.
+     * Sources leave it false: an open-ported source correctly holds
+     * open-circuit voltage at its terminals.</p>
+     *
+     * @return true if the element must see a return path to draw current
+     */
+    default boolean requiresReturnPath() {
+        return false;
+    }
 }

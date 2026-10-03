@@ -12,6 +12,7 @@ import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
 
 import com.ostapyrih.voltcraft.simulation.electrical.SpliceElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 
 /**
  * Junction-box splice kernel adapter.
@@ -64,6 +65,9 @@ public class JunctionBoxBlockEntity extends BlockEntity implements KernelAttache
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
     }
 
     public void writeStateData(WriteView view) {

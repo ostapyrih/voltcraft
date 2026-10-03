@@ -5,6 +5,7 @@ import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.item.battery.BatteryCellItem;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -220,15 +221,29 @@ public class BatteryRackBlockEntity extends BlockEntity implements KernelAttache
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
         // No solve has run yet; telemetry is not a measurement.
         if (!Double.isFinite(telemetryCell[BatteryElement.TELE_V])) {
             return;
         }
         RackElement self = (RackElement) element;
-        boolean next = BatteryElement.bmsNext(bmsOpen,
-            telemetryCell[BatteryElement.TELE_V],
-            stateArray[BatteryElement.STATE_TEMP],
-            self.stagedMinVoltage(), self.stagedSeries());
+        double minPackV = self.stagedMinVoltage();
+        int series = self.stagedSeries();
+        double recoverV = minPackV + Math.max(1, series) * BatteryElement.BMS_RECOVERY_HYST_V_PER_CELL;
+        double emf = self.stagedEmf(stateArray[BatteryElement.STATE_SOC]);
+        double tempC = stateArray[BatteryElement.STATE_TEMP];
+        boolean next;
+        if (tempC > BatteryElement.BMS_OVERTEMP_OPEN_C) {
+            next = true;
+        } else if (emf > recoverV && tempC < BatteryElement.BMS_OVERTEMP_CLOSE_C) {
+            // Healthy charge: terminal sag is load-induced, not depletion.
+            next = false;
+        } else {
+            next = BatteryElement.bmsNext(bmsOpen,
+                telemetryCell[BatteryElement.TELE_V], tempC, minPackV, series);
+        }
         if (next != bmsOpen) {
             bmsOpen = next;
             markDirty();

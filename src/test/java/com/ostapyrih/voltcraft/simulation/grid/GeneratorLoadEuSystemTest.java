@@ -43,13 +43,14 @@ public class GeneratorLoadEuSystemTest {
         final double[] telemetry = new double[2];
         final double[] stateArray;
         double totalEnergyJoules = 0.0;
+        double stagedEmf = 230.0;
         final GeneratorElement element;
 
         GenModel(BlockPos pos, Direction facing, double fuelTicks) {
             this.pos = pos;
             this.facing = facing;
             this.stateArray = new double[]{GridConstants.AMBIENT_C, fuelTicks};
-            this.element = new GeneratorElement(this::isRunning, telemetry);
+            this.element = new GeneratorElement(this::isRunning, () -> stagedEmf, telemetry);
         }
 
         boolean isRunning() {
@@ -77,6 +78,10 @@ public class GeneratorLoadEuSystemTest {
         @Override
         public void tickElectrical(ServerWorld world) {
             // Mirrors PortableGeneratorBlockEntity.java tickElectrical (minus blockstate sync).
+            double teleI = telemetry[GeneratorElement.TELE_I];
+            double teleP = telemetry[GeneratorElement.TELE_P];
+            double teleV = teleI > 1e-6 ? teleP / teleI : 0.0;
+            stagedEmf = GeneratorElement.stageEmf(isRunning(), teleV, teleI);
             if (!isRunning()) {
                 telemetry[GeneratorElement.TELE_I] = 0.0;
                 telemetry[GeneratorElement.TELE_P] = 0.0;
@@ -106,6 +111,7 @@ public class GeneratorLoadEuSystemTest {
         final double[] telemetry = new double[2];
         boolean enabled = true;
         double targetWatts = 500.0;
+        boolean droppedOut = false;
         final CreativeLoadElement element;
 
         LoadModel(BlockPos pos, Direction facing, double watts) {
@@ -115,7 +121,7 @@ public class GeneratorLoadEuSystemTest {
             this.element = new CreativeLoadElement(
                 () -> CreativeLoadElement.MODE_POWER,
                 () -> targetWatts,
-                () -> enabled,
+                () -> enabled && !droppedOut,
                 () -> 230.0,
                 telemetry
             );
@@ -139,7 +145,16 @@ public class GeneratorLoadEuSystemTest {
         public void setStateArray(double[] s) {}
 
         @Override
-        public void tickElectrical(ServerWorld world) {}
+        public void tickElectrical(ServerWorld world) {
+            // Mirrors CreativeLoadBlockEntity brownout dropout (never fires on
+            // a live 230V bus; guards dead-bus transients only).
+            double teleV = telemetry[CreativeLoadElement.TELE_V];
+            if (!droppedOut && teleV < 6.0) {
+                droppedOut = true;
+            } else if (droppedOut && teleV > 10.0) {
+                droppedOut = false;
+            }
+        }
 
         @Override
         public boolean isActiveSource() { return false; }
@@ -183,6 +198,10 @@ public class GeneratorLoadEuSystemTest {
             );
         }
 
+        /** Mock TR storage buffer (mirrors EuConverterBlockEntity.energyStorage). */
+        long storageAmount = 0L;
+        static final long STORAGE_CAPACITY = 10000L;
+
         @Override
         public BlockPos getPos() { return pos; }
 
@@ -203,9 +222,25 @@ public class GeneratorLoadEuSystemTest {
 
         @Override
         public void tickElectrical(ServerWorld world) {
-            // Exactly EuConverterBlockEntity.java tickElectrical: stage-only, no
-            // measurement feedback into the logic from the electrical phase.
+            // Mirrors EuConverterBlockEntity.java tickElectrical: measurement
+            // seam (input power into the logic, demand/thermal update), then
+            // staging. Test rigs are AC-fed, so the feed frequency is 50 Hz;
+            // no TR neighbor moves energy out (movedThisTick = 0). Converted
+            // energy lands in the mock storage buffer (single source of
+            // truth), exactly like the production TR storage.
             double teleVIn = telemetry[ConverterElement.TELE_V_IN];
+            double inPower = teleVIn > ConverterElement.DEAD_RAIL_VOLTS
+                ? stagedInputDemandWatts : 0.0;
+            double inCurrent = teleVIn > 1.0 ? inPower / teleVIn : 0.0;
+            logic.onPowerReceived(teleVIn, inCurrent, GridConstants.DT, 50.0);
+            logic.updatePowerDemand(0L);
+            logic.updateThermal(GridConstants.DT);
+            long converted = logic.getStoredEu() - storageAmount;
+            if (converted > 0) {
+                long space = STORAGE_CAPACITY - storageAmount;
+                storageAmount += Math.min(converted, Math.max(0L, space));
+            }
+            logic.setStoredEu(storageAmount);
             double base = logic.getNominalPowerDemand();
             if (!Double.isFinite(base) || base < 0.0) {
                 base = 0.0;
@@ -663,5 +698,50 @@ public class GeneratorLoadEuSystemTest {
         assertTrue(load.getTerminalVoltage() < 207.0,
             "Terminal voltage must sag below the 207V brownout floor under overload, got "
                 + load.getTerminalVoltage());
+    }
+
+    @Test
+    @DisplayName("10. EU bridge internal buffer fills, demand tapers, no overheat")
+    void euBridgeBufferFillsAndDemandTapers() {
+        GridManager m = new GridManager();
+        GenModel gen = new GenModel(pos(0, 64, 0), Direction.NORTH, 1.0e9);
+        EuModel eu = new EuModel(pos(0, 64, 6), Direction.SOUTH);
+        LoadModel euLoad = new LoadModel(pos(4, 64, 12), Direction.NORTH, 500.0);
+        m.putAttachedBlock(gen);
+        m.putAttachedBlock(eu);
+        m.putAttachedBlock(euLoad);
+        connectEuPlant(m);
+
+        // Phase 1: empty buffer must draw ~805W charge demand.
+        stepTicks(m, 8);
+        System.out.println("T10 phase1: EuDemand=" + eu.stagedInputDemandWatts
+            + " stored=" + eu.storageAmount + " GenP=" + gen.getDeliveredPower());
+        assertTrue(eu.stagedInputDemandWatts > 700.0 && eu.stagedInputDemandWatts < 900.0,
+            "Empty buffer must draw ~805W charge demand, got " + eu.stagedInputDemandWatts);
+        assertTrue(eu.storageAmount > 0L,
+            "BUG DETECTED: converted energy never lands in the buffer (logic counter clobbered "
+                + "every tick): amount=" + eu.storageAmount + " total=" + eu.logic.getTotalEuGenerated());
+
+        // Phase 2: run to full (10000 E at ~32 E/tick). Demand must taper to
+        // ~5W quiescent, generator unloads, bridge stays cool and untripped.
+        stepTicks(m, 400);
+        System.out.println("T10 phase2: EuDemand=" + eu.stagedInputDemandWatts
+            + " stored=" + eu.storageAmount + " total=" + eu.logic.getTotalEuGenerated()
+            + " GenP=" + gen.getDeliveredPower() + " temp=" + eu.logic.getTemperatureCelsius()
+            + " tripped=" + eu.logic.isTripped());
+        assertTrue(eu.storageAmount >= EuModel.STORAGE_CAPACITY,
+            "Buffer must fill to capacity, got: " + eu.storageAmount);
+        assertTrue(eu.stagedInputDemandWatts < 50.0,
+            "BUG DETECTED: demand never tapers on a full buffer (bridge cooks forever), got: "
+                + eu.stagedInputDemandWatts);
+        assertTrue(gen.getDeliveredPower() < 50.0,
+            "Generator must unload once the EU buffer is full, got: " + gen.getDeliveredPower());
+        assertFalse(eu.logic.isTripped(), "EU bridge must not trip while charging");
+        assertTrue(eu.logic.getTemperatureCelsius() < 125.0,
+            "BUG DETECTED: EU bridge overheats (all charge power becomes heat): "
+                + eu.logic.getTemperatureCelsius());
+        assertTrue(eu.logic.getTotalEuGenerated() > 0L, "Total must accumulate");
+        assertTrue(euLoad.getPowerDrawn() < 1.0,
+            "Branch behind the EU output must stay dark, got " + euLoad.getPowerDrawn());
     }
 }

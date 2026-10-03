@@ -2,12 +2,16 @@ package com.ostapyrih.voltcraft.block.entity.conversion;
 
 import com.ostapyrih.voltcraft.api.data.ElectricalState;
 import com.ostapyrih.voltcraft.api.electrical.ElectricalElement;
+import com.ostapyrih.voltcraft.api.electrical.GridConstants;
 import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.conversion.EuConverterBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.EuConverterScreenHandler;
 import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
 import com.ostapyrih.voltcraft.simulation.conversion.EuConverterLogic;
+import com.ostapyrih.voltcraft.simulation.grid.GridManager;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
+import com.ostapyrih.voltcraft.simulation.grid.IslandContext;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
@@ -136,6 +140,8 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
     private final double[] telemetryCell =
         new double[ConverterElement.TELE_LEN];
     private double stagedInputDemandWatts = 0.0;
+    /** EU moved out through the TR API on the last vanilla tick; consumed by demand staging. */
+    private long lastMovedEu = 0L;
     private final ElectricalElement element =
         new ConverterElement(
             this::isTripped, this::getStagedInputDemandWatts, () -> 0.0,
@@ -199,7 +205,33 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
+        // Measurement seam: feed the previously solved input operating point
+        // into the bridge logic (AC window check, EU conversion bookkeeping,
+        // charge-demand update, thermal), then stage demand for the next solve.
+        // The demand the stamp drew last tick is the delivered input power.
         double teleVIn = telemetryCell[ConverterElement.TELE_V_IN];
+        double prevDemand = stagedInputDemandWatts;
+        double inPower = teleVIn > ConverterElement.DEAD_RAIL_VOLTS ? prevDemand : 0.0;
+        double inCurrent = teleVIn > 1.0 ? inPower / teleVIn : 0.0;
+        logic.onPowerReceived(teleVIn, inCurrent, GridConstants.DT, resolveInputFrequencyHz(world));
+        logic.updatePowerDemand(lastMovedEu);
+        logic.updateThermal(GridConstants.DT);
+        // Single source of truth for stored energy is the TR storage: move
+        // what conversion produced this tick into the buffer (capacity
+        // clamped; overgeneration past a full buffer is lost as heat, which
+        // updateThermal above already booked). Without this the logic counter
+        // is clobbered back to the buffer level on every vanilla tick, so the
+        // buffer never fills, demand never tapers, and the bridge cooks.
+        long converted = logic.getStoredEu() - energyStorage.amount;
+        if (converted > 0) {
+            long space = energyStorage.capacity - energyStorage.amount;
+            long moved = Math.min(converted, Math.max(0L, space));
+            energyStorage.amount += moved;
+        }
+        logic.setStoredEu(energyStorage.amount);
         double base = logic.getNominalPowerDemand();
         if (!Double.isFinite(base) || base < 0.0) {
             base = 0.0;
@@ -207,6 +239,28 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
         this.stagedInputDemandWatts = (logic.isTripped()
             || !(teleVIn > ConverterElement.DEAD_RAIL_VOLTS))
             ? 0.0 : base;
+    }
+
+    /**
+     * Resolves the input feed frequency from the owning island's omega
+     * ({@code f = omega / 2pi}). Unknown island (or null world) reads as DC,
+     * which the bridge strictly rejects, instead of assuming AC.
+     */
+    private double resolveInputFrequencyHz(ServerWorld world) {
+        if (world != null) {
+            try {
+                BlockPos[] terminals = getTerminalPositions();
+                if (terminals != null && terminals.length > 0 && terminals[0] != null) {
+                    IslandContext island = GridManager.get(world).getIslandAt(terminals[0].toImmutable());
+                    if (island != null) {
+                        return island.omega() / (2.0 * Math.PI);
+                    }
+                }
+            } catch (Exception ignored) {
+                // Fall through to DC.
+            }
+        }
+        return 0.0;
     }
 
     @Override
@@ -292,8 +346,10 @@ public class EuConverterBlockEntity extends BlockEntity implements KernelAttache
         }
 
         logic.setStoredEu(this.energyStorage.amount);
-        logic.updatePowerDemand(movedThisTick);
-        logic.updateThermal(0.05);
+        // World interaction only: the electrical discrete update (demand,
+        // thermal, conversion bookkeeping) runs in tickElectrical, which owns
+        // the measurement seam. Hand over this tick's transfer volume.
+        lastMovedEu = movedThisTick;
 
         if (logic.isTripped() && !this.logic.isTripped()) {
             markDirty();

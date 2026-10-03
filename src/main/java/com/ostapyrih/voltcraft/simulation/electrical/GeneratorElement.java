@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
+import java.util.function.DoubleSupplier;
 
 public final class GeneratorElement implements ElectricalElement {
         public static final int STATE_TEMP = 0;
@@ -41,10 +42,16 @@ public final class GeneratorElement implements ElectricalElement {
     public static final int TELE_P = 1;
 
     private final BooleanSupplier running;
+    private final DoubleSupplier stagedEmf;
     private final double[] telemetryCell;
 
     public GeneratorElement(BooleanSupplier running, double[] telemetryCell) {
+        this(running, () -> PortableGeneratorBlockEntity.OUTPUT_VOLTAGE_RMS, telemetryCell);
+    }
+
+    public GeneratorElement(BooleanSupplier running, DoubleSupplier stagedEmf, double[] telemetryCell) {
         this.running = Objects.requireNonNull(running, "running");
+        this.stagedEmf = Objects.requireNonNull(stagedEmf, "stagedEmf");
         if (telemetryCell.length < 2) {
             throw new IllegalArgumentException("telemetryCell needs length >= 2");
         }
@@ -67,10 +74,14 @@ public final class GeneratorElement implements ElectricalElement {
         if (!running.getAsBoolean()) {
             return;
         }
+        double emf = stagedEmf.getAsDouble();
+        if (!(emf > 0.0)) {
+            return;
+        }
         // South-positive source polarity: terminals[1] (south) is positive.
         Stamps.thevenin(y, in, terminals[1], terminals[0],
             new Complex(1.0 / INTERNAL_RESISTANCE_OHM, 0.0),
-            new Complex(PortableGeneratorBlockEntity.OUTPUT_VOLTAGE_RMS, 0.0));
+            new Complex(emf, 0.0));
     }
 
     @Override
@@ -99,6 +110,38 @@ public final class GeneratorElement implements ElectricalElement {
 
     public static boolean isActiveSource(boolean running) {
         return running;
+    }
+
+    /**
+     * Stages the generator EMF with prime-mover current limiting (AVR droop).
+     *
+     * <p>An ideal 230 V Thevenin source serves any overload silently at
+     * near-nominal voltage; a real inverter generator cannot. The staged EMF
+     * holds nominal voltage whenever the previously delivered current stays
+     * within the surge rating, and sags to {@code surgeCurrent * R_load}
+     * under overload, so the bus brownouts and output caps at surge power
+     * instead of exceeding it. The limit is keyed on load resistance (a load
+     * property, invariant under EMF changes for resistive AC loads), not on
+     * current, so the staging is a one-step contraction with no
+     * engage/disengage limit cycle: overloads stay limited, relief recovers
+     * immediately, and dead shorts stay current-limited near zero volts.</p>
+     *
+     * @param running whether the engine runs (fuel remains)
+     * @param prevTerminalV previously solved terminal voltage magnitude in volts
+     * @param prevDeliveredAmps previously delivered current in amps ({@code > 0} on discharge)
+     * @return EMF to stamp this tick in volts
+     */
+    public static double stageEmf(boolean running, double prevTerminalV, double prevDeliveredAmps) {
+        if (!running) {
+            return 0.0;
+        }
+        if (!(prevTerminalV > 1.0) || !(prevDeliveredAmps > 1e-6)) {
+            return PortableGeneratorBlockEntity.OUTPUT_VOLTAGE_RMS;
+        }
+        double surgeI = PortableGeneratorBlockEntity.SURGE_POWER_WATTS
+            / PortableGeneratorBlockEntity.OUTPUT_VOLTAGE_RMS;
+        double eLim = surgeI * (prevTerminalV / prevDeliveredAmps);
+        return Math.min(PortableGeneratorBlockEntity.OUTPUT_VOLTAGE_RMS, Math.max(0.0, eLim));
     }
 
     public static double surgeCurrentAmps() {

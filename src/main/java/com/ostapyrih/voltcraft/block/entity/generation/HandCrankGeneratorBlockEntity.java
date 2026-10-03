@@ -13,6 +13,7 @@ import net.minecraft.util.math.Direction;
 import com.ostapyrih.voltcraft.block.generation.HandCrankGeneratorBlock;
 
 import com.ostapyrih.voltcraft.simulation.electrical.CrankElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 
 /**
  * 100 W hand-crank dynamo kernel adapter (12 V DC).
@@ -112,6 +113,9 @@ public class HandCrankGeneratorBlockEntity extends BlockEntity implements Kernel
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
     }
 
     public void writeStateData(WriteView view) {

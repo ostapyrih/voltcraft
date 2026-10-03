@@ -168,7 +168,13 @@ public class CreativeLoadLogic {
     }
 
     public double getNominalVoltage() {
-        return lastMeasuredVoltage > 0.5 ? lastMeasuredVoltage : 230.0;
+        // Fixed AC rating (test-device nameplate). Deliberately NOT following
+        // measured voltage: a resistor is fixed-R (R = Vn^2/P); tracking the
+        // live bus turns the AC stamp into disguised constant-power, which
+        // defeats source current limiting (the generator AVR cannot cap a
+        // load whose resistance shrinks as voltage sags) and destabilizes
+        // overload staging into collapse-hiccup.
+        return 230.0;
     }
 
     public double getMinOperatingVoltage() {

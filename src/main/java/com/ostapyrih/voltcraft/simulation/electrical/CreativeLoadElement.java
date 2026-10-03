@@ -57,6 +57,11 @@ public final class CreativeLoadElement implements ElectricalElement {
     }
 
     @Override
+    public boolean requiresReturnPath() {
+        return true;
+    }
+
+    @Override
     public void stamp(Complex[][] y, Complex[] in, int[] terminals, Complex[] v,
                       double[] state, double omega) {
         if (!enabled.getAsBoolean()) {

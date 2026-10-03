@@ -6,6 +6,7 @@ import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.generation.SolarPanelBlock;
 import com.ostapyrih.voltcraft.simulation.generation.SolarIrradianceSimulation;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import com.ostapyrih.voltcraft.simulation.generation.SolarPanelType;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
@@ -143,6 +144,9 @@ public class SolarPanelBlockEntity extends BlockEntity implements KernelAttached
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
         if (world != null) {
             this.currentIrradiance = SolarIrradianceSimulation.calculateIrradiance(world, pos, panelType);
             SolarIrradianceSimulation.SolarOutput output = SolarIrradianceSimulation.computeSolarOutput(

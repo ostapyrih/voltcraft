@@ -5,6 +5,7 @@ import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.block.storage.BatteryBlock;
 import com.ostapyrih.voltcraft.simulation.chemistry.BatteryChemistry;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityType;
@@ -165,12 +166,33 @@ public class BatteryBlockEntity extends BlockEntity implements KernelAttachedBlo
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
         // No solve has run yet; telemetry is not a measurement.
         if (!Double.isFinite(telemetryCell[BatteryElement.TELE_V])) {
-            return; 
+            return;
         }
-        boolean next = BatteryElement.bmsNext(bmsOpen, telemetryCell[BatteryElement.TELE_V],
-            stateArray[BatteryElement.STATE_TEMP], BatteryElement.packMinVoltage(chemistry, seriesCount), seriesCount);
+        double minPackV = BatteryElement.packMinVoltage(chemistry, seriesCount);
+        double recoverV = minPackV + Math.max(1, seriesCount) * BatteryElement.BMS_RECOVERY_HYST_V_PER_CELL;
+        double emf = BatteryElement.packEmf(chemistry, seriesCount,
+            stateArray[BatteryElement.STATE_SOC]);
+        double tempC = stateArray[BatteryElement.STATE_TEMP];
+        boolean next;
+        if (tempC > BatteryElement.BMS_OVERTEMP_OPEN_C) {
+            // Overtemperature always forces protection, regardless of charge.
+            next = true;
+        } else if (emf > recoverV && tempC < BatteryElement.BMS_OVERTEMP_CLOSE_C) {
+            // Healthy charge: terminal sag is load-induced (inrush, brownout)
+            // or a pre-bootstrap artifact, not depletion. Forcing closed keeps
+            // the bus former online and lets the bus recover instead of
+            // latching open on a transient and dying unrecoverably.
+            // Overcurrent remains the fuse/breaker domain, not the BMS latch.
+            next = false;
+        } else {
+            next = BatteryElement.bmsNext(bmsOpen, telemetryCell[BatteryElement.TELE_V],
+                tempC, minPackV, seriesCount);
+        }
         if (next != bmsOpen) {
             bmsOpen = next;
             markDirty();

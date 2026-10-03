@@ -127,6 +127,12 @@ public final class RackElement implements ElectricalElement {
         return BatteryElement.packMinVoltage(DEFAULT_CHEMISTRY, stagedSeries());
     }
 
+    /** Open-circuit EMF of the staged pack at the given SoC (BMS depletion anchor). */
+    public double stagedEmf(double soc) {
+        return BatteryElement.packEmf(DEFAULT_CHEMISTRY, stagedSeries(),
+            Math.max(0.0, Math.min(1.0, soc)));
+    }
+
     public static boolean isActiveSource(boolean bmsOpen, int cellCount) {
         return !bmsOpen && cellCount > 0;
     }

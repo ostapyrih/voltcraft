@@ -62,19 +62,37 @@ public final class ConverterElement implements ElectricalElement {
     private final DoubleSupplier inputDemandWatts;
     private final DoubleSupplier outputEmf;
     private final DoubleSupplier nominalInputVoltage;
+    private final double sourceROhm;
     private final double[] telemetryCell;
 
     public ConverterElement(BooleanSupplier tripped, DoubleSupplier inputDemandWatts,
                             DoubleSupplier outputEmf, DoubleSupplier nominalInputVoltage,
                             double[] telemetryCell) {
+        this(tripped, inputDemandWatts, outputEmf, nominalInputVoltage, SOURCE_R_OHM, telemetryCell);
+    }
+
+    public ConverterElement(BooleanSupplier tripped, DoubleSupplier inputDemandWatts,
+                            DoubleSupplier outputEmf, DoubleSupplier nominalInputVoltage,
+                            double sourceROhm, double[] telemetryCell) {
         this.tripped = Objects.requireNonNull(tripped, "tripped");
         this.inputDemandWatts = Objects.requireNonNull(inputDemandWatts, "inputDemandWatts");
         this.outputEmf = Objects.requireNonNull(outputEmf, "outputEmf");
         this.nominalInputVoltage = Objects.requireNonNull(nominalInputVoltage, "nominalInputVoltage");
+        if (!Double.isFinite(sourceROhm) || sourceROhm == 0.0) {
+            throw new IllegalArgumentException(
+                "sourceROhm must be finite and nonzero (negative allowed for cable-compensated regulators): "
+                    + sourceROhm);
+        }
+        this.sourceROhm = sourceROhm;
         if (telemetryCell.length < TELE_LEN) {
             throw new IllegalArgumentException("telemetryCell needs length >= " + TELE_LEN);
         }
         this.telemetryCell = telemetryCell;
+    }
+
+    /** Output Thevenin series resistance in ohms (CV regulation stiffness). */
+    public double sourceResistance() {
+        return sourceROhm;
     }
 
     @Override
@@ -114,7 +132,7 @@ public final class ConverterElement implements ElectricalElement {
         double emf = outputEmf.getAsDouble();
         if (Double.isFinite(emf) && emf > 0.0) {
             Stamps.thevenin(y, in, terminals[2], terminals[3],
-                new Complex(1.0 / SOURCE_R_OHM, 0.0), new Complex(emf, 0.0));
+                new Complex(1.0 / sourceROhm, 0.0), new Complex(emf, 0.0));
         }
     }
 

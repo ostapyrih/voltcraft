@@ -14,6 +14,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
 import com.ostapyrih.voltcraft.simulation.electrical.SwitchElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 
 /**
  * Manual 100 A disconnect knife-switch kernel adapter.
@@ -87,6 +88,9 @@ public class KnifeSwitchBlockEntity extends BlockEntity implements KernelAttache
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
     }
 
     public void writeStateData(WriteView view) {

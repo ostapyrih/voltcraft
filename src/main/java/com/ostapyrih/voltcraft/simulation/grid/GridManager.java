@@ -527,8 +527,19 @@ public class GridManager extends PersistentState {
      * Rebuilds every island from the current discovery index. Only positions in
      * loaded chunks participate; unloaded chunks contribute nothing.
      * Clears the dirty flag on completion (tick relies on this).
+     *
+     * <p>Warm-start carryover: solved node voltages are snapshot by position
+     * before the rebuild and re-staged as each new kernel's initial iterate
+     * (unknown nodes take the island mean, fully fresh islands keep the
+     * loads-open bias), but only for islands that retain an active source:
+     * seeding a sourceless island would sustain phantom nonzero equilibria
+     * instead of the physical dead bus. Without this every cable break/restore
+     * throws Newton back to the loads-open bias guess, which is a basin
+     * lottery under load (collapsed fallback branch); carrying the voltages
+     * keeps post-rebuild solves tracking the live branch.</p>
      */
     public void rebuildIslands() {
+        Map<BlockPos, com.ostapyrih.voltcraft.api.electrical.Complex> warmSnapshot = snapshotVoltages();
         Map<BlockPos, ConductorType> cables = activeCables();
         Map<BlockPos, KernelAttachedBlock> blocks = activeBlocks();
 
@@ -614,9 +625,88 @@ public class GridManager extends PersistentState {
             // (the first) so each ticks once and its state is not overwritten by copies.
             rebuilt.add(buildIsland(orderedGroups.get(g), branches, blocks, g == 0));
         }
+        for (IslandContext island : rebuilt) {
+            stageWarmStart(island, warmSnapshot);
+        }
         islands.clear();
         islands.addAll(rebuilt);
         topologyDirty = false;
+    }
+
+    /**
+     * Snapshots solved node voltages by world position from all current
+     * islands (pre-rebuild operating point for {@link #rebuildIslands}).
+     */
+    private Map<BlockPos, com.ostapyrih.voltcraft.api.electrical.Complex> snapshotVoltages() {
+        Map<BlockPos, com.ostapyrih.voltcraft.api.electrical.Complex> out = new HashMap<>();
+        for (IslandContext island : islands) {
+            com.ostapyrih.voltcraft.api.electrical.Complex[] sol = island.kernel().getLastSolution();
+            if (sol == null) {
+                continue;
+            }
+            for (Map.Entry<BlockPos, Integer> entry : island.nodeIndex().entrySet()) {
+                int i = entry.getValue();
+                if (i < 0 || i >= sol.length) {
+                    continue;
+                }
+                com.ostapyrih.voltcraft.api.electrical.Complex v = sol[i];
+                if (v != null && v.isFinite()) {
+                    out.put(entry.getKey().toImmutable(), v);
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Stages a position-matched warm-start iterate on a freshly built island
+     * kernel. Nodes with a snapshot reuse it; unknown nodes take the island
+     * mean (a joined cable sits near bus potential, not zero); islands with
+     * no snapshot at all keep the kernel default (loads-open bias).
+     *
+     * <p>Skipped entirely for islands with no active source: seeding a
+     * sourceless island with live voltages sustains phantom nonzero
+     * equilibria of the constant-power stamps (source removal / fuel
+     * exhaustion must go dark, and only the bias point finds the physical
+     * dead-bus solution).</p>
+     */
+    private static void stageWarmStart(IslandContext island,
+        Map<BlockPos, com.ostapyrih.voltcraft.api.electrical.Complex> warmSnapshot) {
+        if (warmSnapshot.isEmpty()) {
+            return;
+        }
+        boolean hasSource = false;
+        for (KernelAttachedBlock block : island.blocks()) {
+            if (block.isActiveSource()) {
+                hasSource = true;
+                break;
+            }
+        }
+        if (!hasSource) {
+            return;
+        }
+        double reSum = 0.0;
+        double imSum = 0.0;
+        int count = 0;
+        for (Map.Entry<BlockPos, Integer> entry : island.nodeIndex().entrySet()) {
+            com.ostapyrih.voltcraft.api.electrical.Complex v = warmSnapshot.get(entry.getKey());
+            if (v != null) {
+                reSum += v.re;
+                imSum += v.im;
+                count++;
+            }
+        }
+        if (count == 0) {
+            return;
+        }
+        com.ostapyrih.voltcraft.api.electrical.Complex mean =
+            new com.ostapyrih.voltcraft.api.electrical.Complex(reSum / count, imSum / count);
+        com.ostapyrih.voltcraft.api.electrical.Complex[] init = new com.ostapyrih.voltcraft.api.electrical.Complex[island.nodeCount()];
+        for (Map.Entry<BlockPos, Integer> entry : island.nodeIndex().entrySet()) {
+            com.ostapyrih.voltcraft.api.electrical.Complex v = warmSnapshot.get(entry.getKey());
+            init[entry.getValue()] = v != null ? v : mean;
+        }
+        island.kernel().setInitialVoltage(init);
     }
 
     private Map<BlockPos, ConductorType> activeCables() {

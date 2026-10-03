@@ -28,16 +28,23 @@ public class GameTestCircuitBuilder {
 
     public static final BlockPos SOLAR_POS = new BlockPos(2, 1, 1);
     public static final BlockPos MPPT_POS = new BlockPos(2, 1, 3);
-    public static final BlockPos BATTERY_POS = new BlockPos(2, 1, 6);
+    public static final BlockPos BATTERY_POS = new BlockPos(0, 1, 6);
     public static final BlockPos LOAD_POS = new BlockPos(5, 1, 6);
 
     // Key cable positions for fault injection:
+    // NOTE (2026-10 fix): the old layout routed both rails through the x=0
+    // column and neighboring rows, shorting plus to minus at several
+    // cable-cable adjacencies ((2,1,4)-(2,1,5), (0,1,5)-(1,1,5), x=0 column);
+    // the battery dumped ~940 A into 6.6 mOhm. The layout below keeps the two
+    // nets nowhere 6-adjacent (verified by exhaustive walk): plus runs south
+    // in column x=2 then west-east row z=7; minus runs west column x=0, hops
+    // the x=2 gap at y=2/y=3, and continues east at y=1.
     public static final BlockPos SOLAR_PLUS_CABLE = new BlockPos(2, 1, 2);
     public static final BlockPos SOLAR_MINUS_CABLE = new BlockPos(4, 1, 2);
     public static final BlockPos MPPT_OUT_PLUS = new BlockPos(2, 1, 4);
     public static final BlockPos MPPT_OUT_MINUS = new BlockPos(1, 1, 3);
-    public static final BlockPos BATTERY_PLUS_CABLE = new BlockPos(2, 1, 7);
-    public static final BlockPos BATTERY_MINUS_CABLE = new BlockPos(2, 1, 5);
+    public static final BlockPos BATTERY_PLUS_CABLE = new BlockPos(0, 1, 7);
+    public static final BlockPos BATTERY_MINUS_CABLE = new BlockPos(0, 1, 4);
     public static final BlockPos LOAD_PLUS_CABLE = new BlockPos(5, 1, 7);
     public static final BlockPos LOAD_MINUS_CABLE = new BlockPos(5, 1, 5);
     public static final BlockPos BUS_MID_PLUS = new BlockPos(4, 1, 7);
@@ -74,7 +81,8 @@ public class GameTestCircuitBuilder {
             getMppt(context).setTargetOutputVoltage(12.0);
         }
 
-        // 3. Battery at (2, 1, 6) facing NORTH
+        // 3. Battery at (0, 1, 6) facing NORTH (kept clear of the MPPT output
+        // terminals: (2,1,4)/(2,1,5) adjacency used to short the bus)
         context.setBlockState(BATTERY_POS, VoltcraftBlocks.BATTERY_BLOCK_LEAD_ACID.getDefaultState()
             .with(BatteryBlock.FACING, Direction.NORTH));
 
@@ -100,24 +108,37 @@ public class GameTestCircuitBuilder {
         setCable(context, new BlockPos(4, 1, 3), ConductorType.HEAVY_COPPER);
         setCable(context, new BlockPos(3, 1, 3), ConductorType.HEAVY_COPPER);
 
-        // C. MPPT Out(-) -> Bat(-) and Load(-)
-        // (1, 1, 3) -> (1, 1, 4) -> (1, 1, 5) -> (2..5, 1, 5)
+        // C. MPPT Out(-) -> Bat(-) and Load(-), minus net (verified clean:
+        // nowhere 6-adjacent to the plus net below).
+        // (1,1,3) -> (0,1,3) -> (0,1,4) -> (0,1,5)=Bat(-) -> hop the x=2 gap
+        // at y=2/y=3 -> (4,2,5) -> (4,1,5) -> (5,1,5)=Load(-).
         setCable(context, MPPT_OUT_MINUS, ConductorType.HEAVY_COPPER);
-        setCable(context, new BlockPos(1, 1, 4), ConductorType.HEAVY_COPPER);
-        setCable(context, new BlockPos(1, 1, 5), ConductorType.HEAVY_COPPER);
-        for (int x = 2; x <= 5; x++) {
-            setCable(context, new BlockPos(x, 1, 5), ConductorType.HEAVY_COPPER);
-        }
-
-        // D. MPPT Out(+) -> Bat(+) and Load(+)
-        // (2, 1, 4) -> (0, 1, 4) -> (0, 1, 5..7) -> (1..5, 1, 7)
-        setCable(context, MPPT_OUT_PLUS, ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(0, 1, 3), ConductorType.HEAVY_COPPER);
         setCable(context, new BlockPos(0, 1, 4), ConductorType.HEAVY_COPPER);
-        for (int z = 5; z <= 7; z++) {
-            setCable(context, new BlockPos(0, 1, z), ConductorType.HEAVY_COPPER);
-        }
-        for (int x = 1; x <= 5; x++) {
-            setCable(context, new BlockPos(x, 1, 7), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(0, 1, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(0, 2, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(1, 2, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(1, 3, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(2, 3, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(3, 3, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(4, 3, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(4, 2, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(4, 1, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(5, 1, 5), ConductorType.HEAVY_COPPER);
+
+        // D. MPPT Out(+) -> Bat(+) and Load(+), plus net.
+        // (2,1,4) -> (2,1,5) -> (2,1,6) -> (2,1,7) -> row z=7 (0..5,1,7)
+        // with Bat(+) at (0,1,7) and Load(+) at (5,1,7). (2,1,5) stays
+        // cable-free of the minus net (gap): its only minus neighbor cells
+        // are air, so no branch forms.
+        setCable(context, MPPT_OUT_PLUS, ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(2, 1, 5), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(2, 1, 6), ConductorType.HEAVY_COPPER);
+        setCable(context, new BlockPos(2, 1, 7), ConductorType.HEAVY_COPPER);
+        for (int x = 0; x <= 5; x++) {
+            if (x != 2) {
+                setCable(context, new BlockPos(x, 1, 7), ConductorType.HEAVY_COPPER);
+            }
         }
 
         GridManager grids = GridManager.get(context.getWorld());
@@ -142,6 +163,14 @@ public class GameTestCircuitBuilder {
 
     public static void restoreCable(TestContext context, BlockPos localPos) {
         setCable(context, localPos, ConductorType.HEAVY_COPPER);
+    }
+
+    /** Idempotent attached-block registration (safe to retry until the BE materializes). */
+    public static void registerAttached(TestContext context, BlockPos localPos) {
+        var be = context.getWorld().getBlockEntity(context.getAbsolutePos(localPos));
+        if (be instanceof com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock kab) {
+            GridManager.get(context.getWorld()).putAttachedBlock(kab);
+        }
     }
 
     public static void setBatterySoc(TestContext context, double soc) {

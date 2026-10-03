@@ -14,6 +14,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
 import com.ostapyrih.voltcraft.simulation.electrical.BreakerElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 
 /**
  * Resettable circuit-breaker kernel adapter (manual trip/reset only).
@@ -96,6 +97,9 @@ public class CircuitBreakerBlockEntity extends BlockEntity implements KernelAtta
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
     }
 
     public void writeStateData(WriteView view) {

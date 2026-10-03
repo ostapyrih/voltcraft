@@ -91,7 +91,17 @@ Battery blocks are stationary `BlockEntity` structures placed in the world as di
 
 ---
 
-## 3. Waveform Realism: AC vs DC Battery Physics
+## 3. BMS Protection Philosophy (fixed 2026-10)
+
+The BMS guards **depletion and overtemperature** — it is not a fuse. Terminal undervoltage alone
+never latches the pack open: while the pack's own open-circuit EMF (SoC-anchored) stays above the
+recovery threshold, the BMS stays closed (or recloses) so inrush/brownout sag and pre-bootstrap
+telemetry can never strand a healthy bank offline unrecoverably. Terminal-based trip/recovery
+(`bmsNext`, pack-minimum plus hysteresis) applies only once EMF itself falls below recovery
+— i.e. genuine depletion — plus forced open above $60^\circ\text{C}$ (reclose below $55^\circ\text{C}$).
+Overcurrent remains the fuse/breaker domain.
+
+## 4. Waveform Realism: AC vs DC Battery Physics
 
 Electrochemical cells operate strictly on **Direct Current (DC)** via unidirectional ion transport between anode and cathode:
 

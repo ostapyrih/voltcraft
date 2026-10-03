@@ -7,6 +7,7 @@ import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.CreativeGeneratorScreenHandler;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeGeneratorLogic;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
@@ -247,6 +248,9 @@ public class CreativeGeneratorBlockEntity extends BlockEntity implements KernelA
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
         logic.onPowerDrawn(telemetryCell[CreativeGeneratorElement.TELE_I], GridConstants.DT);
     }
 

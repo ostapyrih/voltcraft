@@ -22,6 +22,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
 import com.ostapyrih.voltcraft.simulation.electrical.ConverterElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 
 /**
  * Base block entity for multi-port conversion hardware (DC-DC converters, transformers,
@@ -85,7 +86,7 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
     private final double[] telemetryCell = new double[ConverterElement.TELE_LEN];
     private final ElectricalElement element = new ConverterElement(
         this::isTripped, this::getStagedInputDemandWatts, this::getStagedOutputEmf,
-        this::getStagingNominalInputVoltage, telemetryCell);
+        this::getStagingNominalInputVoltage, getOutputSourceResistance(), telemetryCell);
     /** Staged input demand in watts, consumed read-only by the stamp. */
     protected double stagedInputDemandWatts = 0.0;
     /** Staged output EMF in volts, consumed read-only by the stamp. */
@@ -181,6 +182,27 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     public void setNominalInputVoltage(double voltage) {
         this.tripGraceTicks = DEFAULT_TRIP_GRACE_TICKS;
+    }
+
+    /**
+     * Output Thevenin series resistance in ohms. Base converters use the soft
+     * {@link ConverterElement#SOURCE_R_OHM}; constant-voltage regulators
+     * (charge controllers) override with a stiff value so the charger holds
+     * absorption voltage against a stiff battery instead of being back-driven.
+     * Called during field initialization; overrides must return a constant.
+     */
+    protected double getOutputSourceResistance() {
+        return ConverterElement.SOURCE_R_OHM;
+    }
+
+    /**
+     * Raw signed output power telemetry from the last solve (watts,
+     * positive when delivering). Unlike {@link #getOutputPowerWatts()}, the
+     * sign is preserved so SINKING (negative, restrike transient) reads
+     * distinctly from idle.
+     */
+    protected double getRawOutputPowerWatts() {
+        return telemetryCell[ConverterElement.TELE_P_OUT];
     }
 
     public double getOutputFrequency() {
@@ -305,6 +327,19 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
+        doTickElectrical(world);
+    }
+
+    /**
+     * Guard-free discrete implementation. Subclasses with extra per-tick work
+     * override {@link #tickElectrical} with their own claim and call this
+     * (never {@code super.tickElectrical}, whose claim would already be spent
+     * and skip staging entirely).
+     */
+    protected void doTickElectrical(ServerWorld world) {
         double telePOut = telemetryCell[ConverterElement.TELE_P_OUT];
         double teleVIn = telemetryCell[ConverterElement.TELE_V_IN];
         double teleVOut = telemetryCell[ConverterElement.TELE_V_OUT];
@@ -342,9 +377,12 @@ public abstract class AbstractPowerConverterBlockEntity extends BlockEntity impl
         // output current exceeds the rating, sag the staged EMF so the next solve
         // is current-limited instead of latching a permanent trip. Recovers
         // automatically once the overload clears (cable churn, hot-swap, inrush).
-        if (!tripped && maxOut > 0.0 && teleIOut > maxOut) {
+        // Gated on a formed rail: while the bus is dead the cap would pin the
+        // EMF a fraction of a volt above zero-volt telemetry and the bus could
+        // never bootstrap (foldback trap); an unformed rail stages raw target.
+        if (!tripped && maxOut > 0.0 && teleVOut > DEAD_RAIL_VOLTAGE && teleIOut > maxOut) {
             double currentLimitEmf = Math.max(0.0, teleVOut)
-                + maxOut * ConverterElement.SOURCE_R_OHM;
+                + maxOut * getOutputSourceResistance();
             if (stagedOutputEmf > currentLimitEmf) {
                 stagedOutputEmf = currentLimitEmf;
                 outputVoltageEmf = stagedOutputEmf;

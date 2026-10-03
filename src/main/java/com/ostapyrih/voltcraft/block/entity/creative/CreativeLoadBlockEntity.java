@@ -7,6 +7,7 @@ import com.ostapyrih.voltcraft.api.grid.KernelAttachedBlock;
 import com.ostapyrih.voltcraft.block.entity.VoltcraftBlockEntityTypes;
 import com.ostapyrih.voltcraft.screen.handler.CreativeLoadScreenHandler;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeLoadLogic;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 import com.ostapyrih.voltcraft.simulation.creative.CreativeLoadLogic.LoadMode;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerFactory;
 import net.minecraft.block.BlockState;
@@ -38,6 +39,17 @@ public class CreativeLoadBlockEntity extends BlockEntity implements KernelAttach
     private final double[] telemetryCell = new double[2];
     private final double[] stateArray = CreativeLoadElement.newStateArray();
     private final ElectricalElement element;
+    /**
+     * Brownout dropout latch (transient): a constant-power/current load with
+     * no return through a live bus drags a source-limited rail into a
+     * collapse spiral instead of halting like real hardware. While set, the
+     * load stays open; drops when terminal voltage falls below
+     * {@link #DROPOUT_VOLTS}, picks back up above {@link #PICKUP_VOLTS}.
+     * Resistance mode (linear, no spiral) is exempt.
+     */
+    public static final double DROPOUT_VOLTS = 6.0;
+    public static final double PICKUP_VOLTS = 10.0;
+    private boolean droppedOut = false;
 
     private final PropertyDelegate propertyDelegate = new PropertyDelegate() {
         @Override
@@ -83,7 +95,15 @@ public class CreativeLoadBlockEntity extends BlockEntity implements KernelAttach
         this.logic = new CreativeLoadLogic(pos);
         this.element = new CreativeLoadElement(
             () -> logic.getMode().ordinal(), () -> logic.getTargetValue(),
-            () -> logic.isEnabled(), () -> logic.getNominalVoltage(), telemetryCell);
+            this::isEffectivelyEnabled, () -> logic.getNominalVoltage(), telemetryCell);
+    }
+
+    /**
+     * Enabled for discharge only when configured on and not dropped out on
+     * brownout. Read by the kernel stamp.
+     */
+    private boolean isEffectivelyEnabled() {
+        return logic.isEnabled() && !droppedOut;
     }
 
     public PropertyDelegate getPropertyDelegate() {
@@ -226,6 +246,20 @@ public class CreativeLoadBlockEntity extends BlockEntity implements KernelAttach
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
+        double teleV = telemetryCell[CreativeLoadElement.TELE_V];
+        LoadMode mode = logic.getMode();
+        if (mode != LoadMode.CONSTANT_RESISTANCE) {
+            if (!droppedOut && teleV < DROPOUT_VOLTS) {
+                droppedOut = true;
+            } else if (droppedOut && teleV > PICKUP_VOLTS) {
+                droppedOut = false;
+            }
+        } else {
+            droppedOut = false;
+        }
         logic.onPowerReceived(telemetryCell[CreativeLoadElement.TELE_V],
             telemetryCell[CreativeLoadElement.TELE_I], GridConstants.DT);
     }

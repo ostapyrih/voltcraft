@@ -40,8 +40,13 @@ public class GeneratorLoadEuGameTests {
     @GameTest(structure = "fabric-gametest-api-v1:empty", maxTicks = 80)
     public void testGenTwoDirectLoads(TestContext context) {
         GameTestGenCircuitBuilder.buildPlant(context);
+        // NOTE: the EU bridge shares this bus and legitimately draws ~805W
+        // charge demand on a live feed (empty internal battery), so the two
+        // direct branches are sized 500W + 400W: 900W direct + ~805W EU charge
+        // stays within the 1800W rating. (500W + 1000W direct would be a
+        // genuine 2300W overload next to the charging bridge.)
         GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD2_POS, 500.0);
-        GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD3_POS, 1000.0);
+        GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD3_POS, 400.0);
         GameTestGenCircuitBuilder.addFuel(context, 1_000_000);
 
         context.runAtTick(40, () -> {
@@ -51,8 +56,8 @@ public class GeneratorLoadEuGameTests {
             context.assertTrue(gen != null && load2 != null && load3 != null, "All blocks must exist");
             double p2 = load2.getLastDeliveredPower();
             double p3 = load3.getLastDeliveredPower();
-            context.assertTrue(p2 > 400.0, "500W branch must stay powered next to 1000W, got: " + p2);
-            context.assertTrue(p3 > 800.0, "1000W branch must stay powered next to 500W, got: " + p3);
+            context.assertTrue(p2 > 400.0, "500W branch must stay powered next to 400W, got: " + p2);
+            context.assertTrue(p3 > 320.0, "400W branch must stay powered next to 500W, got: " + p3);
             context.assertTrue(gen.getLastDeliveredPowerWatts() < 1800.0,
                 "Total must stay within the 1800W rating, got: " + gen.getLastDeliveredPowerWatts());
             context.complete();
@@ -80,6 +85,9 @@ public class GeneratorLoadEuGameTests {
                 "EU input telemetry must see the live ~230V feed, got: " + eu.getInputVoltage());
             context.assertTrue(eu.getTotalEuGenerated() > 0L,
                 "Internal EU battery must charge on a live feed, generated: " + eu.getTotalEuGenerated());
+            context.assertTrue(eu.energyStorage.amount > 0L,
+                "BUG: converted energy never lands in the buffer (counter clobbered every tick): stored="
+                    + eu.energyStorage.amount + " total=" + eu.getTotalEuGenerated());
             context.assertTrue(load.getLastDeliveredPower() < 1.0,
                 "Load behind the open EU output pair must stay dark, got: " + load.getLastDeliveredPower());
             context.complete();

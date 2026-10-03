@@ -12,6 +12,7 @@ import net.minecraft.storage.WriteView;
 import net.minecraft.util.math.BlockPos;
 
 import com.ostapyrih.voltcraft.simulation.electrical.ContactorElement;
+import com.ostapyrih.voltcraft.simulation.grid.ElectricalTickDedupe;
 
 /**
  * Electromagnetically actuated contactor/relay kernel adapter.
@@ -75,6 +76,9 @@ public class ContactorRelayBlockEntity extends BlockEntity implements KernelAtta
 
     @Override
     public void tickElectrical(ServerWorld world) {
+        if (!ElectricalTickDedupe.claim(this, world)) {
+            return;
+        }
     }
 
     public void writeStateData(WriteView view) {
