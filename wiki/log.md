@@ -1,3 +1,10 @@
+## [2026-10-03] docs | Grid-rehaul reconciliation: README + wiki + docs/kernel aligned with kernel islands
+
+* **Scope:** documentation only, no `.java` touched (`git status` shows only `Readme.md`, `wiki/*`, `docs/kernel.md`).
+* **Re-audit (all numbers from code):** 56 blocks (`VoltcraftBlocks`: 56 `public static final Block ... = register(` fields), 91 items (`VoltcraftItems`: 56 `registerBlockItem` fields + 35 `registerItem` fields), 19 `BlockEntityType`s (`VoltcraftBlockEntityTypes`: 19 `public static final BlockEntityType` fields — banner previously said 13), 103 generated recipes (`src/main/generated/data/voltcraft/recipe/*.json`: 57 `crafting_shaped`, 10 `crafting_shapeless`, 18 `smelting` + 18 `blasting`), 3 item groups (`VoltcraftItemGroups`), 5 `DataComponentTypes` (`VoltcraftDataComponents`); 9 `ConductorType`s, 11 `BatteryChemistry` entries, 4/5/4 converter/inverter/solar-panel types.
+* **Kernel constants from `GridConstants.java`:** `DT = 0.05`, `NEWTON_TOL = 1e-6`, `NEWTON_MAX_ITER = 40`, `NEWTON_MAX_STEP = 50.0`, `NEWTON_RESIDUAL_FLOOR = 1e-10`, `LINEAR_RESIDUAL_TOL = 1e-9`, `AMBIENT_C = 20.0`, `AC 50 Hz` (`2π·50`); conductor floor `1e-4 Ω` on `ElectricalKernel`. `KernelSolveResult` has 7 components.
+* **Fixes:** `Readme.md` simulation section rewritten (phasor/islands/kernel/MPPT foldback/EU bridge) + architecture/API/test/layout stale refs removed; `wiki/index.md` banner re-dated 2026-09-28 → 2026-10-03 with 19 BETs + kernel-island note; `wiki/core-idea.md` §3/§5 rewritten (islands, omega policy, Thevenin/converter elements, cables-only persistence, ✅/⚠️/❌ tags incl. stale `KernelAttachedBlock` javadoc); `wiki/implementation-plan.md` grid-rehaul section added + MNA line marked historical; `docs/kernel.md` GMIN-shunt fiction replaced with the shipped per-component unit-row reference (no `GMIN` exists in code).
+
 ## [2026-10-03] tests-only | Gen+EU crookedness + MPPT minus: research and catching tests (no production changes)
 
 * **User directive:** verify the tests honestly (gen+EU misbehaves in-game), research gen+EU operation,

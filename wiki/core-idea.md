@@ -49,29 +49,26 @@ All machines, cables, and storage devices operate under a centralized state mach
 
 ---
 
-## 3. High-Performance Graph-Based Architecture
+## 3. High-Performance Graph-Based Architecture ✅ kernel islands (grid-rehaul shipped)
 
 ### 3.1 Performance Bottleneck Prevention: The No-Wire-Ticking Law
 * **Anti-Pattern:** Running tick loops (`BlockEntity.tick()`) on hundreds of individual wire blocks. This devastates server TPS.
-* **Architecture Solution:**
+* **Architecture Solution (shipped):**
   * Wires are passive topological connectors with zero per-block ticking.
-  * Connected wires, sources, and consumers are collected into a single graph entity: `ElectricalGrid`.
-  * **Only the `ElectricalGrid` ticks** (1 aggregated tick calculation per independent power network).
+  * Cables plus declared `KernelAttachedBlock` terminal positions are collected into deterministic electrical islands by `GridManager` (union-find over 6-Manhattan cable adjacency OR same-block terminal ownership; `POS_ORDER` node/element ordering; islands ordered by minimum node).
+  * **Only the kernel ticks** — exactly one `ElectricalKernel.tick()` (one Newton solve + RK2 integration at `DT = 0.05 s`) per island per server tick, gated on `converged && !singular`. Rebuilds happen only when dirty (cable place/break hooks, attached-block add/remove, chunk load/unload scans); melts queue breaks for the next rebuild boundary, never mid-tick. Exactly-once discrete phase per tick via `ElectricalTickDedupe`.
+  * ❌ The old `ElectricalGrid` / `mergeGrids` / BFS-split / `GridTopologyHelper` path is deleted; `api/energy/*` is an empty legacy directory.
 
-### 3.2 Network Lifecycle & Topological Operations
-* **On Wire Placement:**
-  * Check adjacent block positions.
-  * If no adjacent grid exists: Instantiate a new `ElectricalGrid`.
-  * If 1 adjacent grid exists: Add position to that grid.
-  * If $\ge 2$ distinct adjacent grids are bridged: Execute `mergeGrids(Grid A, Grid B)`.
-* **On Wire Destruction:**
-  * Remove position from the current `ElectricalGrid`.
-  * Execute Breadth-First Search (BFS) from adjacent connection points.
-  * If the graph was split into disjoint partitions, split into separate `ElectricalGrid` instances.
+### 3.2 Solve Model: Complex Nodal + Newton (replaces the old DC description)
+* Single solve point `ElectricalKernel` returns `KernelSolveResult` (`voltage`, `converged`, `singular`, `residual`, `newtonIterations`, `linearEliminationSteps`, `fallbackActive`).
+* Frozen constants (`api/electrical/GridConstants.java`): `DT = 0.05`, `NEWTON_TOL = 1e-6`, `NEWTON_MAX_ITER = 40`, `NEWTON_MAX_STEP = 50.0 V`, `NEWTON_RESIDUAL_FLOOR = 1e-10`, `LINEAR_RESIDUAL_TOL = 1e-9`, `AMBIENT_C = 20.0 °C`, `AC_FREQUENCY_HZ = 50.0` (`AC_OMEGA_RAD_PER_S = 2π·50`).
+* AC is solved in the complex domain (`api/electrical/Complex.java`, `api/data/Phasor.java`: magnitude + phase). Per-island `omega` is `0` for DC and `2π·50` when at least one active AC source is present (conductors/passives never vote). DC-only stamps (`constantPower`, `constantCurrent`, `oneWayThevenin`) throw on `omega != 0`, so AC-island converter inputs / creative loads stamp a resistive approximation (`R = Vnom²/P`).
+* Reference scheme: each galvanically connected component gets one reference node (V = 0) via a unit row (no GMIN shunt); conductor floor `1e-4 Ω`; melted scan is strict `T > melt`, side-effect free.
+* Elements hold no persistent state — the kernel owns all `double[]` slots. `BatteryElement` is a Thevenin equivalent (`[SoC, T, health]`, open-BMS `1 MΩ`, `60 °C` open / `55 °C` reclose hysteresis). `ConverterElement` is 4-terminal (staged demand in, staged EMF out, `0.05 Ω` source R). MPPT (`MPPTLogic`) is P&O + Bulk/Absorption/Float with output-current foldback; the Energy Bridge `converter_eu` gates on `207–253 V / ≥ 40 Hz` (`25 W → 1 E/t`, `10 kE` buffer, `512 E/t`). Full kernel contract: `docs/kernel.md`.
 * **Chunk Boundary Safety:**
-  * Grid tracks unloaded chunk boundaries via world chunk lifecycle events (`ServerChunkEvents`).
-  * Nodes residing in unloaded chunks are suspended from active calculation without destroying grid topology.
-  * Power networks persist across world restarts via Minecraft's `PersistentState`.
+  * `GridManager` tracks loaded chunks; rebuilds include only positions whose own chunk is loaded.
+  * Nodes in unloaded chunks contribute nothing this rebuild without destroying the persisted cable index; BlockEntity state arrays survive unload gaps and re-seed the kernel after reload.
+  * Power networks persist across world restarts via Minecraft's `PersistentState` — cables only (`PERSISTENCE_KEY = "voltcraft_power_grids"`); voltages and kernel states are transient.
 
 ---
 
@@ -93,9 +90,11 @@ Detailed component specifications, physics matrices, world generation parameters
 ## 5. API & Extensibility Contracts
 
 All public interfaces and data records reside in `com.ostapyrih.voltcraft.api.*`:
-* `IElectricalGrid`: Central network graph contract, managing admittance matrices and nodal ticks.
-* `IElectricComponent`: Base interface for grid-connectable blocks and block entities.
-* `IElectricSource`: Voltage/current generator with internal resistance $R_{\text{int}}$.
-* `IElectricConsumer`: Power-demanding load with impedance and brownout/surge thresholds.
-* `IElectricStorage`: Chemical storage cell exposing SoC, OCV, C-rate, and thermal state.
-* `IElectricConverter`: Multi-port conversion component (DC-DC, DC-AC, AC-DC, AC-AC).
+* `electrical/ElectricalElement`: stateless lumped element stamped into `Y·V = I` (`terminalCount`, `stateCount`, `stamp`, `derivatives`, `requiresReturnPath`).
+* `electrical/Conductor`: resistive branch (`resistance`, `temperature`, `heatCapacity`, `coolingCoeff`, `meltingTemp`); mechanical implementation `CableConductorAdapter` (cable R / `0.001 Ω` default, terminal link `0.0001 Ω` never-melting `1e9 °C`).
+* `electrical/Complex` + `data/Phasor`: immutable complex phasor math (magnitude + phase) for the AC domain.
+* `electrical/Stamps`: frozen `admittance` / `draw` / `thevenin` / `powerInto` plus DC-only `constantPower` / `constantCurrent` / `oneWayThevenin` (throw on `omega != 0`).
+* `electrical/GridConstants`: frozen `DT`, Newton tolerances, `AMBIENT_C`, `AC_FREQUENCY_HZ` / `AC_OMEGA_RAD_PER_S`.
+* `data/ElectricalState`: `OFF / NOMINAL / BROWNOUT / SURGE / DESTROYED` state machine.
+* `grid/KernelAttachedBlock`: ✅ shipped topology contract implemented by all 16 production grid BlockEntities (element + terminal positions + state array + `tickElectrical` + `isActiveSource`/`isACSource`); ⚠️ its javadoc still claims "no production block entity implements this interface" — stale, contradicted by the 16 implementors.
+* ❌ `api/energy/*` (`IElectricComponent` / `IElectricSource` / `IElectricConsumer` / `IElectricStorage` / `IElectricConverter`) and the old `api/grid` legacy types (`IElectricalGrid`, `IGridNode`, `IGridConductor`) are design-only/deleted: the directory is empty and the kernel islands are the single subsystem.

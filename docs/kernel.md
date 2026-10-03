@@ -55,7 +55,7 @@ Mechanism notes:
 - `terminalCurrents(i)`: current represented by the converged stamp
   (item 14), positive entering the element. Item-22 formula on fresh local
   arrays with local indices `0..k-1`:
-  `It[j] = Σ_m Yl[j][m]*Vt[m] − Il[j]`; no global GMIN or other element
+  `It[j] = Σ_m Yl[j][m]*Vt[m] − Il[j]`; no reference tie or other element
   contributes. The local stamp's fallback flag is discarded (cleared before
   and after) so `solve()`'s `fallbackActive` is unaffected. The
   `terminalCurrents(i, V)` overload takes a supplied operating point;
@@ -91,15 +91,21 @@ Mechanism notes:
   non-square `Y`, `Y/I` length mismatch, and null entries throw
   `IllegalArgumentException`.
 
-## GMIN shunt
+## Reference scheme (no GMIN shunt)
 
-- Every nodal diagonal receives a real `GMIN = 1e-9` S shunt on every
-  system build (`buildSystem`), including the final `Yf` build and every
-  backtracking trial build. It is real and power-relevant: Tellegen
-  balance must include `P_GMIN = GMIN·Σ|V|²` (Tellegen power balance).
-- GMIN pins floating/disconnected nodes to finite voltages but carries
-  no reference EMF (cf. floating networks: a Thevenin EMF pins the
-  differential, a lone current source does not).
+- There is NO `GMIN` shunt in the shipped kernel: `GridConstants` defines no `GMIN`, and
+  `ElectricalKernel.buildSystem` adds none. Floating/disconnected nodes are pinned
+  purely numerically by the per-component reference rows below.
+- Each galvanically connected component gets exactly one reference node (V = 0):
+  the component containing node `0` uses node `0`; every other component uses its
+  lowest-index node. After element and conductor stamps, `buildSystem` forces each
+  reference row to a unit row (`Y[ref][*] = 0`, `Y[ref][ref] = 1`, `I[ref] = 0`);
+  columns of reference nodes in other rows are left untouched since `V[ref] = 0`
+  makes their contribution vanish. Completely unstamped nodes are singleton
+  components tied to zero by the same mechanism as a pure numerical safety net.
+- Conductor floor: every conductor stamps as `1/max(R, 1e-4)` S
+  (`MIN_CONDUCTOR_R_OHM = 1e-4`), and the thermal integrator divides by the same
+  clamped `R` so dissipated power matches solver current.
 
 ## Newton loop (`ElectricalKernel.solve`)
 
@@ -143,7 +149,7 @@ Mechanism notes:
   `It[0] < 0` (delivering, negative entering at the positive terminal)
   and the load shows `It[0] > 0` (consuming). The audit needs a true
   loop: a source with a floating terminal is an open circuit (only
-  GMIN-scale leakage flows), so the fixture closes the loop with a
+  reference-tie leakage flows), so the fixture closes the loop with a
   return conductor.
 
 ## DC-only nonlinear primitives
@@ -277,17 +283,19 @@ Mechanism notes:
 
 ## Constants (`GridConstants`, frozen)
 
-- `DT = 0.05` s, `GMIN = 1e-9` S, `NEWTON_TOL = 1e-6`,
+- `DT = 0.05` s, `NEWTON_TOL = 1e-6`,
   `NEWTON_MAX_ITER = 40`, `NEWTON_MAX_STEP = 50.0` V,
   `NEWTON_RESIDUAL_FLOOR = 1e-10`, `LINEAR_RESIDUAL_TOL = 1e-9`,
   `AMBIENT_C = 20.0` °C, `AC_FREQUENCY_HZ = 50.0`,
-  `AC_OMEGA_RAD_PER_S = 2π·50`.
+  `AC_OMEGA_RAD_PER_S = 2π·50` (verified against `GridConstants.java`; no `GMIN`
+  constant exists — see Reference scheme above). Conductor floor
+  `MIN_CONDUCTOR_R_OHM = 1e-4` Ω lives on `ElectricalKernel`, not `GridConstants`.
 
 ## Contract coverage map (items 1–32 + fallback amendment)
 
 - Linear core: Complex value semantics and IEEE division; Ohm/divider/
-  parallel topologies; floating-network differential accuracy; earth
-  shunt reference; GMIN pinning; singular pivot detection and the
+  parallel topologies; floating-network differential accuracy; per-component
+  unit-row reference (no GMIN shunt); singular pivot detection and the
   singular ⇒ `!converged` invariant with finite voltages; disconnected
   nodes stay finite; elimination-step counting.
 - Newton core: step tolerance and residual gating; 40-iteration cap;

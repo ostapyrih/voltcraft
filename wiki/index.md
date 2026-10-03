@@ -2,11 +2,19 @@
 
 Welcome to the VoltCraft persistent LLM wiki. This catalog indexes all architectural specifications, physical simulation models, electrical component definitions, crafting recipes, and gameplay mechanics across modular category folders.
 
-> **Code audit 2026-09-28 (implemented vs spec):** 56 blocks (`VoltcraftBlocks.ALL_BLOCKS`),
-> 91 items (56 block-items + 35 standalone in `VoltcraftItems`), 13 `BlockEntityType`s,
+> **Code audit 2026-10-03 (implemented vs spec, grid-rehaul):** 56 blocks (`VoltcraftBlocks.ALL_BLOCKS`),
+> 91 items (56 block-items + 35 standalone in `VoltcraftItems`), 19 `BlockEntityType`s
+> (`VoltcraftBlockEntityTypes`: battery, rack, converter, transformer, rectifier, inverter,
+> EU converter, solar, charge controller, hand crank, portable generator, creative
+> generator/load, knife switch, contactor, busbar, junction, breaker, fuse box),
 > 103 generated recipes (`src/main/generated/data/voltcraft/recipe/*.json`: 57 shaped, 10 shapeless,
 > 18 smelting + 18 blasting), 3 creative tabs, 5 `DataComponentTypes`.
-> All recipes are **generated** by `client/VoltcraftRecipeGenerator.java` — no hand-written JSON.
+> All recipes are **generated** by `src/client/java/com/ostapyrih/voltcraft/client/VoltcraftRecipeGenerator.java` — no hand-written JSON.
+> Simulation core is the kernel-island subsystem (`simulation/grid/ElectricalKernel.java`,
+> `GridManager.java`, `IslandContext.java`, `CableConductorAdapter.java`,
+> `ElectricalTickDedupe.java`; `api/electrical/*` + `api/data/Phasor.java`): legacy
+> `ElectricalGrid` / `GridNode` / `GridConductor` / `GridTopologyHelper` /
+> `ModifiedNodalAnalysis` / `ACSolver` / `api/energy/*` are deleted (empty legacy dir).
 > Status tags below: ✅ implemented · ⚠️ partial/stale · ❌ design-only (Phase 7 queued).
 
 ---
