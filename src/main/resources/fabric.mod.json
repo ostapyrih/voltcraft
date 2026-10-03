@@ -3,10 +3,19 @@
   "id": "voltcraft",
   "version": "${version}",
   "name": "VoltCraft",
-  "description": "",
-  "authors": [],
-  "contact": {},
+  "description": "Physically grounded electrical power simulation for Minecraft: real voltage, current, resistance, impedance and power, with Joule heating, battery electrochemistry and AC phasor solving instead of magic energy buffers.",
+  "authors": [
+    "ostapyrih"
+  ],
+  "contact": {
+    "sources": "https://github.com/ostapyrih/voltcraft",
+    "issues": "https://github.com/ostapyrih/voltcraft/issues"
+  },
   "license": "MIT",
+  "category": [
+    "technology",
+    "energy"
+  ],
   "icon": "assets/voltcraft/icon.png",
   "environment": "*",
   "entrypoints": {
