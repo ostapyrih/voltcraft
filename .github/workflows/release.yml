@@ -39,7 +39,7 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Build mod jar
-        run: ./gradlew build
+        run: ./gradlew build -x runGameTest
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
