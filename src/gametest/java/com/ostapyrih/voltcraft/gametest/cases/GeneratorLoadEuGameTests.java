@@ -81,11 +81,13 @@ public class GeneratorLoadEuGameTests {
             // and a filling internal battery.
             context.assertTrue(eu.getInputPowerWatts() > 700.0 && eu.getInputPowerWatts() < 900.0,
                 "EU bridge must draw ~805W charge demand on a live feed, got: " + eu.getInputPowerWatts());
-            context.assertTrue(eu.getInputVoltage() > 200.0,
-                "EU input telemetry must see the live ~230V feed, got: " + eu.getInputVoltage());
-            context.assertTrue(eu.getTotalEuGenerated() > 0L,
-                "Internal EU battery must charge on a live feed, generated: " + eu.getTotalEuGenerated());
-            context.assertTrue(eu.energyStorage.amount > 0L,
+            context.assertTrue(eu.getInputVoltage() > 207.0,
+                "EU input telemetry must see a live ~230V feed (above the 207V brownout floor), got: "
+                    + eu.getInputVoltage());
+            context.assertTrue(eu.getTotalEuGenerated() > 500L,
+                "Internal EU battery must charge on a live feed (~32 EU/t * 40 ticks ~= 1280 EU), generated: "
+                    + eu.getTotalEuGenerated());
+            context.assertTrue(eu.energyStorage.amount > 100L,
                 "BUG: converted energy never lands in the buffer (counter clobbered every tick): stored="
                     + eu.energyStorage.amount + " total=" + eu.getTotalEuGenerated());
             context.assertTrue(load.getLastDeliveredPower() < 1.0,
@@ -97,7 +99,8 @@ public class GeneratorLoadEuGameTests {
     @GameTest(structure = "fabric-gametest-api-v1:empty", maxTicks = 80)
     public void testGenOverloadBeyondRating(TestContext context) {
         GameTestGenCircuitBuilder.buildPlant(context);
-        // 1500W + 1000W = 2500W demand on an 1800W rated / 2200W surge generator.
+        // 1500W + 1000W direct + ~805W EU charge = ~3300W demand on an
+        // 1800W rated / 2200W surge generator.
         GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD2_POS, 1500.0);
         GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD3_POS, 1000.0);
         GameTestGenCircuitBuilder.addFuel(context, 1_000_000);
@@ -106,12 +109,15 @@ public class GeneratorLoadEuGameTests {
             PortableGeneratorBlockEntity gen = GameTestGenCircuitBuilder.getGen(context);
             CreativeLoadBlockEntity load2 = GameTestGenCircuitBuilder.getLoad2(context);
             CreativeLoadBlockEntity load3 = GameTestGenCircuitBuilder.getLoad3(context);
-            context.assertTrue(gen != null && load2 != null && load3 != null, "All blocks must exist");
+            EuConverterBlockEntity eu = GameTestGenCircuitBuilder.getEu(context);
+            context.assertTrue(gen != null && load2 != null && load3 != null && eu != null, "All blocks must exist");
             context.assertTrue(gen.isRunning(), "Generator must be running on fuel");
-            // Spec: 2500W demand must NOT be served silently at nominal voltage.
+            // Spec: ~3300W demand must NOT be served silently at nominal voltage.
             context.assertTrue(gen.getLastDeliveredPowerWatts() <= 2200.0,
-                "Generator must cap output at the 2200W surge rating under 2500W demand, got: "
+                "Generator must cap output at the 2200W surge rating under ~3300W demand, got: "
                     + gen.getLastDeliveredPowerWatts());
+            context.assertTrue(eu.getInputVoltage() < 207.0,
+                "Overloaded bus must sag into the EU brownout window (<207V), got: " + eu.getInputVoltage());
             context.complete();
         });
     }
@@ -147,25 +153,25 @@ public class GeneratorLoadEuGameTests {
         GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD2_POS, 500.0);
         GameTestGenCircuitBuilder.addFuel(context, 1_000_000);
 
-        // Break LOAD2 (+) tap at tick 20. The tap position keeps LOAD2's terminal
-        // node, which stays bridged to the neighboring terminal-bearing rail node
-        // (1,1,2) through a near-short terminal link — so a tap cut alone does NOT
-        // darken the branch. This documents real grid semantics: only a cut at a
-        // pure-cable node severs a bus.
+        // Break the direct (+) rail at its pure-cable mid node (1,1,2).
+        // NOTE: breaking LOAD2_PLUS_CABLE (0,1,2) alone does NOT darken the
+        // branch: the tap keeps LOAD2's terminal node, bridged to (1,1,2)
+        // through a terminal link. Only a cut at a pure-cable node severs
+        // the bus, so that is what this fault-injection test uses.
         context.runAtTick(20, () -> GameTestGenCircuitBuilder.breakCable(
-            context, GameTestGenCircuitBuilder.LOAD2_PLUS_CABLE));
+            context, GameTestGenCircuitBuilder.DIRECT_PLUS_MID));
 
         context.runAtTick(40, () -> {
             CreativeLoadBlockEntity load2 = GameTestGenCircuitBuilder.getLoad2(context);
             context.assertTrue(load2 != null, "LOAD2 must exist");
-            context.assertTrue(load2.getLastDeliveredPower() > 400.0,
-                "Tap cut stays bridged by the terminal link, branch must stay powered, got: "
+            context.assertTrue(load2.getLastDeliveredPower() < 5.0,
+                "Branch must go dark while the pure-cable rail mid is cut, got: "
                     + load2.getLastDeliveredPower());
         });
 
         // Reconnect at tick 60.
         context.runAtTick(60, () -> GameTestGenCircuitBuilder.restoreCable(
-            context, GameTestGenCircuitBuilder.LOAD2_PLUS_CABLE, ConductorType.INSULATED_COPPER));
+            context, GameTestGenCircuitBuilder.DIRECT_PLUS_MID, ConductorType.INSULATED_COPPER));
 
         context.runAtTick(85, () -> {
             CreativeLoadBlockEntity load2 = GameTestGenCircuitBuilder.getLoad2(context);
@@ -191,6 +197,10 @@ public class GeneratorLoadEuGameTests {
             CreativeLoadBlockEntity load2 = GameTestGenCircuitBuilder.getLoad2(context);
             context.assertTrue(eu != null && load2 != null, "Blocks must exist");
             context.assertFalse(eu.isTripped(), "EU bridge must not trip on input wire loss");
+            context.assertTrue(eu.getInputVoltage() < 10.0,
+                "EU input must go dark without its return leg, got: " + eu.getInputVoltage());
+            context.assertTrue(eu.getInputPowerWatts() < 10.0,
+                "EU bridge must shed charge demand on an open input, got: " + eu.getInputPowerWatts());
             context.assertTrue(load2.getLastDeliveredPower() > 400.0,
                 "Direct branch must be unaffected by the EU feed cut, got: " + load2.getLastDeliveredPower());
         });
@@ -201,6 +211,9 @@ public class GeneratorLoadEuGameTests {
         context.runAtTick(85, () -> {
             EuConverterBlockEntity eu = GameTestGenCircuitBuilder.getEu(context);
             context.assertTrue(eu != null && !eu.isTripped(), "EU bridge must stay healthy after reconnect");
+            context.assertTrue(eu.getInputPowerWatts() > 700.0 && eu.getInputPowerWatts() < 900.0,
+                "EU bridge must resume ~805W charge demand after reconnect, got: "
+                    + (eu == null ? "null" : eu.getInputPowerWatts()));
             context.complete();
         });
     }
@@ -270,18 +283,45 @@ public class GeneratorLoadEuGameTests {
         // 1. Break EU Out(+) tap at tick 20 (EU output already open: expect no effect).
         context.runAtTick(20, () -> GameTestGenCircuitBuilder.breakCable(
             context, GameTestGenCircuitBuilder.EU_OUT_PLUS));
+        context.runAtTick(30, () -> {
+            CreativeLoadBlockEntity load2 = GameTestGenCircuitBuilder.getLoad2(context);
+            context.assertTrue(load2 != null && load2.getLastDeliveredPower() > 400.0,
+                "Open EU output cut must not disturb the direct branch, got: "
+                    + (load2 == null ? "null" : load2.getLastDeliveredPower()));
+        });
         context.runAtTick(35, () -> GameTestGenCircuitBuilder.restoreCable(
             context, GameTestGenCircuitBuilder.EU_OUT_PLUS, ConductorType.HEAVY_COPPER));
 
         // 2. Break direct (+) rail mid at tick 50 (both direct branches go dark).
         context.runAtTick(50, () -> GameTestGenCircuitBuilder.breakCable(
             context, GameTestGenCircuitBuilder.DIRECT_PLUS_MID));
+        context.runAtTick(57, () -> {
+            CreativeLoadBlockEntity load2 = GameTestGenCircuitBuilder.getLoad2(context);
+            context.assertTrue(load2 != null && load2.getLastDeliveredPower() < 5.0,
+                "Direct branch must go dark while the rail mid is cut, got: "
+                    + (load2 == null ? "null" : load2.getLastDeliveredPower()));
+        });
         context.runAtTick(65, () -> GameTestGenCircuitBuilder.restoreCable(
             context, GameTestGenCircuitBuilder.DIRECT_PLUS_MID, ConductorType.INSULATED_COPPER));
+        context.runAtTick(72, () -> {
+            CreativeLoadBlockEntity load2 = GameTestGenCircuitBuilder.getLoad2(context);
+            context.assertTrue(load2 != null && load2.getLastDeliveredPower() > 400.0,
+                "Direct branch must recover after rail-mid restore, got: "
+                    + (load2 == null ? "null" : load2.getLastDeliveredPower()));
+        });
 
         // 3. Break EU In(-) tap at tick 80.
         context.runAtTick(80, () -> GameTestGenCircuitBuilder.breakCable(
             context, GameTestGenCircuitBuilder.EU_IN_MINUS_TAP));
+        context.runAtTick(87, () -> {
+            EuConverterBlockEntity eu = GameTestGenCircuitBuilder.getEu(context);
+            CreativeLoadBlockEntity load2 = GameTestGenCircuitBuilder.getLoad2(context);
+            context.assertTrue(eu != null && load2 != null, "Blocks must exist during EU feed cut");
+            context.assertTrue(eu.getInputPowerWatts() < 10.0,
+                "EU bridge must shed demand while its input is cut, got: " + eu.getInputPowerWatts());
+            context.assertTrue(load2.getLastDeliveredPower() > 400.0,
+                "Direct branch must ride through the EU feed cut, got: " + load2.getLastDeliveredPower());
+        });
         context.runAtTick(95, () -> GameTestGenCircuitBuilder.restoreCable(
             context, GameTestGenCircuitBuilder.EU_IN_MINUS_TAP, ConductorType.INSULATED_COPPER));
 
@@ -304,10 +344,8 @@ public class GeneratorLoadEuGameTests {
         GameTestGenCircuitBuilder.buildPlant(context);
         // 1500W + 1000W direct + ~805W EU charge = ~3300W demand on an
         // 1800W/2200W generator. The AVR sags the bus into the EU brownout
-        // window (<207V): the bridge accumulates nothing yet keeps full
-        // charge demand staged instead of shedding it, turning the draw
-        // into heat. Catches the missing brownout derate (no production
-        // changes made for this test).
+        // window (<207V): a correct bridge sheds charge demand to ~0 instead
+        // of cooking. Regression guard for the brownout derate.
         GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD2_POS, 1500.0);
         GameTestGenCircuitBuilder.setLoadWatts(context, GameTestGenCircuitBuilder.LOAD3_POS, 1000.0);
         GameTestGenCircuitBuilder.addFuel(context, 1_000_000);
@@ -323,8 +361,8 @@ public class GeneratorLoadEuGameTests {
                 "Browned-out bridge must accumulate next to nothing (trickle before the sag is fine), generated: "
                     + eu.getTotalEuGenerated());
             context.assertTrue(eu.getInputPowerWatts() < 100.0,
-                "BUG DETECTED: EU bridge draws full charge demand on a brownout bus instead of "
-                    + "shedding it, cooking itself: input=" + eu.getInputPowerWatts()
+                "Regression: EU bridge must shed charge demand on a brownout bus, got input="
+                    + eu.getInputPowerWatts()
                     + "W at Vin=" + eu.getInputVoltage() + "V, stored=" + eu.energyStorage.amount
                     + "E, temp=" + eu.getTemperatureCelsius() + "C");
             context.complete();

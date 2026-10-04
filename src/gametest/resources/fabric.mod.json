@@ -6,6 +6,7 @@
   "entrypoints": {
     "fabric-gametest": [
       "com.ostapyrih.voltcraft.gametest.cases.SolarMpptGameTests",
+      "com.ostapyrih.voltcraft.gametest.cases.SolarMpptParallelGameTests",
       "com.ostapyrih.voltcraft.gametest.cases.GeneratorLoadEuGameTests"
     ],
     "main": [

@@ -637,7 +637,7 @@ public class SolarMpptBatteryLoadSystemTest {
         // Reconnect battery
         manager.putCable(pos(0, 64, 13), ConductorType.HEAVY_COPPER);
         stepTicks(5);
-        assertTrue(mppt.outputPowerWatts > 50.0, "MPPT resumes charging battery upon reconnect: " + mppt.outputPowerWatts);
+        assertTrue(mppt.outputPowerWatts > 150.0, "MPPT resumes charge-only feed upon reconnect: " + mppt.outputPowerWatts);
     }
 
     @Test
@@ -827,7 +827,7 @@ public class SolarMpptBatteryLoadSystemTest {
             + ", Pout=" + mppt.outputPowerWatts);
 
         assertFalse(mppt.tripped, "TEST FAILURE: MPPT latched tripped permanently on temporary input cable loss!");
-        assertTrue(mppt.outputPowerWatts > 50.0, "TEST FAILURE: MPPT did not recover and resume charging after reconnect! Got: " + mppt.outputPowerWatts);
+        assertTrue(mppt.outputPowerWatts > 150.0, "TEST FAILURE: MPPT did not recover and resume charge-only feed after reconnect! Got: " + mppt.outputPowerWatts);
     }
 
     @Test
@@ -886,7 +886,7 @@ public class SolarMpptBatteryLoadSystemTest {
             + ", BatI=" + battery.getTerminalCurrent());
 
         assertFalse(mppt.tripped, "New MPPT should not be tripped");
-        assertTrue(mppt.outputPowerWatts > 50.0, "BUG DETECTED: Newly placed MPPT failed to start charging battery! Got: " + mppt.outputPowerWatts);
+        assertTrue(mppt.outputPowerWatts > 150.0, "BUG DETECTED: Newly placed MPPT failed to start charge-only feed! Got: " + mppt.outputPowerWatts);
         assertTrue(battery.getTerminalCurrent() < -1.0, "Battery should be receiving charge from new MPPT");
     }
 
@@ -958,7 +958,7 @@ public class SolarMpptBatteryLoadSystemTest {
             + ", MPPT Pout=" + mppt.outputPowerWatts
             + ", BatI=" + battery.getTerminalCurrent());
 
-        assertTrue(mppt.outputPowerWatts > 50.0, "BUG DETECTED: MPPT failed to resume charging after new solar panel placed! Got: " + mppt.outputPowerWatts);
+        assertTrue(mppt.outputPowerWatts > 150.0, "BUG DETECTED: MPPT failed to resume charge-only feed after new solar panel placed! Got: " + mppt.outputPowerWatts);
         assertTrue(battery.getTerminalCurrent() < -1.0, "Battery should be charging from new solar panel");
     }
 
@@ -1104,11 +1104,15 @@ public class SolarMpptBatteryLoadSystemTest {
             + ", BatI=" + coldBattery1500.getTerminalCurrent()
             + ", BMS Open=" + coldBattery1500.bmsOpen);
 
-        // Assert desired behavior: cold start should deliver 1000W and not trip BMS into protection
+        // Assert desired behavior: cold start should deliver 1000W and not trip BMS into protection.
+        // Overcurrent is fuse domain, not BMS (BMS opens only on undervoltage/overtemp),
+        // so 1500W must also stay connected AND deliver (heavy copper, no collapse).
         assertEquals(1000.0, coldLoad1000.getPowerDrawn(), 50.0,
             "BUG DETECTED: Cold start at 1000W collapsed to fallback (" + coldLoad1000.getPowerDrawn() + " W) drawing 268A!");
         assertFalse(coldBattery1500.bmsOpen,
             "BUG DETECTED: Battery BMS tripped into protection on cold heavy load connection!");
+        assertTrue(coldLoad1500.getPowerDrawn() > 1200.0,
+            "Cold 1500W load must stay fed on heavy copper (>80%), got: " + coldLoad1500.getPowerDrawn());
     }
 
     @Test
@@ -1150,7 +1154,7 @@ public class SolarMpptBatteryLoadSystemTest {
             + ", MPPT Tripped=" + mppt.tripped);
 
         assertFalse(mppt.tripped, "BUG DETECTED: MPPT tripped permanently when Out(+) cable was reconnected!");
-        assertTrue(mppt.outputPowerWatts > 50.0, "MPPT must resume delivering power after Out(+) reconnected");
+        assertTrue(mppt.outputPowerWatts > 200.0, "MPPT must resume full 500W-load feed after Out(+) reconnected");
 
         // --- STAGE 2: Disconnect & Reconnect MPPT Out(-) cable ---
         BlockPos mpptOutMinus = pos(-1, 64, 6);
@@ -1225,7 +1229,7 @@ public class SolarMpptBatteryLoadSystemTest {
             + ", MPPT Pout=" + mppt.outputPowerWatts);
 
         assertTrue(mppt.inputVoltage > 30.0, "Solar input voltage should be restored");
-        assertTrue(mppt.outputPowerWatts > 50.0, "BUG DETECTED: MPPT failed to resume solar output after Solar(+) restored!");
+        assertTrue(mppt.outputPowerWatts > 200.0, "BUG DETECTED: MPPT failed to resume full 500W-load feed after Solar(+) restored!");
     }
 
     @Test
@@ -1357,10 +1361,14 @@ public class SolarMpptBatteryLoadSystemTest {
     @Test
     @DisplayName("20. Test Case: hotter bank on the output bus must not backfeed the MPPT")
     void testHotterBankDoesNotBackfeedMppt() {
-        // Player rig: a second, fuller bank (7S lead, OCV ~16.7V) holds the
-        // 12V-bank MPPT output bus ABOVE the charge target (~14.7V). A buck
-        // charger must idle (ideal-diode OR-ing), not sink pack current
-        // backwards while the GUI reports an honest 0W at ~0A (not 0W at 7+A).
+        // Player rig: a second, fuller bank (7S lead, OCV ~15V) holds the
+        // 12V-bank MPPT output bus ABOVE the charge target (~14.7V) but INSIDE
+        // the 12V safe window (8-17V, nominal <18V), so no mismatch trip is
+        // expected: a buck charger must idle (ideal-diode OR-ing), not sink
+        // pack current backwards while the GUI reports an honest 0W at ~0A.
+        // A genuinely wrong bank (e.g. 48V panel, Vout>30) DOES latch SURGE
+        // after 20 ticks + 40 grace; that path is covered in-game by
+        // testStiffSourceOnOutputBus (early idle + late trip split).
         manager.removeAttachedBlock(battery.pos);
         battery = new BatteryModel(pos(0, 64, 12), Direction.NORTH, BatteryChemistry.LEAD_ACID, 7, 1);
         manager.putAttachedBlock(battery);
@@ -1411,8 +1419,8 @@ public class SolarMpptBatteryLoadSystemTest {
         manager.putCable(pos(-1, 64, 6), ConductorType.HEAVY_COPPER);
         stepTicks(5);
         assertFalse(mppt.tripped, "MPPT must not trip across output-minus churn");
-        assertTrue(mppt.outputPowerWatts > 50.0,
-            "MPPT must resume after output-minus restore, got: " + mppt.outputPowerWatts);
+        assertTrue(mppt.outputPowerWatts > 200.0,
+            "MPPT must resume full 500W-load feed after output-minus restore, got: " + mppt.outputPowerWatts);
     }
 
     @Test
@@ -1420,7 +1428,7 @@ public class SolarMpptBatteryLoadSystemTest {
     void testMpptInputMinusDisconnect() {
         connectFullCircuit();
         stepTicks(5);
-        assertTrue(mppt.outputPowerWatts > 50.0, "Precondition: charging");
+        assertTrue(mppt.outputPowerWatts > 150.0, "Precondition: charging (charge-only ~300W)");
 
         // Cut solar return at (1, 64, 6): input loop opens, charger must go
         // fully dark (no input, no output, no phantom).
@@ -1435,8 +1443,8 @@ public class SolarMpptBatteryLoadSystemTest {
         manager.putCable(pos(1, 64, 6), ConductorType.INSULATED_COPPER);
         stepTicks(5);
         assertFalse(mppt.tripped, "MPPT must not trip across input-minus churn");
-        assertTrue(mppt.outputPowerWatts > 50.0,
-            "MPPT must resume after input-minus restore, got: " + mppt.outputPowerWatts);
+        assertTrue(mppt.outputPowerWatts > 150.0,
+            "MPPT must resume charge-only feed after input-minus restore, got: " + mppt.outputPowerWatts);
     }
 }
 

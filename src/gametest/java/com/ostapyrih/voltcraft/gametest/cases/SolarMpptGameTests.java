@@ -71,8 +71,11 @@ public class SolarMpptGameTests {
         // Check if load resumed and MPPT didn't trip
         context.runAtTick(50, () -> {
             ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
-            context.assertTrue(mppt != null, "MPPT must exist");
+            var load = GameTestCircuitBuilder.getLoad(context);
+            context.assertTrue(mppt != null && load != null, "MPPT and load must exist");
             context.assertFalse(mppt.isTripped(), "MPPT must not be tripped after load cable reconnect");
+            context.assertTrue(load.getLastDeliveredPower() > 400.0,
+                "500W load must resume after cable reconnect, got: " + load.getLastDeliveredPower());
             context.complete();
         });
     }
@@ -81,14 +84,25 @@ public class SolarMpptGameTests {
     public void testMpptAutoRecovery(TestContext context) {
         GameTestCircuitBuilder.buildCircuit(context);
 
-        // Disconnect solar input wire at tick 10
+        // Disconnect the solar RETURN wire at tick 10. NOTE: SOLAR_PLUS_CABLE
+        // (2,1,2) is a shared node (solar-plus + MPPT-input-plus on one node,
+        // see testSharedPlusTapCutKeepsCharging) so cutting it is a visual-only
+        // no-op and can never test recovery; the return leg is the real
+        // isolating cut on this radial run.
         context.runAtTick(10, () -> {
-            GameTestCircuitBuilder.breakCable(context, GameTestCircuitBuilder.SOLAR_PLUS_CABLE);
+            GameTestCircuitBuilder.breakCable(context, GameTestCircuitBuilder.SOLAR_MINUS_CABLE);
         });
 
-        // Reconnect solar input wire at tick 30 (after UVLO counter has expired)
+        context.runAtTick(20, () -> {
+            ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
+            context.assertTrue(mppt != null, "MPPT must exist");
+            context.assertTrue(mppt.getInputVoltage() < 1.0,
+                "Input must go dark while the return is cut, got: " + mppt.getInputVoltage());
+        });
+
+        // Reconnect solar return wire at tick 30 (after UVLO counter has expired)
         context.runAtTick(30, () -> {
-            GameTestCircuitBuilder.restoreCable(context, GameTestCircuitBuilder.SOLAR_PLUS_CABLE);
+            GameTestCircuitBuilder.restoreCable(context, GameTestCircuitBuilder.SOLAR_MINUS_CABLE);
         });
 
         // Check if MPPT recovers without latching tripped forever
@@ -96,6 +110,8 @@ public class SolarMpptGameTests {
             ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
             context.assertTrue(mppt != null, "MPPT must exist");
             context.assertFalse(mppt.isTripped(), "MPPT must auto-recover and not remain tripped after solar cable reconnect");
+            context.assertTrue(mppt.getInputVoltage() > 30.0,
+                "MPPT input must recover after return restore, got: " + mppt.getInputVoltage());
             context.complete();
         });
     }
@@ -129,9 +145,14 @@ public class SolarMpptGameTests {
         context.runAtTick(85, () -> {
             ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
             BatteryBlockEntity bat = GameTestCircuitBuilder.getBattery(context);
-            context.assertTrue(mppt != null && bat != null, "Components must exist");
+            var load = GameTestCircuitBuilder.getLoad(context);
+            context.assertTrue(mppt != null && bat != null && load != null, "Components must exist");
             context.assertFalse(mppt.isTripped(), "MPPT should be healthy after cable churn cycle");
             context.assertFalse(bat.isBmsOpen(), "Battery BMS should not be in protection mode");
+            context.assertTrue(load.getLastDeliveredPower() > 400.0,
+                "500W load must recover after cable churn cycle, got: " + load.getLastDeliveredPower());
+            context.assertTrue(mppt.getOutputPowerWatts() > 50.0,
+                "MPPT must resume charging after cable churn cycle, got: " + mppt.getOutputPowerWatts());
             context.complete();
         });
     }
@@ -190,9 +211,6 @@ public class SolarMpptGameTests {
             context.assertTrue(loadP > 90.0 && loadP < 110.0,
                 "The enabled 100W load must actually be fed from the bus, got: " + loadP);
             context.assertTrue(pout >= 120.0,
-                "BUG (user symptom): MPPT must cover the 100W load + keep charging (~140W) on a nearly-full "
-                    + "battery with solar headroom, got: " + pout);
-            context.assertTrue(pout >= 120.0,
                 "MPPT must cover the 100W load + keep charging (~140W) on a nearly-full battery with solar headroom, got: " + pout);
             context.complete();
         });
@@ -202,15 +220,20 @@ public class SolarMpptGameTests {
     public void testHeavyLoadColdStartVsSoftStart(TestContext context) {
         GameTestCircuitBuilder.buildCircuit(context);
 
-        // Cold start directly at 1000W at tick 10
+        // Cold start directly at 1000W at tick 10 (1000W / 12V ~= 83A, inside
+        // the pack limit, so BMS must stay closed AND the load must be fed).
         context.runAtTick(10, () -> {
             GameTestCircuitBuilder.setLoad(context, 1000.0);
         });
 
         context.runAtTick(30, () -> {
             BatteryBlockEntity bat = GameTestCircuitBuilder.getBattery(context);
-            context.assertTrue(bat != null, "Battery must exist");
+            var load = GameTestCircuitBuilder.getLoad(context);
+            context.assertTrue(bat != null && load != null, "Battery and load must exist");
             context.assertFalse(bat.isBmsOpen(), "Battery BMS must not trip into protection on 1000W load");
+            context.assertTrue(load.getLastDeliveredPower() > 800.0,
+                "1000W cold-started load must be fed (brownout-tolerant >80%), got: "
+                    + load.getLastDeliveredPower());
             context.complete();
         });
     }
@@ -249,8 +272,9 @@ public class SolarMpptGameTests {
 
         context.runAtTick(65, () -> {
             ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
-            context.assertTrue(mppt != null && mppt.getOutputPowerWatts() > 50.0,
-                "MPPT must resume after output-minus restore, got: "
+            context.assertTrue(mppt != null && mppt.getOutputPowerWatts() > 200.0,
+                "MPPT must resume full charge+load feed after output-minus restore "
+                    + "(0.8 SoC BULK + 500W load vs ~392W solar), got: "
                     + (mppt == null ? "null" : mppt.getOutputPowerWatts()));
             context.complete();
         });
@@ -282,8 +306,9 @@ public class SolarMpptGameTests {
 
         context.runAtTick(65, () -> {
             ChargeControllerBlockEntity mppt = GameTestCircuitBuilder.getMppt(context);
-            context.assertTrue(mppt != null && mppt.getOutputPowerWatts() > 50.0,
-                "MPPT must resume after input-minus restore, got: "
+            context.assertTrue(mppt != null && mppt.getOutputPowerWatts() > 150.0,
+                "MPPT must resume charge-only feed after input-minus restore "
+                    + "(0.8 SoC, no load, ~300W expected), got: "
                     + (mppt == null ? "null" : mppt.getOutputPowerWatts()));
             context.complete();
         });
@@ -512,8 +537,9 @@ public class SolarMpptGameTests {
             context.assertTrue(mppt.getInputVoltage() > 30.0,
                 "Shared-node input must stay live after its redundant cable is cut, got: "
                     + mppt.getInputVoltage());
-            context.assertTrue(mppt.getOutputPowerWatts() > 50.0,
-                "Charging must continue through the direct terminal join, got: "
+            context.assertTrue(mppt.getOutputPowerWatts() > 150.0,
+                "Charging must continue at full rate through the direct terminal join "
+                    + "(0.8 SoC charge-only, ~300W expected), got: "
                     + mppt.getOutputPowerWatts());
             context.assertFalse(mppt.isTripped(), "MPPT must not trip");
             context.complete();
