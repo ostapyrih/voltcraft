@@ -1,3 +1,20 @@
+## [2026-10-04] assets | Overhauled pixel-art textures for all 11 electronic & semiconductor components
+
+* **User directive:** in creative tab "Electronics & Components" (`COMPONENTS_GROUP`), battery cells already have proper textures, but component items had 3-color generic rounded square placeholders.
+* **Component Texture Assets Crafted (16x16 PNG with full RGBA pixel art):**
+  1. `silicon_boule.png`: Czochralski single-crystal silicon ingot with seed pulling neck, widening shoulder cone, metallic gunmetal body with rotational striations, specular gleam, and tapered tail.
+  2. `silicon_wafer.png`: Mirror-polished circular semiconductor wafer with SEMI orientation flat at bottom and diagonal mirror sheen beam.
+  3. `doped_wafer_p.png`: Boron/redstone-doped circular wafer with SEMI flat, iridescent ruby-rose sheen, and etched photolithographic microchip die grid.
+  4. `doped_wafer_n.png`: Phosphorus/glowstone-doped circular wafer with SEMI flat, iridescent golden-amber sheen, and etched photolithographic microchip die grid.
+  5. `photovoltaic_cell.png`: Monocrystalline chamfered pseudo-square solar cell wafer in deep photovoltaic blue with 2 vertical silver busbars, horizontal contact fingers, and solder contact pads.
+  6. `mosfet_power_transistor.png`: TO-220 power package with metallic heatsink tab & central mounting hole, molded black epoxy body with laser part marking, and 3 pins (Gate, Drain, Source).
+  7. `schottky_diode.png`: Axial DO-201 power diode in 45° dynamic diagonal orientation with smooth black cylindrical epoxy body, distinct silver cathode band, and tinned metal wire leads.
+  8. `filter_capacitor_electrolytic.png`: Radial electrolytic can capacitor with scored aluminum relief vent top, royal blue sleeve, negative polarity stripe with minus markings, and 2 unequal wire leads (cathode shorter, anode longer).
+  9. `copper_magnet_wire.png`: Industrial spool of enameled magnet wire with dark flanges, glossy wound reddish-copper coil, and loose unwinding wire strand.
+  10. `transformer_core_laminated.png`: Symmetrical silicon-steel laminated EI transformer core with 2 hollow window openings, horizontal plate lamination sheets, and corner bolt rivets.
+  11. `bms_logic_board.png`: Tab icon green FR4 solder-mask PCB with gold ENIG edge terminal pads (B+/B-, P+/P-), central QFN microcontroller with silver pin frame, SMD MOSFET switches, and gold traces.
+* **Verification:** Built cleanly, all unit and system tests pass (`./gradlew test`).
+
 ## [2026-10-03] docs | Grid-rehaul reconciliation: README + wiki + docs/kernel aligned with kernel islands
 
 * **Scope:** documentation only, no `.java` touched (`git status` shows only `Readme.md`, `wiki/*`, `docs/kernel.md`).
