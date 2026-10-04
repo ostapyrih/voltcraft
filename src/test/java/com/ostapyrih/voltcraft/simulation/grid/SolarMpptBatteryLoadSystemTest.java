@@ -260,15 +260,6 @@ public class SolarMpptBatteryLoadSystemTest {
                 this.stagedInputDemandWatts = Math.min(this.stagedInputDemandWatts, availSolar);
             }
             this.lastDemandWatts = stagedInputDemandWatts;
-            if (false) {
-                System.out.println("MPPT t: Vin=" + String.format("%.1f", inputVoltage)
-                    + " Vout=" + String.format("%.2f", actualOutputVoltage)
-                    + " Pout=" + String.format("%.0f", outputPowerWatts)
-                    + " Iout=" + String.format("%.1f", outputCurrentAmps)
-                    + " dem=" + String.format("%.0f", stagedInputDemandWatts)
-                    + " emf=" + String.format("%.2f", stagedOutputEmf)
-                    + " cc=" + ccMode + " stage=" + mpptLogic.getStage());
-            }
 
             // Output current foldback (hiccup, non-latching), mirroring
             // AbstractPowerConverterBlockEntity: sag EMF to current-limit instead

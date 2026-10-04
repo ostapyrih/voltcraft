@@ -96,15 +96,10 @@ class NonlinearElementTest {
      * truly does nothing. Kept to avoid compile churn; not used in element lists.
      */
     static final class TestEarth implements ElectricalElement {
-        private final double shunt;
 
         TestEarth() {
-            this(1000.0);
         }
 
-        TestEarth(double shunt) {
-            this.shunt = shunt;
-        }
 
         @Override
         public int terminalCount() {

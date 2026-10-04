@@ -2,13 +2,11 @@ package com.ostapyrih.voltcraft.gametest.cases;
 
 import com.ostapyrih.voltcraft.block.VoltcraftBlocks;
 import com.ostapyrih.voltcraft.block.entity.generation.ChargeControllerBlockEntity;
-import com.ostapyrih.voltcraft.block.entity.generation.SolarPanelBlockEntity;
 import com.ostapyrih.voltcraft.block.entity.storage.BatteryBlockEntity;
 import com.ostapyrih.voltcraft.block.generation.SolarPanelBlock;
 import com.ostapyrih.voltcraft.block.storage.BatteryBlock;
 import com.ostapyrih.voltcraft.gametest.framework.GameTestCircuitBuilder;
 import com.ostapyrih.voltcraft.simulation.electrical.BatteryElement;
-import com.ostapyrih.voltcraft.simulation.grid.GridManager;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.test.TestContext;
 import net.minecraft.util.math.BlockPos;
